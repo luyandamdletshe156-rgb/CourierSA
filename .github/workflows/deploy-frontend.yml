@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'CourierSA-Frontend/**'
+      workflow_dispatch:
 
 jobs:
   build-and-deploy:
