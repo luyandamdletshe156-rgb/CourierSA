@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourierSA — Sign in</title>
+<link rel="stylesheet" href="couriersa.css">
+<style>
+  body { background: #111827; display: flex; min-height: 100vh; }
+
+  .login-split { display: flex; width: 100%; }
+
+  /* Left brand panel */
+  .brand-panel {
+    flex: 1.2; background: linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%);
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 48px; min-height: 100vh;
+  }
+  .brand-logo   { display: flex; align-items: center; gap: 12px; }
+  .brand-logo .logo-icon { width: 42px; height: 42px; background: var(--brand-500); border-radius: 10px;
+                            display: flex; align-items: center; justify-content: center; }
+  .brand-logo-text { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -.04em; }
+
+  .brand-headline { margin-top: auto; }
+  .brand-h1 { font-size: clamp(32px, 4vw, 52px); font-weight: 800; color: #fff; line-height: 1.1;
+               letter-spacing: -.03em; margin-bottom: 16px; }
+  .brand-h1 span { color: var(--brand-400); }
+  .brand-desc { font-size: 17px; color: #6b7280; max-width: 440px; line-height: 1.6; }
+
+  /* Decorative tracking timeline */
+  .brand-timeline { margin-top: 48px; display: flex; flex-direction: column; gap: 10px; opacity: .35; }
+  .brand-step { display: flex; align-items: center; gap: 12px; }
+  .brand-step-dot { width: 10px; height: 10px; border-radius: 9999px; background: #374151; flex-shrink: 0; }
+  .brand-step-dot.done { background: var(--brand-500); }
+  .brand-step-text { font-size: 13px; color: #4b5563; }
+
+  /* Right form panel */
+  .form-panel {
+    width: 480px; flex-shrink: 0; background: var(--canvas); display: flex; align-items: center;
+    justify-content: center; padding: 40px; min-height: 100vh;
+  }
+  .form-inner { width: 100%; max-width: 380px; }
+
+  .form-heading { font-size: 26px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; }
+  .form-sub     { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
+
+  .form-group  { margin-bottom: 16px; }
+  .input-wrap  { position: relative; }
+  .input-wrap svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+                    width: 16px; height: 16px; color: var(--gray-400); cursor: pointer; }
+
+  .submit-btn  { width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
+                 background: var(--brand-500); color: #fff; border-radius: var(--radius);
+                 transition: all .15s; margin-top: 4px; }
+  .submit-btn:hover { background: var(--brand-600); transform: translateY(-1px); box-shadow: 0 4px 12px rgb(249 115 22 / .35); }
+
+  .register-link { text-align: center; margin-top: 16px; font-size: 13px; color: var(--gray-500); }
+  .register-link a { color: var(--brand-500); font-weight: 600; }
+  .register-link a:hover { color: var(--brand-600); }
+
+  /* Demo credentials */
+  .demo-box    { margin-top: 28px; background: var(--gray-100); border-radius: var(--radius-lg); padding: 16px; }
+  .demo-label  { font-size: 11px; font-weight: 700; color: var(--gray-500); text-transform: uppercase;
+                 letter-spacing: .08em; margin-bottom: 10px; }
+  .demo-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .demo-btn    { text-align: left; padding: 8px 12px; border-radius: 6px; background: #fff;
+                 border: 1px solid var(--gray-200); font-size: 12px; font-weight: 600; color: var(--gray-700);
+                 transition: all .15s; }
+  .demo-btn:hover { background: #fff7ed; border-color: var(--brand-200, #fed7aa); color: var(--brand-600); }
+
+  .divider-or  { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--gray-400); font-size: 12px; }
+  .divider-or::before, .divider-or::after { content: ''; flex: 1; height: 1px; background: var(--gray-200); }
+</style>
+</head>
+<body>
+<div class="login-split">
+
+  <!-- ── Brand panel ── -->
+  <div class="brand-panel">
+    <div class="brand-logo">
+      <div class="logo-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/>
+        </svg>
+      </div>
+      <span class="brand-logo-text">CourierSA</span>
+    </div>
+
+    <div class="brand-headline">
+      <h1 class="brand-h1">Every parcel.<br>Every stop.<br><span>Accounted for.</span></h1>
+      <p class="brand-desc">End-to-end courier management for South African logistics — from booking to proof of delivery.</p>
+
+      <div class="brand-timeline">
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Booked</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Approved</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">In warehouse</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Out for delivery</span></div>
+        <div class="brand-step"><div class="brand-step-dot"></div><span class="brand-step-text">Delivered</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Form panel ── -->
+  <div class="form-panel">
+    <div class="form-inner fade-in">
+      <h2 class="form-heading">Sign in</h2>
+      <p class="form-sub">Welcome back. Enter your credentials to continue.</p>
+
+      <div id="error-box" class="alert-error" style="display:none; margin-bottom:14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span id="error-msg">Invalid email or password.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="label">Email address</label>
+        <input id="email" type="email" class="input" placeholder="you@example.com" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label class="label">Password</label>
+        <div class="input-wrap">
+          <input id="password" type="password" class="input" placeholder="••••••••" autocomplete="current-password" style="padding-right:40px">
+          <svg id="toggle-pw" onclick="togglePw()" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+      </div>
+
+      <button class="submit-btn" onclick="handleLogin()">Sign in</button>
+
+      <p class="register-link"><a href="#">Don't have an account? Register</a></p>
+
+      <div class="divider-or">or use a demo account</div>
+
+      <div class="demo-box">
+        <p class="demo-label">Demo accounts — password: Demo@1234</p>
+        <div class="demo-grid">
+          <button class="demo-btn" onclick="fillDemo('admin@couriersa.co.za')">Admin</button>
+          <button class="demo-btn" onclick="fillDemo('thabo@gmail.com')">Customer</button>
+          <button class="demo-btn" onclick="fillDemo('sipho.driver@couriersa.co.za')">Driver</button>
+          <button class="demo-btn" onclick="fillDemo('nomvula.dispatch@couriersa.co.za')">Dispatcher</button>
+          <button class="demo-btn" onclick="fillDemo('trevor.wh@couriersa.co.za')">Warehouse</button>
+          <button class="demo-btn" onclick="fillDemo('lindiwe@techcorp.co.za')">Business</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePw() {
+  const pw = document.getElementById('password');
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+}
+function fillDemo(email) {
+  document.getElementById('email').value = email;
+  document.getElementById('password').value = 'Demo@1234';
+}
+function handleLogin() {
+  const email = document.getElementById('email').value.trim();
+  const pw    = document.getElementById('password').value;
+  const err   = document.getElementById('error-box');
+  if (!email || !pw) {
+    err.style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'Please enter your email and password.';
+    return;
+  }
+  if (pw !== 'Demo@1234' && email !== 'admin@couriersa.co.za') {
+    err.style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'Invalid email or password.';
+    return;
+  }
+  err.style.display = 'none';
+  // Simulate navigation based on role
+  const routes = {
+    'admin@couriersa.co.za':            '03-admin-dashboard.html',
+    'nomvula.dispatch@couriersa.co.za': '04-dispatcher-dashboard.html',
+    'sipho.driver@couriersa.co.za':     '05-driver-deliveries.html',
+    'trevor.wh@couriersa.co.za':        '03-admin-dashboard.html',
+    'lindiwe@techcorp.co.za':           '02-customer-dashboard.html',
+  };
+  const dest = routes[email] || '02-customer-dashboard.html';
+  window.location.href = dest;
+}
+</script>
+</body>
+</html>

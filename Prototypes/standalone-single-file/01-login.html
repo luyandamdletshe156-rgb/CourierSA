@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourierSA — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CourierSA Design System — shared across all prototype screens
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ──────────────────────────────────────────────────── */
+:root {
+  --brand-50:   #fff7ed;
+  --brand-100:  #ffedd5;
+  --brand-400:  #fb923c;
+  --brand-500:  #f97316;
+  --brand-600:  #ea6c0a;
+  --brand-700:  #c2570a;
+
+  --sidebar:    #111827;
+  --sidebar-2:  #1f2937;
+  --canvas:     #f9fafb;
+  --surface:    #ffffff;
+
+  --gray-50:    #f9fafb;
+  --gray-100:   #f3f4f6;
+  --gray-200:   #e5e7eb;
+  --gray-300:   #d1d5db;
+  --gray-400:   #9ca3af;
+  --gray-500:   #6b7280;
+  --gray-600:   #4b5563;
+  --gray-700:   #374151;
+  --gray-800:   #1f2937;
+  --gray-900:   #111827;
+
+  --green-500:  #10b981;
+  --green-600:  #059669;
+  --red-500:    #ef4444;
+  --blue-500:   #3b82f6;
+  --amber-500:  #f59e0b;
+  --violet-500: #8b5cf6;
+  --indigo-500: #6366f1;
+
+  --shadow-sm:   0 1px 2px 0 rgb(0 0 0 / .05);
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / .08), 0 1px 2px -1px rgb(0 0 0 / .06);
+  --shadow-md:   0 4px 12px 0 rgb(0 0 0 / .10);
+  --shadow-lg:   0 10px 40px -8px rgb(0 0 0 / .18);
+  --shadow-modal:0 20px 60px -10px rgb(0 0 0 / .25);
+  --radius:      0.5rem;
+  --radius-lg:   0.75rem;
+  --radius-xl:   1rem;
+}
+
+/* ── Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body { font-family: 'Inter', system-ui, sans-serif; background: var(--canvas); color: var(--gray-800); line-height: 1.5; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+ul, ol { list-style: none; }
+
+/* ── Shell Layout ────────────────────────────────────────────── */
+.app-shell   { display: flex; height: 100vh; overflow: hidden; background: var(--canvas); }
+.sidebar     { width: 256px; flex-shrink: 0; background: var(--sidebar); display: flex; flex-direction: column; }
+.main        { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.topbar      { height: 64px; background: var(--surface); border-bottom: 1px solid var(--gray-200);
+               display: flex; align-items: center; justify-content: space-between;
+               padding: 0 24px; flex-shrink: 0; }
+.page-body   { flex: 1; overflow-y: auto; padding: 24px; }
+
+/* ── Sidebar internals ───────────────────────────────────────── */
+.sidebar-logo    { height: 64px; display: flex; align-items: center; gap: 10px;
+                   padding: 0 20px; border-bottom: 1px solid rgb(255 255 255 / .08); }
+.logo-icon       { width: 32px; height: 32px; background: var(--brand-500); border-radius: 8px;
+                   display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.logo-text       { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -.03em; }
+.role-badge      { margin: 12px 16px; padding: 4px 10px; border-radius: 9999px;
+                   font-size: 11px; font-weight: 700; letter-spacing: .04em;
+                   display: inline-flex; align-items: center; gap: 5px; color: #fff; }
+.sidebar-nav     { flex: 1; padding: 8px 12px; overflow-y: auto; }
+.nav-item        { display: flex; align-items: center; gap: 12px; padding: 9px 12px;
+                   border-radius: 8px; font-size: 14px; font-weight: 500; color: #9ca3af;
+                   transition: all .15s; cursor: pointer; }
+.nav-item:hover  { color: #fff; background: rgb(255 255 255 / .08); }
+.nav-item.active { color: #fff; background: rgb(249 115 22 / .18);
+                   border-left: 2px solid var(--brand-500); padding-left: 10px; }
+.nav-item svg    { flex-shrink: 0; width: 17px; height: 17px; }
+.sidebar-footer  { padding: 16px; border-top: 1px solid rgb(255 255 255 / .08); }
+.user-row        { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.avatar          { width: 32px; height: 32px; border-radius: 9999px; background: var(--brand-500);
+                   display: flex; align-items: center; justify-content: center;
+                   font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.avatar-lg       { width: 40px; height: 40px; font-size: 14px; }
+.user-name       { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-email      { font-size: 11px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.signout-btn     { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+                   border-radius: 8px; font-size: 13px; color: #f87171;
+                   transition: background .15s; }
+.signout-btn:hover { background: rgb(239 68 68 / .10); }
+
+/* ── Topbar internals ────────────────────────────────────────── */
+.page-title-bar  { font-size: 15px; font-weight: 600; color: var(--gray-800); }
+.topbar-actions  { display: flex; align-items: center; gap: 8px; }
+.icon-btn        { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center;
+                   justify-content: center; color: var(--gray-500); transition: all .15s; position: relative; }
+.icon-btn:hover  { background: var(--gray-100); color: var(--gray-700); }
+.notif-dot       { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+                   background: var(--brand-500); border-radius: 9999px; border: 2px solid #fff; }
+
+/* ── Page headers ────────────────────────────────────────────── */
+.page-header     { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+.page-heading    { font-size: 20px; font-weight: 600; color: var(--gray-900); }
+.page-sub        { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card            { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--gray-200);
+                   box-shadow: var(--shadow-card); padding: 20px; }
+.card-header     { display: flex; align-items: center; justify-content: space-between;
+                   margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--gray-100); }
+.card-title      { font-size: 14px; font-weight: 600; color: var(--gray-800); }
+
+/* ── Stat Cards ──────────────────────────────────────────────── */
+.stat-grid       { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card       { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--gray-200);
+                   box-shadow: var(--shadow-card); padding: 20px; display: flex; align-items: flex-start; gap: 16px; }
+.stat-icon       { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center;
+                   justify-content: center; flex-shrink: 0; }
+.stat-icon svg   { width: 20px; height: 20px; color: #fff; }
+.stat-label      { font-size: 11px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: .06em; }
+.stat-value      { font-size: 26px; font-weight: 700; color: var(--gray-900); margin-top: 2px; line-height: 1; }
+.stat-sub        { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn             { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px;
+                   font-size: 13px; font-weight: 500; border-radius: var(--radius); transition: all .15s;
+                   white-space: nowrap; cursor: pointer; }
+.btn:disabled    { opacity: .5; cursor: not-allowed; }
+.btn-primary     { background: var(--brand-500); color: #fff; }
+.btn-primary:hover { background: var(--brand-600); transform: scale(.99); }
+.btn-secondary   { background: #fff; color: var(--gray-700); border: 1px solid var(--gray-300); }
+.btn-secondary:hover { background: var(--gray-50); }
+.btn-danger      { background: var(--red-500); color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost       { color: var(--gray-600); }
+.btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+.btn-sm          { padding: 5px 12px; font-size: 12px; }
+.btn-xs          { padding: 3px 9px; font-size: 11px; }
+.btn svg         { width: 14px; height: 14px; }
+.btn-sm svg      { width: 13px; height: 13px; }
+
+/* ── Inputs ──────────────────────────────────────────────────── */
+.input           { width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--gray-300);
+                   border-radius: var(--radius); background: #fff; color: var(--gray-800);
+                   transition: border-color .15s, box-shadow .15s; outline: none; }
+.input:focus     { border-color: var(--brand-500); box-shadow: 0 0 0 3px rgb(249 115 22 / .12); }
+.input::placeholder { color: var(--gray-400); }
+.label           { display: block; font-size: 12px; font-weight: 500; color: var(--gray-700); margin-bottom: 4px; }
+.field           { margin-bottom: 14px; }
+.field-row       { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-error     { font-size: 11px; color: var(--red-500); margin-top: 3px; }
+select.input     { cursor: pointer; }
+
+/* ── Tables ──────────────────────────────────────────────────── */
+.table-wrap      { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--gray-200); }
+table            { width: 100%; border-collapse: collapse; font-size: 13px; }
+th               { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+                   color: var(--gray-500); text-transform: uppercase; letter-spacing: .06em;
+                   background: var(--gray-50); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+td               { padding: 11px 14px; border-bottom: 1px solid var(--gray-100); color: var(--gray-700); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td      { background: rgb(249 115 22 / .025); }
+
+/* ── Status Pills (signature left-border slash) ──────────────── */
+.pill            { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700;
+                   padding: 3px 9px; border-radius: 4px; border-left: 3px solid;
+                   text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.pill-delivered  { background: #ecfdf5; color: #065f46; border-color: var(--green-500); }
+.pill-failed     { background: #fef2f2; color: #991b1b; border-color: var(--red-500); }
+.pill-transit    { background: #eff6ff; color: #1e40af; border-color: var(--blue-500); }
+.pill-pending    { background: #fffbeb; color: #92400e; border-color: var(--amber-500); }
+.pill-approved   { background: #f0fdf4; color: #166534; border-color: #22c55e; }
+.pill-warehouse  { background: #f5f3ff; color: #4c1d95; border-color: var(--violet-500); }
+.pill-cancelled  { background: var(--gray-100); color: var(--gray-500); border-color: var(--gray-400); }
+.pill-active     { background: #fff7ed; color: #9a3412; border-color: var(--brand-500); }
+.pill-available  { background: #ecfdf5; color: #065f46; border-color: var(--green-500); }
+.pill-offduty    { background: var(--gray-100); color: var(--gray-500); border-color: var(--gray-300); }
+
+/* ── Tracking number ─────────────────────────────────────────── */
+.tracking        { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
+                   background: var(--gray-100); color: var(--gray-800); padding: 2px 7px; border-radius: 4px; }
+
+/* ── Modal ───────────────────────────────────────────────────── */
+.modal-backdrop  { position: fixed; inset: 0; background: rgb(0 0 0 / .4); backdrop-filter: blur(3px);
+                   z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal           { background: #fff; border-radius: var(--radius-xl); box-shadow: var(--shadow-modal);
+                   width: 100%; max-width: 480px; animation: fadeUp .2s ease-out; overflow: hidden; }
+.modal-lg        { max-width: 680px; }
+.modal-header    { display: flex; align-items: center; justify-content: space-between;
+                   padding: 16px 20px; border-bottom: 1px solid var(--gray-100); }
+.modal-title     { font-size: 15px; font-weight: 600; color: var(--gray-900); }
+.modal-body      { padding: 20px; }
+.modal-footer    { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Misc components ─────────────────────────────────────────── */
+.live-dot        { width: 8px; height: 8px; border-radius: 9999px; background: var(--green-500);
+                   display: inline-block; position: relative; }
+.live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 9999px;
+                   background: var(--green-500); animation: ping 2s ease-in-out infinite; }
+.divider         { height: 1px; background: var(--gray-200); margin: 16px 0; }
+.empty-state     { text-align: center; padding: 48px 24px; }
+.empty-state svg { width: 40px; height: 40px; color: var(--gray-300); margin: 0 auto 12px; }
+.empty-title     { font-size: 14px; font-weight: 600; color: var(--gray-600); }
+.empty-sub       { font-size: 13px; color: var(--gray-400); margin-top: 4px; }
+.alert-error     { background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius); padding: 10px 14px;
+                   font-size: 13px; color: #991b1b; display: flex; align-items: flex-start; gap: 8px; }
+.badge-num       { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+                   border-radius: 9999px; background: var(--amber-500); color: #fff;
+                   font-size: 10px; font-weight: 700; margin-left: 6px; }
+.step-bar        { display: flex; gap: 0; margin-bottom: 28px; }
+.step            { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+.step::before    { content: ''; position: absolute; top: 15px; left: 50%; right: -50%;
+                   height: 2px; background: var(--gray-200); z-index: 0; }
+.step:last-child::before { display: none; }
+.step.done::before  { background: var(--brand-500); }
+.step-circle     { width: 30px; height: 30px; border-radius: 9999px; border: 2px solid var(--gray-300);
+                   background: #fff; display: flex; align-items: center; justify-content: center;
+                   font-size: 12px; font-weight: 700; color: var(--gray-400); z-index: 1;
+                   transition: all .2s; position: relative; }
+.step.active .step-circle { border-color: var(--brand-500); background: var(--brand-500); color: #fff; }
+.step.done  .step-circle  { border-color: var(--brand-500); background: var(--brand-500); color: #fff; }
+.step-label  { font-size: 11px; color: var(--gray-400); margin-top: 6px; font-weight: 500; }
+.step.active .step-label  { color: var(--brand-500); font-weight: 600; }
+.step.done  .step-label   { color: var(--gray-600); }
+.progress-bar    { height: 8px; background: var(--gray-200); border-radius: 9999px; overflow: hidden; }
+.progress-fill   { height: 100%; background: linear-gradient(90deg, var(--brand-400), var(--green-500));
+                   border-radius: 9999px; transition: width .5s ease; }
+.timeline-item   { position: relative; padding-left: 32px; padding-bottom: 20px; }
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item::before { content: ''; position: absolute; left: 11px; top: 24px; bottom: 0;
+                          width: 1px; background: var(--gray-200); }
+.timeline-item:last-child::before { display: none; }
+.timeline-dot    { position: absolute; left: 0; top: 4px; width: 24px; height: 24px;
+                   border-radius: 9999px; display: flex; align-items: center; justify-content: center;
+                   border: 2px solid #fff; box-shadow: 0 0 0 2px var(--gray-200); }
+.timeline-dot svg { width: 11px; height: 11px; }
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ping   { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0; transform: scale(1.8); } }
+@keyframes pulse  { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes spin   { to { transform: rotate(360deg); } }
+@keyframes slideIn { from { transform: translateX(8px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.fade-in  { animation: fadeIn .2s ease-out; }
+.slide-in { animation: slideIn .2s ease-out; }
+.pulse    { animation: pulse 2s ease-in-out infinite; }
+</style>
+<style>
+  body { background: #111827; display: flex; min-height: 100vh; }
+
+  .login-split { display: flex; width: 100%; }
+
+  /* Left brand panel */
+  .brand-panel {
+    flex: 1.2; background: linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%);
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 48px; min-height: 100vh;
+  }
+  .brand-logo   { display: flex; align-items: center; gap: 12px; }
+  .brand-logo .logo-icon { width: 42px; height: 42px; background: var(--brand-500); border-radius: 10px;
+                            display: flex; align-items: center; justify-content: center; }
+  .brand-logo-text { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -.04em; }
+
+  .brand-headline { margin-top: auto; }
+  .brand-h1 { font-size: clamp(32px, 4vw, 52px); font-weight: 800; color: #fff; line-height: 1.1;
+               letter-spacing: -.03em; margin-bottom: 16px; }
+  .brand-h1 span { color: var(--brand-400); }
+  .brand-desc { font-size: 17px; color: #6b7280; max-width: 440px; line-height: 1.6; }
+
+  /* Decorative tracking timeline */
+  .brand-timeline { margin-top: 48px; display: flex; flex-direction: column; gap: 10px; opacity: .35; }
+  .brand-step { display: flex; align-items: center; gap: 12px; }
+  .brand-step-dot { width: 10px; height: 10px; border-radius: 9999px; background: #374151; flex-shrink: 0; }
+  .brand-step-dot.done { background: var(--brand-500); }
+  .brand-step-text { font-size: 13px; color: #4b5563; }
+
+  /* Right form panel */
+  .form-panel {
+    width: 480px; flex-shrink: 0; background: var(--canvas); display: flex; align-items: center;
+    justify-content: center; padding: 40px; min-height: 100vh;
+  }
+  .form-inner { width: 100%; max-width: 380px; }
+
+  .form-heading { font-size: 26px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; }
+  .form-sub     { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
+
+  .form-group  { margin-bottom: 16px; }
+  .input-wrap  { position: relative; }
+  .input-wrap svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+                    width: 16px; height: 16px; color: var(--gray-400); cursor: pointer; }
+
+  .submit-btn  { width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
+                 background: var(--brand-500); color: #fff; border-radius: var(--radius);
+                 transition: all .15s; margin-top: 4px; }
+  .submit-btn:hover { background: var(--brand-600); transform: translateY(-1px); box-shadow: 0 4px 12px rgb(249 115 22 / .35); }
+
+  .register-link { text-align: center; margin-top: 16px; font-size: 13px; color: var(--gray-500); }
+  .register-link a { color: var(--brand-500); font-weight: 600; }
+  .register-link a:hover { color: var(--brand-600); }
+
+  /* Demo credentials */
+  .demo-box    { margin-top: 28px; background: var(--gray-100); border-radius: var(--radius-lg); padding: 16px; }
+  .demo-label  { font-size: 11px; font-weight: 700; color: var(--gray-500); text-transform: uppercase;
+                 letter-spacing: .08em; margin-bottom: 10px; }
+  .demo-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .demo-btn    { text-align: left; padding: 8px 12px; border-radius: 6px; background: #fff;
+                 border: 1px solid var(--gray-200); font-size: 12px; font-weight: 600; color: var(--gray-700);
+                 transition: all .15s; }
+  .demo-btn:hover { background: #fff7ed; border-color: var(--brand-200, #fed7aa); color: var(--brand-600); }
+
+  .divider-or  { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--gray-400); font-size: 12px; }
+  .divider-or::before, .divider-or::after { content: ''; flex: 1; height: 1px; background: var(--gray-200); }
+</style>
+</head>
+<body>
+<div class="login-split">
+
+  <!-- ── Brand panel ── -->
+  <div class="brand-panel">
+    <div class="brand-logo">
+      <div class="logo-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"/>
+        </svg>
+      </div>
+      <span class="brand-logo-text">CourierSA</span>
+    </div>
+
+    <div class="brand-headline">
+      <h1 class="brand-h1">Every parcel.<br>Every stop.<br><span>Accounted for.</span></h1>
+      <p class="brand-desc">End-to-end courier management for South African logistics — from booking to proof of delivery.</p>
+
+      <div class="brand-timeline">
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Booked</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Approved</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">In warehouse</span></div>
+        <div class="brand-step"><div class="brand-step-dot done"></div><span class="brand-step-text">Out for delivery</span></div>
+        <div class="brand-step"><div class="brand-step-dot"></div><span class="brand-step-text">Delivered</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Form panel ── -->
+  <div class="form-panel">
+    <div class="form-inner fade-in">
+      <h2 class="form-heading">Sign in</h2>
+      <p class="form-sub">Welcome back. Enter your credentials to continue.</p>
+
+      <div id="error-box" class="alert-error" style="display:none; margin-bottom:14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span id="error-msg">Invalid email or password.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="label">Email address</label>
+        <input id="email" type="email" class="input" placeholder="you@example.com" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label class="label">Password</label>
+        <div class="input-wrap">
+          <input id="password" type="password" class="input" placeholder="••••••••" autocomplete="current-password" style="padding-right:40px">
+          <svg id="toggle-pw" onclick="togglePw()" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+      </div>
+
+      <button class="submit-btn" onclick="handleLogin()">Sign in</button>
+
+      <p class="register-link"><a href="#">Don't have an account? Register</a></p>
+
+      <div class="divider-or">or use a demo account</div>
+
+      <div class="demo-box">
+        <p class="demo-label">Demo accounts — password: Demo@1234</p>
+        <div class="demo-grid">
+          <button class="demo-btn" onclick="fillDemo('admin@couriersa.co.za')">Admin</button>
+          <button class="demo-btn" onclick="fillDemo('thabo@gmail.com')">Customer</button>
+          <button class="demo-btn" onclick="fillDemo('sipho.driver@couriersa.co.za')">Driver</button>
+          <button class="demo-btn" onclick="fillDemo('nomvula.dispatch@couriersa.co.za')">Dispatcher</button>
+          <button class="demo-btn" onclick="fillDemo('trevor.wh@couriersa.co.za')">Warehouse</button>
+          <button class="demo-btn" onclick="fillDemo('lindiwe@techcorp.co.za')">Business</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePw() {
+  const pw = document.getElementById('password');
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+}
+function fillDemo(email) {
+  document.getElementById('email').value = email;
+  document.getElementById('password').value = 'Demo@1234';
+}
+function handleLogin() {
+  const email = document.getElementById('email').value.trim();
+  const pw    = document.getElementById('password').value;
+  const err   = document.getElementById('error-box');
+  if (!email || !pw) {
+    err.style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'Please enter your email and password.';
+    return;
+  }
+  if (pw !== 'Demo@1234' && email !== 'admin@couriersa.co.za') {
+    err.style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'Invalid email or password.';
+    return;
+  }
+  err.style.display = 'none';
+  // Simulate navigation based on role
+  const routes = {
+    'admin@couriersa.co.za':            '03-admin-dashboard.html',
+    'nomvula.dispatch@couriersa.co.za': '04-dispatcher-dashboard.html',
+    'sipho.driver@couriersa.co.za':     '05-driver-deliveries.html',
+    'trevor.wh@couriersa.co.za':        '03-admin-dashboard.html',
+    'lindiwe@techcorp.co.za':           '02-customer-dashboard.html',
+  };
+  const dest = routes[email] || '02-customer-dashboard.html';
+  window.location.href = dest;
+}
+</script>
+</body>
+</html>

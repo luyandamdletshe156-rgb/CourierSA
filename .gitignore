@@ -1,0 +1,10 @@
+CourierSA-Backend/**/bin/
+CourierSA-Backend/**/obj/
+.vs/
+*.user
+*.suo
+.vscode/*
+CourierSA-Frontend/node_modules/
+CourierSA-Frontend/dist/
+CourierSA-Frontend/.env
+CourierSA-Backend/CourierSA.API/appsettings.Development.json

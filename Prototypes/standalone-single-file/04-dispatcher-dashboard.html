@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourierSA — Dispatcher Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CourierSA Design System — shared across all prototype screens
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ──────────────────────────────────────────────────── */
+:root {
+  --brand-50:   #fff7ed;
+  --brand-100:  #ffedd5;
+  --brand-400:  #fb923c;
+  --brand-500:  #f97316;
+  --brand-600:  #ea6c0a;
+  --brand-700:  #c2570a;
+
+  --sidebar:    #111827;
+  --sidebar-2:  #1f2937;
+  --canvas:     #f9fafb;
+  --surface:    #ffffff;
+
+  --gray-50:    #f9fafb;
+  --gray-100:   #f3f4f6;
+  --gray-200:   #e5e7eb;
+  --gray-300:   #d1d5db;
+  --gray-400:   #9ca3af;
+  --gray-500:   #6b7280;
+  --gray-600:   #4b5563;
+  --gray-700:   #374151;
+  --gray-800:   #1f2937;
+  --gray-900:   #111827;
+
+  --green-500:  #10b981;
+  --green-600:  #059669;
+  --red-500:    #ef4444;
+  --blue-500:   #3b82f6;
+  --amber-500:  #f59e0b;
+  --violet-500: #8b5cf6;
+  --indigo-500: #6366f1;
+
+  --shadow-sm:   0 1px 2px 0 rgb(0 0 0 / .05);
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / .08), 0 1px 2px -1px rgb(0 0 0 / .06);
+  --shadow-md:   0 4px 12px 0 rgb(0 0 0 / .10);
+  --shadow-lg:   0 10px 40px -8px rgb(0 0 0 / .18);
+  --shadow-modal:0 20px 60px -10px rgb(0 0 0 / .25);
+  --radius:      0.5rem;
+  --radius-lg:   0.75rem;
+  --radius-xl:   1rem;
+}
+
+/* ── Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body { font-family: 'Inter', system-ui, sans-serif; background: var(--canvas); color: var(--gray-800); line-height: 1.5; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+ul, ol { list-style: none; }
+
+/* ── Shell Layout ────────────────────────────────────────────── */
+.app-shell   { display: flex; height: 100vh; overflow: hidden; background: var(--canvas); }
+.sidebar     { width: 256px; flex-shrink: 0; background: var(--sidebar); display: flex; flex-direction: column; }
+.main        { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.topbar      { height: 64px; background: var(--surface); border-bottom: 1px solid var(--gray-200);
+               display: flex; align-items: center; justify-content: space-between;
+               padding: 0 24px; flex-shrink: 0; }
+.page-body   { flex: 1; overflow-y: auto; padding: 24px; }
+
+/* ── Sidebar internals ───────────────────────────────────────── */
+.sidebar-logo    { height: 64px; display: flex; align-items: center; gap: 10px;
+                   padding: 0 20px; border-bottom: 1px solid rgb(255 255 255 / .08); }
+.logo-icon       { width: 32px; height: 32px; background: var(--brand-500); border-radius: 8px;
+                   display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.logo-text       { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -.03em; }
+.role-badge      { margin: 12px 16px; padding: 4px 10px; border-radius: 9999px;
+                   font-size: 11px; font-weight: 700; letter-spacing: .04em;
+                   display: inline-flex; align-items: center; gap: 5px; color: #fff; }
+.sidebar-nav     { flex: 1; padding: 8px 12px; overflow-y: auto; }
+.nav-item        { display: flex; align-items: center; gap: 12px; padding: 9px 12px;
+                   border-radius: 8px; font-size: 14px; font-weight: 500; color: #9ca3af;
+                   transition: all .15s; cursor: pointer; }
+.nav-item:hover  { color: #fff; background: rgb(255 255 255 / .08); }
+.nav-item.active { color: #fff; background: rgb(249 115 22 / .18);
+                   border-left: 2px solid var(--brand-500); padding-left: 10px; }
+.nav-item svg    { flex-shrink: 0; width: 17px; height: 17px; }
+.sidebar-footer  { padding: 16px; border-top: 1px solid rgb(255 255 255 / .08); }
+.user-row        { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.avatar          { width: 32px; height: 32px; border-radius: 9999px; background: var(--brand-500);
+                   display: flex; align-items: center; justify-content: center;
+                   font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.avatar-lg       { width: 40px; height: 40px; font-size: 14px; }
+.user-name       { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-email      { font-size: 11px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.signout-btn     { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+                   border-radius: 8px; font-size: 13px; color: #f87171;
+                   transition: background .15s; }
+.signout-btn:hover { background: rgb(239 68 68 / .10); }
+
+/* ── Topbar internals ────────────────────────────────────────── */
+.page-title-bar  { font-size: 15px; font-weight: 600; color: var(--gray-800); }
+.topbar-actions  { display: flex; align-items: center; gap: 8px; }
+.icon-btn        { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center;
+                   justify-content: center; color: var(--gray-500); transition: all .15s; position: relative; }
+.icon-btn:hover  { background: var(--gray-100); color: var(--gray-700); }
+.notif-dot       { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+                   background: var(--brand-500); border-radius: 9999px; border: 2px solid #fff; }
+
+/* ── Page headers ────────────────────────────────────────────── */
+.page-header     { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+.page-heading    { font-size: 20px; font-weight: 600; color: var(--gray-900); }
+.page-sub        { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card            { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--gray-200);
+                   box-shadow: var(--shadow-card); padding: 20px; }
+.card-header     { display: flex; align-items: center; justify-content: space-between;
+                   margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--gray-100); }
+.card-title      { font-size: 14px; font-weight: 600; color: var(--gray-800); }
+
+/* ── Stat Cards ──────────────────────────────────────────────── */
+.stat-grid       { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card       { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--gray-200);
+                   box-shadow: var(--shadow-card); padding: 20px; display: flex; align-items: flex-start; gap: 16px; }
+.stat-icon       { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center;
+                   justify-content: center; flex-shrink: 0; }
+.stat-icon svg   { width: 20px; height: 20px; color: #fff; }
+.stat-label      { font-size: 11px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: .06em; }
+.stat-value      { font-size: 26px; font-weight: 700; color: var(--gray-900); margin-top: 2px; line-height: 1; }
+.stat-sub        { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn             { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px;
+                   font-size: 13px; font-weight: 500; border-radius: var(--radius); transition: all .15s;
+                   white-space: nowrap; cursor: pointer; }
+.btn:disabled    { opacity: .5; cursor: not-allowed; }
+.btn-primary     { background: var(--brand-500); color: #fff; }
+.btn-primary:hover { background: var(--brand-600); transform: scale(.99); }
+.btn-secondary   { background: #fff; color: var(--gray-700); border: 1px solid var(--gray-300); }
+.btn-secondary:hover { background: var(--gray-50); }
+.btn-danger      { background: var(--red-500); color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost       { color: var(--gray-600); }
+.btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+.btn-sm          { padding: 5px 12px; font-size: 12px; }
+.btn-xs          { padding: 3px 9px; font-size: 11px; }
+.btn svg         { width: 14px; height: 14px; }
+.btn-sm svg      { width: 13px; height: 13px; }
+
+/* ── Inputs ──────────────────────────────────────────────────── */
+.input           { width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--gray-300);
+                   border-radius: var(--radius); background: #fff; color: var(--gray-800);
+                   transition: border-color .15s, box-shadow .15s; outline: none; }
+.input:focus     { border-color: var(--brand-500); box-shadow: 0 0 0 3px rgb(249 115 22 / .12); }
+.input::placeholder { color: var(--gray-400); }
+.label           { display: block; font-size: 12px; font-weight: 500; color: var(--gray-700); margin-bottom: 4px; }
+.field           { margin-bottom: 14px; }
+.field-row       { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-error     { font-size: 11px; color: var(--red-500); margin-top: 3px; }
+select.input     { cursor: pointer; }
+
+/* ── Tables ──────────────────────────────────────────────────── */
+.table-wrap      { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--gray-200); }
+table            { width: 100%; border-collapse: collapse; font-size: 13px; }
+th               { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+                   color: var(--gray-500); text-transform: uppercase; letter-spacing: .06em;
+                   background: var(--gray-50); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+td               { padding: 11px 14px; border-bottom: 1px solid var(--gray-100); color: var(--gray-700); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td      { background: rgb(249 115 22 / .025); }
+
+/* ── Status Pills (signature left-border slash) ──────────────── */
+.pill            { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700;
+                   padding: 3px 9px; border-radius: 4px; border-left: 3px solid;
+                   text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.pill-delivered  { background: #ecfdf5; color: #065f46; border-color: var(--green-500); }
+.pill-failed     { background: #fef2f2; color: #991b1b; border-color: var(--red-500); }
+.pill-transit    { background: #eff6ff; color: #1e40af; border-color: var(--blue-500); }
+.pill-pending    { background: #fffbeb; color: #92400e; border-color: var(--amber-500); }
+.pill-approved   { background: #f0fdf4; color: #166534; border-color: #22c55e; }
+.pill-warehouse  { background: #f5f3ff; color: #4c1d95; border-color: var(--violet-500); }
+.pill-cancelled  { background: var(--gray-100); color: var(--gray-500); border-color: var(--gray-400); }
+.pill-active     { background: #fff7ed; color: #9a3412; border-color: var(--brand-500); }
+.pill-available  { background: #ecfdf5; color: #065f46; border-color: var(--green-500); }
+.pill-offduty    { background: var(--gray-100); color: var(--gray-500); border-color: var(--gray-300); }
+
+/* ── Tracking number ─────────────────────────────────────────── */
+.tracking        { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
+                   background: var(--gray-100); color: var(--gray-800); padding: 2px 7px; border-radius: 4px; }
+
+/* ── Modal ───────────────────────────────────────────────────── */
+.modal-backdrop  { position: fixed; inset: 0; background: rgb(0 0 0 / .4); backdrop-filter: blur(3px);
+                   z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal           { background: #fff; border-radius: var(--radius-xl); box-shadow: var(--shadow-modal);
+                   width: 100%; max-width: 480px; animation: fadeUp .2s ease-out; overflow: hidden; }
+.modal-lg        { max-width: 680px; }
+.modal-header    { display: flex; align-items: center; justify-content: space-between;
+                   padding: 16px 20px; border-bottom: 1px solid var(--gray-100); }
+.modal-title     { font-size: 15px; font-weight: 600; color: var(--gray-900); }
+.modal-body      { padding: 20px; }
+.modal-footer    { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Misc components ─────────────────────────────────────────── */
+.live-dot        { width: 8px; height: 8px; border-radius: 9999px; background: var(--green-500);
+                   display: inline-block; position: relative; }
+.live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 9999px;
+                   background: var(--green-500); animation: ping 2s ease-in-out infinite; }
+.divider         { height: 1px; background: var(--gray-200); margin: 16px 0; }
+.empty-state     { text-align: center; padding: 48px 24px; }
+.empty-state svg { width: 40px; height: 40px; color: var(--gray-300); margin: 0 auto 12px; }
+.empty-title     { font-size: 14px; font-weight: 600; color: var(--gray-600); }
+.empty-sub       { font-size: 13px; color: var(--gray-400); margin-top: 4px; }
+.alert-error     { background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius); padding: 10px 14px;
+                   font-size: 13px; color: #991b1b; display: flex; align-items: flex-start; gap: 8px; }
+.badge-num       { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+                   border-radius: 9999px; background: var(--amber-500); color: #fff;
+                   font-size: 10px; font-weight: 700; margin-left: 6px; }
+.step-bar        { display: flex; gap: 0; margin-bottom: 28px; }
+.step            { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+.step::before    { content: ''; position: absolute; top: 15px; left: 50%; right: -50%;
+                   height: 2px; background: var(--gray-200); z-index: 0; }
+.step:last-child::before { display: none; }
+.step.done::before  { background: var(--brand-500); }
+.step-circle     { width: 30px; height: 30px; border-radius: 9999px; border: 2px solid var(--gray-300);
+                   background: #fff; display: flex; align-items: center; justify-content: center;
+                   font-size: 12px; font-weight: 700; color: var(--gray-400); z-index: 1;
+                   transition: all .2s; position: relative; }
+.step.active .step-circle { border-color: var(--brand-500); background: var(--brand-500); color: #fff; }
+.step.done  .step-circle  { border-color: var(--brand-500); background: var(--brand-500); color: #fff; }
+.step-label  { font-size: 11px; color: var(--gray-400); margin-top: 6px; font-weight: 500; }
+.step.active .step-label  { color: var(--brand-500); font-weight: 600; }
+.step.done  .step-label   { color: var(--gray-600); }
+.progress-bar    { height: 8px; background: var(--gray-200); border-radius: 9999px; overflow: hidden; }
+.progress-fill   { height: 100%; background: linear-gradient(90deg, var(--brand-400), var(--green-500));
+                   border-radius: 9999px; transition: width .5s ease; }
+.timeline-item   { position: relative; padding-left: 32px; padding-bottom: 20px; }
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item::before { content: ''; position: absolute; left: 11px; top: 24px; bottom: 0;
+                          width: 1px; background: var(--gray-200); }
+.timeline-item:last-child::before { display: none; }
+.timeline-dot    { position: absolute; left: 0; top: 4px; width: 24px; height: 24px;
+                   border-radius: 9999px; display: flex; align-items: center; justify-content: center;
+                   border: 2px solid #fff; box-shadow: 0 0 0 2px var(--gray-200); }
+.timeline-dot svg { width: 11px; height: 11px; }
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ping   { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0; transform: scale(1.8); } }
+@keyframes pulse  { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes spin   { to { transform: rotate(360deg); } }
+@keyframes slideIn { from { transform: translateX(8px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.fade-in  { animation: fadeIn .2s ease-out; }
+.slide-in { animation: slideIn .2s ease-out; }
+.pulse    { animation: pulse 2s ease-in-out infinite; }
+</style>
+<style>
+  .tab-bar { display:flex;gap:4px;margin-bottom:20px;background:var(--gray-100);padding:4px;border-radius:var(--radius);width:fit-content; }
+  .tab { padding:7px 18px;border-radius:6px;font-size:13px;font-weight:500;color:var(--gray-600);cursor:pointer;transition:all .15s; }
+  .tab.active { background:#fff;color:var(--gray-900);box-shadow:var(--shadow-sm); }
+
+  /* Map styles */
+  .map-container { position:relative;background:#e8f4f8;border-radius:var(--radius-lg);overflow:hidden;height:480px; }
+  .map-svg { width:100%;height:100%; }
+  .driver-marker { cursor:pointer;transition:transform .2s; }
+  .driver-marker:hover { transform:scale(1.15); }
+  .driver-panel { position:absolute;bottom:16px;right:16px;width:260px;background:#fff;
+                  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);border:1px solid var(--gray-200);
+                  overflow:hidden;animation:slideIn .2s ease-out; }
+  .driver-panel-header { padding:12px 14px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between; }
+  .driver-panel-body { padding:14px; }
+  .driver-stat { text-align:center; }
+  .driver-stat-val { font-size:16px;font-weight:700;color:var(--gray-900); }
+  .driver-stat-lbl { font-size:10px;color:var(--gray-400);margin-top:1px; }
+  .map-legend { position:absolute;top:12px;left:12px;background:rgb(255 255 255/.92);
+                border-radius:var(--radius);padding:10px 14px;font-size:11px; }
+  .legend-item { display:flex;align-items:center;gap:7px;margin-bottom:5px; }
+  .legend-item:last-child { margin-bottom:0; }
+  .legend-dot { width:10px;height:10px;border-radius:50%; }
+  .sim-badge { position:absolute;top:12px;right:12px;background:var(--amber-500);color:#fff;
+               font-size:11px;font-weight:700;padding:5px 12px;border-radius:9999px;
+               display:flex;align-items:center;gap:6px; }
+  .pulse-ring { width:7px;height:7px;border-radius:50%;background:#fff;position:relative; }
+  .pulse-ring::after { content:'';position:absolute;inset:-2px;border-radius:50%;
+                       background:rgba(255,255,255,.5);animation:ping 1.5s ease-in-out infinite; }
+
+  /* Driver roster */
+  .roster-panel { width:240px;flex-shrink:0;background:#fff;border-radius:var(--radius-lg);
+                  border:1px solid var(--gray-200);overflow:hidden;display:flex;flex-direction:column; }
+  .roster-header { padding:12px 14px;border-bottom:1px solid var(--gray-100);
+                   font-size:13px;font-weight:600;color:var(--gray-800); }
+  .roster-item { padding:11px 14px;border-bottom:1px solid var(--gray-100);cursor:pointer;transition:background .15s; }
+  .roster-item:hover { background:var(--gray-50); }
+  .roster-item.selected { background:var(--brand-50); }
+  .roster-item:last-child { border-bottom:none; }
+
+  /* Reject modal */
+  .reject-modal { max-width:400px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125"/></svg>
+      </div>
+      <span class="logo-text">CourierSA</span>
+    </div>
+    <div style="padding:12px 16px 0">
+      <span class="role-badge" style="background:var(--blue-500)">
+        <span style="width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.7);display:inline-block"></span>
+        Dispatcher
+      </span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" onclick="showTab('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" onclick="showTab('pending')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Pending
+        <span class="badge-num">23</span>
+      </div>
+      <div class="nav-item" onclick="showTab('dispatch')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6"/></svg>
+        Dispatch Queue
+      </div>
+      <div class="nav-item" onclick="showTab('map')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Live Map
+      </div>
+      <div class="nav-item" onclick="showTab('failed')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.75L13.75 4a2 2 0 00-3.5 0l-6.25 12.25A2 2 0 005.07 19z"/></svg>
+        Failed
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-row">
+        <div class="avatar" style="background:var(--blue-500)">NK</div>
+        <div style="min-width:0"><div class="user-name">Nomvula Khumalo</div><div class="user-email">nomvula.dispatch@…</div></div>
+      </div>
+      <button class="signout-btn" onclick="window.location.href='01-login.html'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Sign out
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="main">
+    <header class="topbar">
+      <span class="page-title-bar" id="topbar-title">Dispatcher Dashboard</span>
+      <div class="topbar-actions">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-500)">
+          <span class="live-dot"></span> Live · 7 active drivers
+        </div>
+        <div class="icon-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+          <div class="notif-dot"></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="page-body">
+
+      <!-- ══ DASHBOARD TAB ══ -->
+      <div id="tab-dashboard">
+        <div class="page-header">
+          <div><h1 class="page-heading">Dispatcher Dashboard</h1><p class="page-sub">Review bookings and manage dispatch</p></div>
+        </div>
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-card">
+            <div class="stat-icon" style="background:var(--amber-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/></svg></div>
+            <div><div class="stat-label">Awaiting approval</div><div class="stat-value">23</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:var(--blue-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6"/></svg></div>
+            <div><div class="stat-label">Active drivers</div><div class="stat-value">7</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:var(--brand-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg></div>
+            <div><div class="stat-label">Out for delivery</div><div class="stat-value">156</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:var(--red-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.75L13.75 4a2 2 0 00-3.5 0l-6.25 12.25A2 2 0 005.07 19z"/></svg></div>
+            <div><div class="stat-label">Failed today</div><div class="stat-value">4</div></div>
+          </div>
+        </div>
+
+        <!-- Pending approval preview -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Pending approval <span class="badge-num" style="margin-left:6px">23</span></span>
+            <button class="btn btn-ghost btn-sm" onclick="showTab('pending')">View all →</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tracking #</th><th>Customer</th><th>Service</th><th>Destination</th><th>Weight</th><th>Booked</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr id="row-423">
+                  <td><span class="tracking">CSA-20240615-00423</span></td>
+                  <td style="font-size:12px">Thabo Mokoena</td>
+                  <td><span class="pill pill-active" style="font-size:10px">Express</span></td>
+                  <td style="font-size:12px;color:var(--gray-600)">Durban, KZN</td>
+                  <td style="font-size:12px">2.5 kg</td>
+                  <td style="font-size:12px;color:var(--gray-400)">08:17</td>
+                  <td>
+                    <div style="display:flex;gap:6px">
+                      <button class="btn btn-primary btn-xs" onclick="approveRow('423')">✓ Approve</button>
+                      <button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00423')">✕ Reject</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr id="row-422">
+                  <td><span class="tracking">CSA-20240615-00422</span></td>
+                  <td style="font-size:12px">Zanele Nkosi</td>
+                  <td><span style="font-size:11px;color:var(--gray-500)">Standard</span></td>
+                  <td style="font-size:12px;color:var(--gray-600)">Cape Town, WC</td>
+                  <td style="font-size:12px">5.0 kg</td>
+                  <td style="font-size:12px;color:var(--gray-400)">07:54</td>
+                  <td>
+                    <div style="display:flex;gap:6px">
+                      <button class="btn btn-primary btn-xs" onclick="approveRow('422')">✓ Approve</button>
+                      <button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00422')">✕ Reject</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr id="row-421">
+                  <td><span class="tracking">CSA-20240615-00421</span></td>
+                  <td style="font-size:12px">TechCorp SA</td>
+                  <td><span style="font-size:11px;color:var(--gray-500)">Economy</span></td>
+                  <td style="font-size:12px;color:var(--gray-600)">East London, EC</td>
+                  <td style="font-size:12px">12.0 kg</td>
+                  <td style="font-size:12px;color:var(--gray-400)">07:31</td>
+                  <td>
+                    <div style="display:flex;gap:6px">
+                      <button class="btn btn-primary btn-xs" onclick="approveRow('421')">✓ Approve</button>
+                      <button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00421')">✕ Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PENDING TAB ══ -->
+      <div id="tab-pending" style="display:none">
+        <div class="page-header">
+          <div><h1 class="page-heading">Pending Approval</h1><p class="page-sub">23 bookings awaiting review</p></div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tracking #</th><th>Customer</th><th>Service</th><th>Destination</th><th>Weight</th><th>Value</th><th>Booked</th><th>Actions</th></tr></thead>
+              <tbody id="pending-tbody">
+                <tr id="pr-423"><td><span class="tracking">CSA-20240615-00423</span></td><td style="font-size:12px">Thabo Mokoena</td><td><span class="pill pill-active" style="font-size:10px">Express</span></td><td style="font-size:12px;color:var(--gray-600)">Durban, KZN</td><td style="font-size:12px">2.5 kg</td><td style="font-size:12px;font-weight:600">R 1,500</td><td style="font-size:12px;color:var(--gray-400)">08:17</td><td><div style="display:flex;gap:6px"><button class="btn btn-primary btn-xs" onclick="approveAndRemove('pr-423')">✓ Approve</button><button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00423')">✕</button></div></td></tr>
+                <tr id="pr-422"><td><span class="tracking">CSA-20240615-00422</span></td><td style="font-size:12px">Zanele Nkosi</td><td style="font-size:11px;color:var(--gray-500)">Standard</td><td style="font-size:12px;color:var(--gray-600)">Cape Town, WC</td><td style="font-size:12px">5.0 kg</td><td style="font-size:12px;font-weight:600">R 800</td><td style="font-size:12px;color:var(--gray-400)">07:54</td><td><div style="display:flex;gap:6px"><button class="btn btn-primary btn-xs" onclick="approveAndRemove('pr-422')">✓ Approve</button><button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00422')">✕</button></div></td></tr>
+                <tr id="pr-421"><td><span class="tracking">CSA-20240615-00421</span></td><td style="font-size:12px">TechCorp SA</td><td style="font-size:11px;color:var(--gray-500)">Economy</td><td style="font-size:12px;color:var(--gray-600)">East London, EC</td><td style="font-size:12px">12.0 kg</td><td style="font-size:12px;font-weight:600">R 2,200</td><td style="font-size:12px;color:var(--gray-400)">07:31</td><td><div style="display:flex;gap:6px"><button class="btn btn-primary btn-xs" onclick="approveAndRemove('pr-421')">✓ Approve</button><button class="btn btn-danger btn-xs" onclick="showRejectModal('CSA-20240615-00421')">✕</button></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ DISPATCH QUEUE TAB ══ -->
+      <div id="tab-dispatch" style="display:none">
+        <div class="page-header">
+          <div><h1 class="page-heading">Dispatch Queue</h1>
+            <p class="page-sub">Assign approved parcels · <span style="color:var(--green-600);font-weight:600">3 drivers available</span></p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tracking #</th><th>Service</th><th>Destination</th><th>Weight</th><th>Approved</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr id="dq-420"><td><span class="tracking">CSA-20240615-00420</span></td><td><span class="pill pill-active" style="font-size:10px">Express</span></td><td style="font-size:12px;color:var(--gray-600)">Sandton, GP</td><td style="font-size:12px">1.2 kg</td><td style="font-size:12px;color:var(--gray-400)">08:05</td><td><button class="btn btn-primary btn-xs" onclick="showDispatchModal('dq-420','CSA-20240615-00420')">🚚 Dispatch</button></td></tr>
+                <tr id="dq-419"><td><span class="tracking">CSA-20240615-00419</span></td><td style="font-size:11px;color:var(--gray-500)">Standard</td><td style="font-size:12px;color:var(--gray-600)">Midrand, GP</td><td style="font-size:12px">3.8 kg</td><td style="font-size:12px;color:var(--gray-400)">07:48</td><td><button class="btn btn-primary btn-xs" onclick="showDispatchModal('dq-419','CSA-20240615-00419')">🚚 Dispatch</button></td></tr>
+                <tr id="dq-418"><td><span class="tracking">CSA-20240615-00418</span></td><td style="font-size:11px;color:var(--gray-500)">Overnight</td><td style="font-size:12px;color:var(--gray-600)">Centurion, GP</td><td style="font-size:12px">0.5 kg</td><td style="font-size:12px;color:var(--gray-400)">07:22</td><td><button class="btn btn-primary btn-xs" onclick="showDispatchModal('dq-418','CSA-20240615-00418')">🚚 Dispatch</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ LIVE MAP TAB ══ -->
+      <div id="tab-map" style="display:none">
+        <div class="page-header">
+          <div><h1 class="page-heading">Live Fleet Map</h1><p class="page-sub">Real-time driver positions and delivery status</p></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm">↺ Refresh</button>
+            <button class="btn btn-sm" id="sim-btn"
+              style="background:var(--brand-50);color:var(--brand-600);border:1px solid var(--brand-200)"
+              onclick="toggleSim()">▶ Demo simulation</button>
+          </div>
+        </div>
+
+        <!-- Stats strip -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:var(--gray-800)" id="stat-total">4</div>
+            <div style="font-size:11px;color:var(--gray-500)">Total drivers</div>
+          </div>
+          <div style="background:var(--brand-50);border:1px solid var(--brand-100);border-radius:var(--radius-lg);padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:var(--brand-600)" id="stat-active">0</div>
+            <div style="font-size:11px;color:var(--gray-500)">On delivery</div>
+          </div>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius-lg);padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:var(--green-600)">4</div>
+            <div style="font-size:11px;color:var(--gray-500)">Available</div>
+          </div>
+          <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:var(--gray-400)">0</div>
+            <div style="font-size:11px;color:var(--gray-500)">Off duty</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:16px">
+          <!-- Roster -->
+          <div class="roster-panel">
+            <div class="roster-header">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline;margin-right:6px"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              Drivers
+            </div>
+            <div id="roster-list">
+              <div class="roster-item" id="ri-1" onclick="selectDriver(1)">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="width:34px;height:34px;border-radius:50%;background:#f97316;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;position:relative">SD<span id="ri-1-dot" style="display:none;position:absolute;top:-1px;right:-1px;width:9px;height:9px;background:var(--brand-500);border-radius:50%;border:2px solid #fff"></span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Sipho Dlamini</div>
+                    <div style="font-size:11px;color:var(--green-500);margin-top:1px" id="ri-1-status">● Available</div>
+                  </div>
+                </div>
+              </div>
+              <div class="roster-item" id="ri-2" onclick="selectDriver(2)">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="width:34px;height:34px;border-radius:50%;background:#3b82f6;display:flex;align-items:center;justify-content:font-size:11px;font-weight:700;color:#fff;flex-shrink:0;align-items:center;justify-content:center;position:relative;font-size:11px;font-weight:700;color:#fff">ZN<span id="ri-2-dot" style="display:none;position:absolute;top:-1px;right:-1px;width:9px;height:9px;background:var(--brand-500);border-radius:50%;border:2px solid #fff"></span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Zanele Nkosi</div>
+                    <div style="font-size:11px;color:var(--green-500);margin-top:1px" id="ri-2-status">● Available</div>
+                  </div>
+                </div>
+              </div>
+              <div class="roster-item" id="ri-3" onclick="selectDriver(3)">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="width:34px;height:34px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;position:relative">TW<span id="ri-3-dot" style="display:none;position:absolute;top:-1px;right:-1px;width:9px;height:9px;background:var(--brand-500);border-radius:50%;border:2px solid #fff"></span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Trevor Williams</div>
+                    <div style="font-size:11px;color:var(--green-500);margin-top:1px" id="ri-3-status">● Available</div>
+                  </div>
+                </div>
+              </div>
+              <div class="roster-item" id="ri-4" onclick="selectDriver(4)">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="width:34px;height:34px;border-radius:50%;background:#8b5cf6;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;position:relative">NK<span id="ri-4-dot" style="display:none;position:absolute;top:-1px;right:-1px;width:9px;height:9px;background:var(--brand-500);border-radius:50%;border:2px solid #fff"></span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Naledi Khumalo</div>
+                    <div style="font-size:11px;color:var(--green-500);margin-top:1px" id="ri-4-status">● Available</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Map -->
+          <div style="flex:1;position:relative">
+            <div class="map-container">
+              <svg class="map-svg" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet">
+                <!-- SA map outline fill -->
+                <rect width="900" height="480" fill="#dbeafe" rx="12"/>
+                <!-- Simplified SA landmass -->
+                <path d="M120,60 L780,60 L820,120 L860,200 L840,280 L780,360 L700,420 L600,450 L500,460 L400,450 L300,430 L200,380 L140,300 L100,220 L90,140 Z"
+                  fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5"/>
+                <!-- Province boundary hints -->
+                <path d="M350,160 L550,160 L560,280 L340,280 Z" fill="none" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="5,4"/>
+                <path d="M100,200 L340,200 L340,360 L100,360 Z" fill="none" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="5,4"/>
+                <path d="M560,160 L780,160 L780,340 L560,340 Z" fill="none" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="5,4"/>
+
+                <!-- Province labels -->
+                <text x="450" y="230" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Inter">Gauteng</text>
+                <text x="200" y="280" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Inter">Northern Cape</text>
+                <text x="680" y="250" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Inter">KwaZulu-Natal</text>
+                <text x="300" y="380" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Inter">Western Cape</text>
+
+                <!-- City dots -->
+                <circle cx="450" cy="200" r="4" fill="#64748b" opacity=".6"/>
+                <text x="455" y="196" font-size="10" fill="#475569" font-family="Inter">Johannesburg</text>
+                <circle cx="680" cy="310" r="4" fill="#64748b" opacity=".6"/>
+                <text x="685" y="306" font-size="10" fill="#475569" font-family="Inter">Durban</text>
+                <circle cx="280" cy="390" r="4" fill="#64748b" opacity=".6"/>
+                <text x="285" y="386" font-size="10" fill="#475569" font-family="Inter">Cape Town</text>
+                <circle cx="460" cy="155" r="4" fill="#64748b" opacity=".6"/>
+                <text x="465" y="151" font-size="10" fill="#475569" font-family="Inter">Pretoria</text>
+
+                <!-- Driver markers (initially static) -->
+                <!-- Driver 1 - Sipho - JHB -->
+                <g class="driver-marker" id="marker-1" transform="translate(440,195)" onclick="selectDriver(1)">
+                  <circle r="18" fill="white" stroke="#f97316" stroke-width="2.5" filter="url(#shadow)"/>
+                  <circle r="14" fill="#f97316" opacity=".15"/>
+                  <text text-anchor="middle" dy="4" font-size="10" font-weight="700" fill="#f97316" font-family="Inter">SD</text>
+                  <polygon points="-5,17 5,17 0,25" fill="#f97316"/>
+                  <!-- pulse ring -->
+                  <circle r="18" fill="none" stroke="#f97316" stroke-width="2" opacity="0" id="pulse-1">
+                    <animate id="panim-1" attributeName="r" values="18;28;18" dur="0s" repeatCount="0"/>
+                    <animate id="opanim-1" attributeName="opacity" values="0.6;0;0.6" dur="0s" repeatCount="0"/>
+                  </circle>
+                </g>
+                <!-- Driver 2 - Zanele - CPT -->
+                <g class="driver-marker" id="marker-2" transform="translate(278,388)" onclick="selectDriver(2)">
+                  <circle r="18" fill="white" stroke="#3b82f6" stroke-width="2.5"/>
+                  <circle r="14" fill="#3b82f6" opacity=".15"/>
+                  <text text-anchor="middle" dy="4" font-size="10" font-weight="700" fill="#3b82f6" font-family="Inter">ZN</text>
+                  <polygon points="-5,17 5,17 0,25" fill="#3b82f6"/>
+                  <circle r="18" fill="none" stroke="#3b82f6" stroke-width="2" opacity="0" id="pulse-2">
+                    <animate id="panim-2" attributeName="r" values="18;28;18" dur="0s" repeatCount="0"/>
+                    <animate id="opanim-2" attributeName="opacity" values="0.6;0;0.6" dur="0s" repeatCount="0"/>
+                  </circle>
+                </g>
+                <!-- Driver 3 - Trevor - DBN -->
+                <g class="driver-marker" id="marker-3" transform="translate(678,308)" onclick="selectDriver(3)">
+                  <circle r="18" fill="white" stroke="#10b981" stroke-width="2.5"/>
+                  <circle r="14" fill="#10b981" opacity=".15"/>
+                  <text text-anchor="middle" dy="4" font-size="10" font-weight="700" fill="#10b981" font-family="Inter">TW</text>
+                  <polygon points="-5,17 5,17 0,25" fill="#10b981"/>
+                  <circle r="18" fill="none" stroke="#10b981" stroke-width="2" opacity="0" id="pulse-3">
+                    <animate id="panim-3" attributeName="r" values="18;28;18" dur="0s" repeatCount="0"/>
+                    <animate id="opanim-3" attributeName="opacity" values="0.6;0;0.6" dur="0s" repeatCount="0"/>
+                  </circle>
+                </g>
+                <!-- Driver 4 - Naledi - PTA -->
+                <g class="driver-marker" id="marker-4" transform="translate(456,152)" onclick="selectDriver(4)">
+                  <circle r="18" fill="white" stroke="#8b5cf6" stroke-width="2.5"/>
+                  <circle r="14" fill="#8b5cf6" opacity=".15"/>
+                  <text text-anchor="middle" dy="4" font-size="10" font-weight="700" fill="#8b5cf6" font-family="Inter">NK</text>
+                  <polygon points="-5,17 5,17 0,25" fill="#8b5cf6"/>
+                  <circle r="18" fill="none" stroke="#8b5cf6" stroke-width="2" opacity="0" id="pulse-4">
+                    <animate id="panim-4" attributeName="r" values="18;28;18" dur="0s" repeatCount="0"/>
+                    <animate id="opanim-4" attributeName="opacity" values="0.6;0;0.6" dur="0s" repeatCount="0"/>
+                  </circle>
+                </g>
+
+                <defs>
+                  <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity=".18"/>
+                  </filter>
+                </defs>
+              </svg>
+
+              <!-- Legend -->
+              <div class="map-legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div><span style="color:var(--gray-600)">On delivery</span></div>
+                <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div><span style="color:var(--gray-600)">Available</span></div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--gray-400)"></div><span style="color:var(--gray-600)">Off duty</span></div>
+              </div>
+
+              <!-- Sim badge -->
+              <div class="sim-badge" id="sim-badge" style="display:none">
+                <div class="pulse-ring"></div>
+                DEMO MODE — Simulated GPS
+              </div>
+
+              <!-- Driver detail panel -->
+              <div class="driver-panel" id="driver-panel" style="display:none">
+                <div class="driver-panel-header" id="dp-header">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div id="dp-avatar" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff"></div>
+                    <div>
+                      <div id="dp-name" style="font-size:13px;font-weight:600;color:var(--gray-900)"></div>
+                      <div id="dp-status" style="font-size:11px;margin-top:1px"></div>
+                    </div>
+                  </div>
+                  <button onclick="document.getElementById('driver-panel').style.display='none'" style="font-size:18px;color:var(--gray-400);line-height:1;cursor:pointer;background:none;border:none">×</button>
+                </div>
+                <div class="driver-panel-body">
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--gray-100)">
+                    <div class="driver-stat"><div class="driver-stat-val" id="dp-speed">—</div><div class="driver-stat-lbl">km/h</div></div>
+                    <div class="driver-stat"><div class="driver-stat-val">14</div><div class="driver-stat-lbl">Total</div></div>
+                    <div class="driver-stat"><div class="driver-stat-val">93%</div><div class="driver-stat-lbl">Success</div></div>
+                  </div>
+                  <div id="dp-delivery" style="font-size:12px;color:var(--gray-500);text-align:center">No active delivery</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ FAILED TAB ══ -->
+      <div id="tab-failed" style="display:none">
+        <div class="page-header">
+          <div><h1 class="page-heading">Failed Deliveries</h1><p class="page-sub">4 deliveries require action</p></div>
+        </div>
+        <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="stat-card"><div class="stat-icon" style="background:var(--red-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01"/></svg></div><div><div class="stat-label">Total failed</div><div class="stat-value">4</div></div></div>
+          <div class="stat-card"><div class="stat-icon" style="background:var(--amber-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg></div><div><div class="stat-label">Re-attemptable</div><div class="stat-value">3</div></div></div>
+          <div class="stat-card"><div class="stat-icon" style="background:var(--gray-500)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div><div class="stat-label">Return to sender</div><div class="stat-value">1</div></div></div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tracking #</th><th>Recipient</th><th>City</th><th>Driver</th><th>Failure reason</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td><span class="tracking">CSA-20240614-00401</span></td><td style="font-size:12px">Mpho Sithole</td><td style="font-size:12px;color:var(--gray-500)">Soweto</td><td style="font-size:12px">Sipho Dlamini</td><td><span style="font-size:11px;font-weight:600;color:var(--red-600);background:#fef2f2;padding:2px 8px;border-radius:4px;border:1px solid #fecaca">Recipient absent</span></td><td><div style="display:flex;gap:5px"><button class="btn btn-primary btn-xs">↺ Re-dispatch</button><button class="btn btn-secondary btn-xs">Return</button></div></td></tr>
+                <tr><td><span class="tracking">CSA-20240614-00398</span></td><td style="font-size:12px">Fatima Adams</td><td style="font-size:12px;color:var(--gray-500)">Bo-Kaap, CPT</td><td style="font-size:12px">Zanele Nkosi</td><td><span style="font-size:11px;font-weight:600;color:var(--red-600);background:#fef2f2;padding:2px 8px;border-radius:4px;border:1px solid #fecaca">Address not found</span></td><td><div style="display:flex;gap:5px"><button class="btn btn-primary btn-xs">↺ Re-dispatch</button><button class="btn btn-secondary btn-xs">Return</button></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Reject modal -->
+<div id="reject-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event,'reject-modal')">
+  <div class="modal fade-in">
+    <div class="modal-header">
+      <span class="modal-title">Reject booking</span>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reject-modal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-600);margin-bottom:12px">Rejecting <span id="reject-tracking" class="tracking"></span>. Provide a reason for the customer.</p>
+      <div class="field">
+        <label class="label">Reason for rejection</label>
+        <textarea class="input" rows="3" placeholder="e.g. Incomplete address details, prohibited item…" style="resize:none"></textarea>
+      </div>
+      <div class="modal-footer" style="margin-top:16px">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('reject-modal').style.display='none'">Cancel</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmReject()">Confirm rejection</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dispatch modal -->
+<div id="dispatch-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event,'dispatch-modal')">
+  <div class="modal fade-in">
+    <div class="modal-header">
+      <span class="modal-title">Assign driver</span>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('dispatch-modal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Dispatching <span id="dispatch-tracking" class="tracking"></span></p>
+      <label class="label" style="margin-bottom:8px">Select available driver</label>
+      <div style="display:flex;flex-direction:column;gap:7px" id="driver-options">
+        <div onclick="selectDriverOpt(this)" style="display:flex;align-items:center;gap:11px;padding:11px 14px;border:2px solid var(--gray-200);border-radius:var(--radius-lg);cursor:pointer;transition:all .15s" class="driver-opt">
+          <div style="width:34px;height:34px;border-radius:50%;background:#f97316;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0">SD</div>
+          <div><div style="font-size:13px;font-weight:600;color:var(--gray-800)">Sipho Dlamini</div><div style="font-size:11px;color:var(--green-500)">● Available · +27 83 123 4567</div></div>
+        </div>
+        <div onclick="selectDriverOpt(this)" style="display:flex;align-items:center;gap:11px;padding:11px 14px;border:2px solid var(--gray-200);border-radius:var(--radius-lg);cursor:pointer;transition:all .15s" class="driver-opt">
+          <div style="width:34px;height:34px;border-radius:50%;background:#3b82f6;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0">ZN</div>
+          <div><div style="font-size:13px;font-weight:600;color:var(--gray-800)">Zanele Nkosi</div><div style="font-size:11px;color:var(--green-500)">● Available · +27 79 765 4321</div></div>
+        </div>
+        <div onclick="selectDriverOpt(this)" style="display:flex;align-items:center;gap:11px;padding:11px 14px;border:2px solid var(--gray-200);border-radius:var(--radius-lg);cursor:pointer;transition:all .15s" class="driver-opt">
+          <div style="width:34px;height:34px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0">TW</div>
+          <div><div style="font-size:13px;font-weight:600;color:var(--gray-800)">Trevor Williams</div><div style="font-size:11px;color:var(--green-500)">● Available · +27 85 123 4567</div></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top:16px">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dispatch-modal').style.display='none'">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="dispatch-confirm-btn" disabled onclick="confirmDispatch()">🚚 Dispatch</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let simInterval = null;
+let simRunning  = false;
+let selectedDriverRow = null;
+let markerPositions = {
+  1: {x:440, y:195, dx:1.2,  dy:0.8,  color:'#f97316'},
+  2: {x:278, y:388, dx:-0.8, dy:-0.5, color:'#3b82f6'},
+  3: {x:678, y:308, dx:-1.0, dy:0.6,  color:'#10b981'},
+  4: {x:456, y:152, dx:0.6,  dy:1.1,  color:'#8b5cf6'},
+};
+const driverData = {
+  1:{name:'Sipho Dlamini',   initials:'SD',color:'#f97316',city:'Johannesburg',tracking:'CSA-20240615-00423'},
+  2:{name:'Zanele Nkosi',    initials:'ZN',color:'#3b82f6',city:'Cape Town',    tracking:'CSA-20240615-00419'},
+  3:{name:'Trevor Williams', initials:'TW',color:'#10b981',city:'Durban',       tracking:'CSA-20240615-00418'},
+  4:{name:'Naledi Khumalo',  initials:'NK',color:'#8b5cf6',city:'Pretoria',     tracking:'CSA-20240614-00412'},
+};
+
+function showTab(name) {
+  ['dashboard','pending','dispatch','map','failed'].forEach(t =>
+    document.getElementById('tab-'+t).style.display = t===name ? 'block' : 'none'
+  );
+  const titles = {dashboard:'Dispatcher Dashboard',pending:'Pending Approval',dispatch:'Dispatch Queue',map:'Live Fleet Map',failed:'Failed Deliveries'};
+  document.getElementById('topbar-title').textContent = titles[name];
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const idx = {dashboard:0,pending:1,dispatch:2,map:3,failed:4};
+  document.querySelectorAll('.nav-item')[idx[name]]?.classList.add('active');
+}
+
+function approveRow(id) {
+  const row = document.getElementById('row-'+id);
+  if (row) { row.style.opacity='0.4'; row.querySelectorAll('button').forEach(b=>b.disabled=true); setTimeout(()=>row.remove(),400); }
+}
+function approveAndRemove(id) {
+  const row = document.getElementById(id);
+  if (row) { row.style.opacity='0.4'; setTimeout(()=>row.remove(),400); }
+}
+
+let rejectRowId = null;
+function showRejectModal(tracking) {
+  document.getElementById('reject-tracking').textContent = tracking;
+  document.getElementById('reject-modal').style.display = 'flex';
+}
+function confirmReject() { document.getElementById('reject-modal').style.display='none'; }
+
+let dispatchRowId = null;
+function showDispatchModal(rowId, tracking) {
+  dispatchRowId = rowId;
+  document.getElementById('dispatch-tracking').textContent = tracking;
+  document.getElementById('dispatch-modal').style.display = 'flex';
+  document.querySelectorAll('.driver-opt').forEach(o => { o.style.borderColor='var(--gray-200)'; o.style.background='#fff'; });
+  document.getElementById('dispatch-confirm-btn').disabled = true;
+}
+function selectDriverOpt(el) {
+  document.querySelectorAll('.driver-opt').forEach(o => { o.style.borderColor='var(--gray-200)'; o.style.background='#fff'; });
+  el.style.borderColor = 'var(--brand-500)';
+  el.style.background  = 'var(--brand-50)';
+  document.getElementById('dispatch-confirm-btn').disabled = false;
+}
+function confirmDispatch() {
+  document.getElementById('dispatch-modal').style.display='none';
+  const row = document.getElementById(dispatchRowId);
+  if (row) { row.style.opacity='0.4'; setTimeout(()=>row.remove(),400); }
+}
+
+function closeModal(e, id) { if(e.target===e.currentTarget) document.getElementById(id).style.display='none'; }
+
+function selectDriver(id) {
+  document.querySelectorAll('.roster-item').forEach(r=>r.classList.remove('selected'));
+  document.getElementById('ri-'+id)?.classList.add('selected');
+  const d = driverData[id];
+  const panel = document.getElementById('driver-panel');
+  document.getElementById('dp-avatar').style.background = d.color;
+  document.getElementById('dp-avatar').textContent = d.initials;
+  document.getElementById('dp-name').textContent = d.name;
+  const isActive = simRunning;
+  document.getElementById('dp-status').textContent = isActive ? '● On delivery' : '● Available';
+  document.getElementById('dp-status').style.color = isActive ? 'var(--brand-500)' : 'var(--green-500)';
+  document.getElementById('dp-speed').textContent = isActive ? Math.round(30+Math.random()*25) : '—';
+  document.getElementById('dp-delivery').innerHTML = isActive
+    ? `<div style="text-align:left"><p style="font-size:11px;color:var(--gray-500);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Active delivery</p>
+       <p style="font-family:JetBrains Mono,monospace;font-size:11px;color:var(--brand-500)">${d.tracking}</p>
+       <p style="font-size:12px;color:var(--gray-600);margin-top:4px">→ ${d.city}</p></div>`
+    : '<p style="font-size:12px;color:var(--gray-500);text-align:center">No active delivery</p>';
+  panel.style.display = 'block';
+}
+
+function toggleSim() {
+  if (simRunning) stopSim(); else startSim();
+}
+function startSim() {
+  simRunning = true;
+  document.getElementById('sim-btn').textContent = '■ Stop demo';
+  document.getElementById('sim-btn').style.background = '#fee2e2';
+  document.getElementById('sim-btn').style.color = 'var(--red-500)';
+  document.getElementById('sim-btn').style.borderColor = '#fecaca';
+  document.getElementById('sim-badge').style.display = 'flex';
+  document.getElementById('stat-active').textContent = '4';
+  // Activate pulses
+  [1,2,3,4].forEach(i => {
+    document.getElementById('panim-'+i).setAttribute('dur','2s');
+    document.getElementById('panim-'+i).setAttribute('repeatCount','indefinite');
+    document.getElementById('opanim-'+i).setAttribute('dur','2s');
+    document.getElementById('opanim-'+i).setAttribute('repeatCount','indefinite');
+    document.getElementById('ri-'+i+'-dot').style.display = 'block';
+    document.getElementById('ri-'+i+'-status').textContent = '● On delivery';
+    document.getElementById('ri-'+i+'-status').style.color = 'var(--brand-500)';
+  });
+  simInterval = setInterval(moveSim, 600);
+}
+function stopSim() {
+  simRunning = false;
+  clearInterval(simInterval);
+  document.getElementById('sim-btn').textContent = '▶ Demo simulation';
+  document.getElementById('sim-btn').style.background = 'var(--brand-50)';
+  document.getElementById('sim-btn').style.color = 'var(--brand-600)';
+  document.getElementById('sim-btn').style.borderColor = 'var(--brand-200,#fed7aa)';
+  document.getElementById('sim-badge').style.display = 'none';
+  document.getElementById('stat-active').textContent = '0';
+  [1,2,3,4].forEach(i => {
+    document.getElementById('panim-'+i).setAttribute('dur','0s');
+    document.getElementById('panim-'+i).setAttribute('repeatCount','0');
+    document.getElementById('ri-'+i+'-dot').style.display = 'none';
+    document.getElementById('ri-'+i+'-status').textContent = '● Available';
+    document.getElementById('ri-'+i+'-status').style.color = 'var(--green-500)';
+  });
+  document.getElementById('driver-panel').style.display = 'none';
+}
+function moveSim() {
+  [1,2,3,4].forEach(id => {
+    const p  = markerPositions[id];
+    p.x     += p.dx + (Math.random()-0.5)*0.6;
+    p.y     += p.dy + (Math.random()-0.5)*0.6;
+    // Bounce within SA bounds
+    if (p.x < 120 || p.x > 820) p.dx *= -1;
+    if (p.y < 70  || p.y > 440) p.dy *= -1;
+    const m = document.getElementById('marker-'+id);
+    if (m) m.setAttribute('transform', `translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`);
+  });
+}
+</script>
+</body>
+</html>
