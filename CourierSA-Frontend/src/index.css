@@ -1,0 +1,185 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-[#F6FAFF] text-[#334155];
+    margin: 0;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-[#1E63E9];
+  }
+}
+
+@layer components {
+  /* ── Status pills with left-border slash — the CourierSA signature ── */
+  .status-pill {
+    @apply inline-flex items-center text-[11px] font-bold px-2.5 py-1 rounded-md
+           border-l-[3px] tracking-wider uppercase;
+  }
+  .status-delivered  { @apply status-pill bg-[#10B981]/10 text-[#10B981] border-[#10B981]; }
+  .status-failed     { @apply status-pill bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]; }
+  .status-transit    { @apply status-pill bg-[#1E63E9]/10 text-[#1E63E9] border-[#1E63E9]; }
+  .status-pending    { @apply status-pill bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]; }
+  .status-approved   { @apply status-pill bg-[#10B981]/10 text-[#10B981] border-[#10B981]; }
+  .status-warehouse  { @apply status-pill bg-[#0A3D91]/10 text-[#0A3D91] border-[#0A3D91]; }
+  .status-cancelled  { @apply status-pill bg-[#94A3B8]/10 text-[#64748B] border-[#94A3B8]; }
+  .status-draft      { @apply status-pill bg-[#F6FAFF]    text-[#64748B] border-[#D8E4F5]; }
+
+  /* ── Cards ── */
+  .card {
+    @apply bg-white rounded-[20px] shadow-[0_20px_50px_-15px_rgba(10,61,145,0.08)] border border-[#D8E4F5] p-6;
+  }
+  .card-header {
+    @apply flex items-center justify-between mb-5 pb-4 border-b border-[#D8E4F5];
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold
+           rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed
+           focus-visible:ring-2 focus-visible:ring-offset-2;
+  }
+  .btn-primary {
+    @apply btn bg-[#0A3D91] text-white hover:bg-[#082F6D] shadow-[0_8px_24px_rgba(10,61,145,0.25)]
+           focus-visible:ring-[#0A3D91] active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn bg-white text-[#172554] border border-[#D8E4F5]
+           hover:border-[#1E63E9] hover:bg-[#F6FAFF] focus-visible:ring-[#1E63E9];
+  }
+  .btn-danger {
+    @apply btn bg-[#EF4444] text-white hover:bg-[#DC2626] shadow-[0_8px_24px_rgba(239,68,68,0.25)] 
+           focus-visible:ring-[#EF4444] active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply btn text-[#64748B] hover:text-[#0A3D91] hover:bg-[#DCEEFF]/50 focus-visible:ring-[#1E63E9];
+  }
+  .btn-sm {
+    @apply px-4 py-2 text-xs rounded-lg;
+  }
+
+  /* ── Form inputs ── */
+  .input {
+    @apply w-full px-4 py-2.5 text-sm font-medium border border-[#D8E4F5] rounded-xl bg-white
+           placeholder:text-[#94A3B8] placeholder:font-normal text-[#172554]
+           focus:outline-none focus:border-[#1E63E9] focus:ring-4 focus:ring-[#1E63E9]/20
+           disabled:bg-[#F6FAFF] disabled:text-[#94A3B8] transition-all shadow-sm;
+  }
+  .input-error {
+    @apply border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20;
+  }
+  .label {
+    @apply block text-sm font-semibold text-[#172554] mb-1.5;
+  }
+  .field-error {
+    @apply text-xs font-medium text-[#EF4444] mt-1.5;
+  }
+
+  /* ── Stat cards ── */
+  .stat-card {
+    @apply card flex items-start gap-4 hover:-translate-y-1 transition-transform duration-300 hover:border-[#1E63E9];
+  }
+  .stat-icon {
+    @apply w-12 h-12 rounded-xl bg-[#DCEEFF] flex items-center justify-center flex-shrink-0 text-[#0A3D91];
+  }
+
+  /* ── Table ── */
+  .table-container {
+    @apply w-full overflow-x-auto rounded-[20px] border border-[#D8E4F5] bg-white shadow-sm;
+  }
+  .table {
+    @apply w-full text-sm text-left border-collapse;
+  }
+  .table th {
+    @apply px-5 py-4 text-xs font-semibold text-[#64748B] uppercase tracking-wider
+           bg-[#F6FAFF] border-b border-[#D8E4F5];
+  }
+  .table td {
+    @apply px-5 py-4 border-b border-[#D8E4F5] text-[#334155];
+  }
+  .table tr:last-child td { @apply border-b-0; }
+  .table tr:hover td { @apply bg-[#F6FAFF]/60; }
+
+  /* ── Sidebar nav item ── */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+           text-[#93B4E8] hover:text-white hover:bg-white/10
+           transition-all duration-200 cursor-pointer;
+  }
+  .nav-item-active {
+    @apply text-white bg-[#1E63E9]/20 border-l-2 border-[#1E63E9] pl-[10px];
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    @apply flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8;
+  }
+  .page-title {
+    @apply text-2xl font-bold text-[#172554] tracking-tight;
+  }
+  .page-subtitle {
+    @apply text-sm text-[#64748B] mt-1 leading-relaxed;
+  }
+
+ /* ── Tracking timeline ── */
+  .timeline-item {
+    @apply relative pl-10 pb-8 last:pb-0;
+  }
+  .timeline-item::before {
+    content: '';
+    @apply absolute left-[19px] top-8 bottom-0 w-[2px] bg-[#D8E4F5] transition-colors;
+  }
+  .timeline-item:hover::before {
+    @apply bg-[#1E63E9]/20;
+  }
+  .timeline-dot {
+    @apply absolute left-1.5 top-1 w-8 h-8 rounded-full border-[3px] border-white
+           flex items-center justify-center shadow-sm z-10;
+  }
+} /* <-- MISSING BRACKET ADDED HERE */
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #D8E4F5 transparent;
+  }
+  .tracking-number {
+    @apply font-mono text-sm font-semibold text-[#172554] bg-white border border-[#D8E4F5]
+           px-2.5 py-1 rounded-lg;
+  }
+}
+
+/* ── Leaflet overrides — keep z-index below modals ── */
+.leaflet-container {
+  font-family: 'Inter', system-ui, sans-serif;
+  z-index: 0;
+}
+.leaflet-pane         { z-index: 1 !important; }
+.leaflet-tile-pane    { z-index: 1 !important; }
+.leaflet-overlay-pane { z-index: 2 !important; }
+.leaflet-marker-pane  { z-index: 3 !important; }
+.leaflet-tooltip-pane { z-index: 4 !important; }
+.leaflet-popup-pane   { z-index: 5 !important; }
+.leaflet-control      { z-index: 6 !important; }
+.leaflet-popup-content-wrapper {
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 30px -10px rgba(10,61,145,0.2) !important;
+  border: 1px solid #D8E4F5;
+  padding: 0;
+}
+.leaflet-popup-content { margin: 0; }
+.leaflet-popup-tip-container { display: none; }

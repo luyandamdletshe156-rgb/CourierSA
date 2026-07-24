@@ -1,0 +1,144 @@
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: '/api',
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+})
+
+// ── Request: attach JWT ───────────────────────────────────────────────────────
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('accessToken')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// ── Response: handle 401, extract data envelope ───────────────────────────────
+api.interceptors.response.use(
+  response => response.data,   // unwrap { success, data, message }
+  async error => {
+    const original = error.config
+
+    if (error.response?.status === 401 && !original._retry) {
+      original._retry = true
+      try {
+        const refreshToken = localStorage.getItem('refreshToken')
+        if (!refreshToken) throw new Error('No refresh token')
+
+        const res = await axios.post('/api/auth/refresh', { refreshToken })
+        const { accessToken, refreshToken: newRefresh } = res.data.data
+
+        localStorage.setItem('accessToken',  accessToken)
+        localStorage.setItem('refreshToken', newRefresh)
+        original.headers.Authorization = `Bearer ${accessToken}`
+        return api(original)
+      } catch {
+        localStorage.clear()
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+    }
+
+    // Shape error for consistent handling in components
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.errors?.[0] ||
+      error.message ||
+      'An unexpected error occurred'
+
+    return Promise.reject({ message, status: error.response?.status, raw: error })
+  }
+)
+
+export default api
+
+// ── Typed API modules ─────────────────────────────────────────────────────────
+export const authApi = {
+  login:   dto    => api.post('/auth/login',   dto),
+  register:dto    => api.post('/auth/register', dto),
+  refresh: token  => api.post('/auth/refresh', { refreshToken: token }),
+  revoke:  ()     => api.post('/auth/revoke'),
+  me:      ()     => api.get('/auth/me'),
+}
+
+export const parcelApi = {
+  list:       params => api.get('/parcels', { params }),
+  get:        id     => api.get(`/parcels/${id}`),
+  book:       dto    => api.post('/parcels', dto),
+  approve:    id     => api.put(`/parcels/${id}/approve`),
+  reject:     (id, reason) => api.put(`/parcels/${id}/reject`, { reason }),
+  checkIn:    (id, warehouseLocation) =>
+                         api.put(`/parcels/${id}/checkin`, { warehouseLocation }),
+  dispatch:   (id, driverId) =>
+                         api.put(`/parcels/${id}/dispatch`, { driverId }),
+  bulkUpload: file   => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/parcels/bulk-upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+}
+
+export const trackingApi = {
+  track: trackingNumber => api.get(`/tracking/${trackingNumber}`),
+}
+
+export const quoteApi = {
+  calculate: dto => api.post('/quotes/calculate', dto),
+  get:       id  => api.get(`/quotes/${id}`),
+}
+
+export const walletApi = {
+  balance:      ()     => api.get('/wallet/balance'),
+  transactions: params => api.get('/wallet/transactions', { params }),
+  topUp:        dto    => api.post('/wallet/topup', dto),
+}
+
+export const bulkUploadApi = {
+  preview:       file      => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/bulk-upload/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  upload:        file      => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/bulk-upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  history:       ()        => api.get('/bulk-upload/history'),
+  historyDetail: uploadId  => api.get(`/bulk-upload/history/${uploadId}`),
+  template:      ()        => '/api/bulk-upload/template',  // direct URL for window.open
+}
+
+export const deliveryApi = {
+  myDeliveries: ()  => api.get('/deliveries/my'),
+  markDelivered:(id, dto) => api.put(`/deliveries/${id}/delivered`, dto),
+  markFailed:   (id, dto) => api.put(`/deliveries/${id}/failed`, dto),
+  updateLocation:(id, lat, lng) =>
+                    api.put(`/deliveries/${id}/location`, { latitude: lat, longitude: lng }),
+}
+
+export const notificationApi = {
+  list:       () => api.get('/notifications'),
+  markRead:   id => api.put(`/notifications/${id}/read`),
+  markAllRead:() => api.put('/notifications/read-all'),
+}
+
+export const adminApi = {
+  users:          ()       => api.get('/admin/users'),
+  suspendUser:    id       => api.put(`/admin/users/${id}/suspend`),
+  auditLogs:      params   => api.get('/admin/audit-logs', { params }),
+  dashboardStats: ()       => api.get('/admin/dashboard/stats'),
+}
+
+export const driverApi = {
+  locations:  ()         => api.get('/drivers/locations'),
+  available:  ()         => api.get('/drivers/available'),
+  updateLocation: (driverId, lat, lng) =>
+    api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
+}
