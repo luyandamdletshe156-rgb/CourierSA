@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 })
@@ -25,7 +27,7 @@ api.interceptors.response.use(
         const refreshToken = localStorage.getItem('refreshToken')
         if (!refreshToken) throw new Error('No refresh token')
 
-        const res = await axios.post('/api/auth/refresh', { refreshToken })
+        const res = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken })
         const { accessToken, refreshToken: newRefresh } = res.data.data
 
         localStorage.setItem('accessToken',  accessToken)
@@ -112,7 +114,7 @@ export const bulkUploadApi = {
   },
   history:       ()        => api.get('/bulk-upload/history'),
   historyDetail: uploadId  => api.get(`/bulk-upload/history/${uploadId}`),
-  template:      ()        => '/api/bulk-upload/template',  // direct URL for window.open
+  template:      ()        => `${API_BASE}/bulk-upload/template`,  // direct URL for window.open
 }
 
 export const deliveryApi = {
