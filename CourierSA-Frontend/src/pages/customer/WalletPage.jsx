@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { StatCard, EmptyState, PageLoader, Pagination, Modal, Alert } from '@/components/ui'
+import CardPaymentForm from '@/components/payment/CardPaymentForm'
 import { walletApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
-import { CreditCard, TrendingUp, TrendingDown, RefreshCw, ArrowUpRight, ArrowDownLeft, Plus, Landmark } from 'lucide-react'
+import { CreditCard, TrendingUp, TrendingDown, RefreshCw, ArrowUpRight, ArrowDownLeft, Plus, Landmark, ChevronLeft } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
@@ -110,8 +111,6 @@ export default function WalletPage() {
         )}
       </div>
 
-      {/* Top-up modal — for demo, shows instructions */}
-      {/* Top-up modal */}
       <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} />
     </AppShell>
   )
@@ -122,10 +121,12 @@ const TOPUP_AMOUNTS = [100, 250, 500, 1000, 2500, 5000]
 
 function TopUpModal({ open, onClose }) {
   const queryClient = useQueryClient()
+  const [step, setStep]       = useState('amount')   // 'amount' | 'card' | 'eft'
   const [amount, setAmount]   = useState(500)
   const [custom, setCustom]   = useState('')
-  const [method, setMethod]   = useState('Card')
   const [error, setError]     = useState('')
+
+  const finalAmount = custom ? Number(custom) : amount
 
   const topUpMutation = useMutation({
     mutationFn: (dto) => walletApi.selfTopUp(dto),
@@ -137,93 +138,146 @@ function TopUpModal({ open, onClose }) {
     onError: (err) => setError(err.message),
   })
 
-  const finalAmount = custom ? Number(custom) : amount
-
   const handleClose = () => {
-    setAmount(500); setCustom(''); setMethod('Card'); setError('')
+    setStep('amount'); setAmount(500); setCustom(''); setError('')
     onClose()
   }
 
-  const submit = () => {
+  const goToMethod = (method) => {
     setError('')
     if (!finalAmount || finalAmount <= 0) {
       setError('Enter a valid amount.')
       return
     }
-    topUpMutation.mutate({ amount: finalAmount, method })
+    setStep(method)
+  }
+
+  const submitCard = (cardToken) => {
+    setError('')
+    topUpMutation.mutate({ amount: finalAmount, method: 'Card', cardToken })
+  }
+
+  const submitEft = () => {
+    setError('')
+    topUpMutation.mutate({ amount: finalAmount, method: 'EFT' })
   }
 
   return (
     <Modal open={open} onClose={handleClose} title="Top up wallet" size="sm">
-      <div className="space-y-4">
-        <div>
-          <label className="label">Amount</label>
-          <div className="grid grid-cols-3 gap-2 mb-2">
-            {TOPUP_AMOUNTS.map(amt => (
-              <button
-                key={amt}
-                type="button"
-                onClick={() => { setAmount(amt); setCustom('') }}
-                className={clsx(
-                  'border rounded-xl p-3 text-center text-sm font-bold font-mono transition-colors',
-                  !custom && amount === amt
-                    ? 'border-[#1E63E9] bg-[#DCEEFF]/50 text-[#0A3D91]'
-                    : 'border-[#D8E4F5] text-[#172554] hover:border-[#1E63E9] hover:bg-[#F6FAFF]'
-                )}
-              >
-                {formatZAR(amt)}
-              </button>
-            ))}
+      {step === 'amount' && (
+        <div className="space-y-4">
+          <div>
+            <label className="label">Amount</label>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {TOPUP_AMOUNTS.map(amt => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => { setAmount(amt); setCustom('') }}
+                  className={clsx(
+                    'border rounded-xl p-3 text-center text-sm font-bold font-mono transition-colors',
+                    !custom && amount === amt
+                      ? 'border-[#1E63E9] bg-[#DCEEFF]/50 text-[#0A3D91]'
+                      : 'border-[#D8E4F5] text-[#172554] hover:border-[#1E63E9] hover:bg-[#F6FAFF]'
+                  )}
+                >
+                  {formatZAR(amt)}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              placeholder="Custom amount"
+              className="input font-mono"
+              value={custom}
+              onChange={e => setCustom(e.target.value)}
+            />
           </div>
-          <input
-            type="number"
-            min="1"
-            step="0.01"
-            placeholder="Custom amount"
-            className="input font-mono"
-            value={custom}
-            onChange={e => setCustom(e.target.value)}
+
+          <div>
+            <label className="label">Payment method</label>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => goToMethod('card')}
+                className="w-full flex items-center gap-3 border-2 border-[#D8E4F5] rounded-xl px-4 py-3.5 text-left hover:border-[#1E63E9]/50 hover:bg-[#F6FAFF] transition-colors"
+              >
+                <CreditCard size={18} className="text-[#0A3D91]" />
+                <div>
+                  <p className="text-sm font-bold text-[#172554]">Card</p>
+                  <p className="text-xs text-[#64748B] font-medium">Simulated instant payment (demo)</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => goToMethod('eft')}
+                className="w-full flex items-center gap-3 border-2 border-[#D8E4F5] rounded-xl px-4 py-3.5 text-left hover:border-[#1E63E9]/50 hover:bg-[#F6FAFF] transition-colors"
+              >
+                <Landmark size={18} className="text-[#0A3D91]" />
+                <div>
+                  <p className="text-sm font-bold text-[#172554]">EFT</p>
+                  <p className="text-xs text-[#64748B] font-medium">Simulated instant payment (demo)</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {error && <Alert type="error" message={error} />}
+        </div>
+      )}
+
+      {step === 'card' && (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setStep('amount')}
+            className="text-xs text-[#0A3D91] hover:text-[#1E63E9] font-bold flex items-center gap-1"
+          >
+            <ChevronLeft size={14} /> Back
+          </button>
+          <CardPaymentForm
+            amount={finalAmount}
+            submitting={topUpMutation.isPending}
+            submitLabel={`Top up ${formatZAR(finalAmount)}`}
+            onSubmit={submitCard}
           />
+          {error && <Alert type="error" message={error} />}
         </div>
+      )}
 
-        <div>
-          <label className="label">Payment method</label>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { value: 'Card', label: 'Card' },
-              { value: 'EFT',  label: 'EFT' },
-            ].map(m => (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => setMethod(m.value)}
-                className={clsx(
-                  'flex items-center justify-center gap-2 border-2 rounded-xl py-3 text-sm font-bold transition-colors',
-                  method === m.value
-                    ? 'border-[#1E63E9] bg-[#DCEEFF]/40 text-[#0A3D91]'
-                    : 'border-[#D8E4F5] text-[#64748B] hover:border-[#1E63E9]/50'
-                )}
-              >
-                <Landmark size={15} /> {m.label}
-              </button>
-            ))}
+      {step === 'eft' && (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setStep('amount')}
+            className="text-xs text-[#0A3D91] hover:text-[#1E63E9] font-bold flex items-center gap-1"
+          >
+            <ChevronLeft size={14} /> Back
+          </button>
+          <div className="bg-[#F6FAFF] border border-[#D8E4F5] rounded-xl p-4 text-sm text-[#334155] space-y-2">
+            <p className="font-bold text-[#172554]">EFT top-up</p>
+            <p className="text-xs text-[#64748B] leading-relaxed">
+              This is a simulated EFT for demo purposes — your wallet is credited instantly
+              on confirmation, no real bank transfer is made.
+            </p>
           </div>
+          <div className="flex justify-between text-sm font-semibold px-1">
+            <span className="text-[#64748B]">Amount</span>
+            <span className="font-bold font-mono text-[#172554]">{formatZAR(finalAmount)}</span>
+          </div>
+          {error && <Alert type="error" message={error} />}
+          <button
+            type="button"
+            onClick={submitEft}
+            disabled={topUpMutation.isPending}
+            className="btn-primary w-full justify-center"
+          >
+            {topUpMutation.isPending ? 'Processing…' : `Confirm ${formatZAR(finalAmount)}`}
+          </button>
         </div>
-
-        <div className="bg-[#DCEEFF]/50 border border-[#D8E4F5] rounded-xl p-3 text-xs text-[#0A3D91] font-medium leading-relaxed">
-          This is a simulated payment for demo purposes — your wallet is credited instantly, no real charge is made.
-        </div>
-
-        {error && <Alert type="error" message={error} />}
-
-        <button
-          className="btn-primary w-full justify-center"
-          onClick={submit}
-          disabled={topUpMutation.isPending}
-        >
-          {topUpMutation.isPending ? 'Processing…' : `Top up ${formatZAR(finalAmount || 0)}`}
-        </button>
-      </div>
+      )}
     </Modal>
   )
 }

@@ -66,6 +66,7 @@ public class QuotesController : CourierSABaseController
 }
 
 // ── Wallet Controller ─────────────────────────────────────────────────────────
+// ── Wallet Controller ─────────────────────────────────────────────────────────
 [Route("api/wallet")]
 [Authorize]
 public class WalletController : CourierSABaseController
@@ -85,9 +86,9 @@ public class WalletController : CourierSABaseController
 
         return Ok(new
         {
-            balanceZAR     = customer.WalletBalanceZAR,
-            accountType    = customer.AccountType.ToString(),
-            lastUpdated    = customer.UpdatedAt
+            balanceZAR = customer.WalletBalanceZAR,
+            accountType = customer.AccountType.ToString(),
+            lastUpdated = customer.UpdatedAt
         });
     }
 
@@ -125,33 +126,71 @@ public class WalletController : CourierSABaseController
     }
 
     /// <summary>
-    /// POST /api/wallet/topup — Admin/demo: credit wallet
-    /// In production this would be called by a payment gateway webhook.
+    /// POST /api/wallet/topup/self — Customer tops up their own wallet.
+    /// Simulated payment for demo purposes (Card/EFT) — credits instantly, no real charge.
     /// </summary>
-    [HttpPost("topup")]
-    public async Task<IActionResult> TopUp(
-        [FromBody] TopUpDto dto, CancellationToken ct)
+    [HttpPost("topup/self")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> SelfTopUp(
+        [FromBody] SelfTopUpDto dto, CancellationToken ct)
     {
         if (dto.Amount <= 0)
             throw new BadRequestException("Top-up amount must be greater than zero.");
+
+        var customer = await _uow.Query<CustomerProfile>()
+            .Query()
+            .FirstOrDefaultAsync(c => c.UserId == CurrentUserId, ct)
+            ?? throw new NotFoundException("Customer profile not found.");
+
+        customer.WalletBalanceZAR += dto.Amount;
+        customer.UpdatedAt = DateTime.UtcNow;
+
+        await _uow.WalletTransactions.AddAsync(new WalletTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = CurrentUserId,
+            Type = WalletTransactionType.Credit,
+            AmountZAR = dto.Amount,
+            BalanceAfterZAR = customer.WalletBalanceZAR,
+            Description = dto.Description ?? $"Wallet top-up ({dto.PaymentMethod ?? "Card"})",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        }, ct);
+
+        await _uow.SaveChangesAsync(ct);
+        return Ok(new { newBalance = customer.WalletBalanceZAR }, "Wallet credited");
+    }
+
+    /// <summary>
+    /// POST /api/wallet/topup — Admin only: credit any user's wallet.
+    /// In production this would be called by a payment gateway webhook instead.
+    /// </summary>
+    [HttpPost("topup")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> AdminTopUp(
+        [FromBody] AdminTopUpDto dto, CancellationToken ct)
+    {
+        if (dto.Amount <= 0)
+            throw new BadRequestException("Top-up amount must be greater than zero.");
+
         var customer = await _uow.Query<CustomerProfile>()
             .Query()
             .FirstOrDefaultAsync(c => c.UserId == dto.UserId, ct)
             ?? throw new NotFoundException("Customer not found.");
 
         customer.WalletBalanceZAR += dto.Amount;
-        customer.UpdatedAt         = DateTime.UtcNow;
+        customer.UpdatedAt = DateTime.UtcNow;
 
         await _uow.WalletTransactions.AddAsync(new WalletTransaction
         {
-            Id              = Guid.NewGuid(),
-            UserId          = dto.UserId,
-            Type            = WalletTransactionType.Credit,
-            AmountZAR       = dto.Amount,
+            Id = Guid.NewGuid(),
+            UserId = dto.UserId,
+            Type = WalletTransactionType.Credit,
+            AmountZAR = dto.Amount,
             BalanceAfterZAR = customer.WalletBalanceZAR,
-            Description     = dto.Description ?? "Admin top-up",
-            CreatedAt       = DateTime.UtcNow,
-            UpdatedAt       = DateTime.UtcNow,
+            Description = dto.Description ?? "Admin top-up",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         }, ct);
 
         await _uow.SaveChangesAsync(ct);
@@ -159,4 +198,6 @@ public class WalletController : CourierSABaseController
     }
 }
 
-public record TopUpDto(Guid UserId, decimal Amount, string? Description);
+// ── Wallet DTOs ────────────────────────────────────────────────────────────────
+public record SelfTopUpDto(decimal Amount, string? PaymentMethod, string? Description);
+public record AdminTopUpDto(Guid UserId, decimal Amount, string? Description);

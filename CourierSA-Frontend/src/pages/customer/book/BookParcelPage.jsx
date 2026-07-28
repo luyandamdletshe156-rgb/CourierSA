@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { z } from 'zod'
+import CardPaymentForm from '@/components/payment/CardPaymentForm'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { Alert, Spinner } from '@/components/ui'
@@ -463,7 +464,8 @@ function Step3Quote({ onNext, onBack }) {
 
   const [quote,         setQuote]         = useState(null)
   const [quoteError,    setQuoteError]    = useState('')
-const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
+  const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
+  const [cardToken,     setCardToken]     = useState(null)
 
   const { balance: walletBalance, isLoading: walletLoading } = useWallet()
 
@@ -494,6 +496,17 @@ const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
   }
 
   const canPayWallet = walletBalance >= (quote?.totalAmountZAR ?? 0)
+
+  // reset card capture if the method changes away from Card
+  const selectMethod = (method) => {
+    setPaymentMethod(method)
+    if (method !== 'Card') setCardToken(null)
+  }
+
+  const proceedWithCard = (token) => {
+    setCardToken(token)
+    onNext({ quote, paymentMethod: 'Card', cardToken: token })
+  }
 
   return (
     <div className="space-y-5">
@@ -601,91 +614,106 @@ const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
           </div>
 
           {/* Payment method */}
-{/* Payment method */}
-<div className="card">
-  <div className="card-header">
-    <h3 className="text-sm font-bold text-[#172554]">Payment</h3>
-  </div>
-  <div className="space-y-3">
-    <label className={clsx(
-      'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
-      canPayWallet
-        ? paymentMethod === 'Wallet'
-          ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30'
-          : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
-        : 'border-[#D8E4F5] bg-[#F6FAFF] opacity-60 cursor-not-allowed'
-    )}>
-      <input
-        type="radio" name="payMethod" className="accent-[#0A3D91]"
-        checked={paymentMethod === 'Wallet'} disabled={!canPayWallet}
-        onChange={() => setPaymentMethod('Wallet')}
-      />
-      <div className="flex-1">
-        <p className="text-sm font-bold text-[#172554]">Pay from wallet</p>
-        <p className="text-xs text-[#64748B] font-semibold mt-1">
-          Balance:{' '}
-          {walletLoading
-            ? <span className="text-[#94A3B8]">Loading…</span>
-            : <span className={clsx('font-bold font-mono', canPayWallet ? 'text-[#10B981]' : 'text-[#EF4444]')}>
-                {formatZAR(walletBalance)}
-              </span>}
-          {!walletLoading && !canPayWallet && ' — insufficient funds'}
-        </p>
-      </div>
-    </label>
+          <div className="card">
+            <div className="card-header">
+              <h3 className="text-sm font-bold text-[#172554]">Payment</h3>
+            </div>
+            <div className="space-y-3">
+              <label className={clsx(
+                'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
+                canPayWallet
+                  ? paymentMethod === 'Wallet'
+                    ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30'
+                    : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
+                  : 'border-[#D8E4F5] bg-[#F6FAFF] opacity-60 cursor-not-allowed'
+              )}>
+                <input
+                  type="radio" name="payMethod" className="accent-[#0A3D91]"
+                  checked={paymentMethod === 'Wallet'} disabled={!canPayWallet}
+                  onChange={() => selectMethod('Wallet')}
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-[#172554]">Pay from wallet</p>
+                  <p className="text-xs text-[#64748B] font-semibold mt-1">
+                    Balance:{' '}
+                    {walletLoading
+                      ? <span className="text-[#94A3B8]">Loading…</span>
+                      : <span className={clsx('font-bold font-mono', canPayWallet ? 'text-[#10B981]' : 'text-[#EF4444]')}>
+                          {formatZAR(walletBalance)}
+                        </span>}
+                    {!walletLoading && !canPayWallet && ' — insufficient funds'}
+                  </p>
+                </div>
+              </label>
 
-    <label className={clsx(
-      'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
-      paymentMethod === 'Card' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
-    )}>
-      <input type="radio" name="payMethod" className="accent-[#0A3D91]"
-        checked={paymentMethod === 'Card'} onChange={() => setPaymentMethod('Card')} />
-      <div>
-        <p className="text-sm font-bold text-[#172554]">Pay by card</p>
-        <p className="text-xs text-[#64748B] font-medium mt-1">Simulated instant payment (demo)</p>
-      </div>
-    </label>
+              <label className={clsx(
+                'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
+                paymentMethod === 'Card' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
+              )}>
+                <input type="radio" name="payMethod" className="accent-[#0A3D91]"
+                  checked={paymentMethod === 'Card'} onChange={() => selectMethod('Card')} />
+                <div>
+                  <p className="text-sm font-bold text-[#172554]">Pay by card</p>
+                  <p className="text-xs text-[#64748B] font-medium mt-1">Simulated instant payment (demo)</p>
+                </div>
+              </label>
 
-    <label className={clsx(
-      'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
-      paymentMethod === 'EFT' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
-    )}>
-      <input type="radio" name="payMethod" className="accent-[#0A3D91]"
-        checked={paymentMethod === 'EFT'} onChange={() => setPaymentMethod('EFT')} />
-      <div>
-        <p className="text-sm font-bold text-[#172554]">Pay by EFT</p>
-        <p className="text-xs text-[#64748B] font-medium mt-1">Simulated instant payment (demo)</p>
-      </div>
-    </label>
+              <label className={clsx(
+                'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
+                paymentMethod === 'EFT' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
+              )}>
+                <input type="radio" name="payMethod" className="accent-[#0A3D91]"
+                  checked={paymentMethod === 'EFT'} onChange={() => selectMethod('EFT')} />
+                <div>
+                  <p className="text-sm font-bold text-[#172554]">Pay by EFT</p>
+                  <p className="text-xs text-[#64748B] font-medium mt-1">Simulated instant payment (demo)</p>
+                </div>
+              </label>
 
-    <label className={clsx(
-      'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
-      paymentMethod === 'CashOnCollection' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
-    )}>
-      <input type="radio" name="payMethod" className="accent-[#0A3D91]"
-        checked={paymentMethod === 'CashOnCollection'} onChange={() => setPaymentMethod('CashOnCollection')} />
-      <div>
-        <p className="text-sm font-bold text-[#172554]">Cash on collection</p>
-        <p className="text-xs text-[#64748B] font-medium mt-1">Pay via cash when parcel is collected</p>
-      </div>
-    </label>
-  </div>
-</div>
- </>
+              <label className={clsx(
+                'flex items-center gap-4.5 px-4 py-4 rounded-xl border-2 cursor-pointer transition-all duration-300',
+                paymentMethod === 'CashOnCollection' ? 'border-[#1E63E9]/30 bg-[#DCEEFF]/30' : 'border-[#D8E4F5] hover:border-[#1E63E9]/40'
+              )}>
+                <input type="radio" name="payMethod" className="accent-[#0A3D91]"
+                  checked={paymentMethod === 'CashOnCollection'} onChange={() => selectMethod('CashOnCollection')} />
+                <div>
+                  <p className="text-sm font-bold text-[#172554]">Cash on collection</p>
+                  <p className="text-xs text-[#64748B] font-medium mt-1">Pay via cash when parcel is collected</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* Card capture — only shown when Card is selected */}
+          {paymentMethod === 'Card' && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="text-sm font-bold text-[#172554]">Card details</h3>
+              </div>
+              <CardPaymentForm
+                amount={quote.totalAmountZAR}
+                submitLabel="Continue to review"
+                onSubmit={proceedWithCard}
+              />
+            </div>
+          )}
+        </>
       )}
 
       <div className="flex justify-between pt-2">
         <button type="button" onClick={onBack} className="btn-secondary">
           <ChevronLeft size={16} /> Back
         </button>
-        <button
-     type="button"
-    onClick={() => onNext({ quote, paymentMethod })}
-    disabled={!quote}
-    className="btn-primary"
-    >
-     Review booking <ChevronRight size={16} />
-       </button>
+        {paymentMethod !== 'Card' && (
+          <button
+            type="button"
+            onClick={() => onNext({ quote, paymentMethod })}
+            disabled={!quote}
+            className="btn-primary"
+          >
+            Review booking <ChevronRight size={16} />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -740,13 +768,13 @@ function Step4Confirm({ onBack, onSubmit, quoteData, isSubmitting, error }) {
         </Section>
 
         {quoteData?.quote && (
-  <Section title="Payment">
-    <Row label="Total"  value={formatZAR(quoteData.quote.totalAmountZAR)} />
-    <Row label="Method" value={
-      { Wallet: 'Wallet debit', Card: 'Card (instant)', EFT: 'EFT (instant)', CashOnCollection: 'Cash on collection' }[quoteData.paymentMethod]
-    } />
-  </Section>
-)}
+          <Section title="Payment">
+            <Row label="Total"  value={formatZAR(quoteData.quote.totalAmountZAR)} />
+            <Row label="Method" value={
+              { Wallet: 'Wallet debit', Card: 'Card (instant)', EFT: 'EFT (instant)', CashOnCollection: 'Cash on collection' }[quoteData.paymentMethod]
+            } />
+          </Section>
+        )}
       </div>
 
       {/* Legal note */}
@@ -833,15 +861,15 @@ export default function BookParcelPage() {
     },
   })
 
- const bookMutation = useMutation({
-  mutationFn: (dto) => parcelApi.book(dto),
-  onSuccess: (res) => {
-    setSuccess(res.data)
-    queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
-    queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
-  },
-  onError: (err) => setBookError(err.message),
-})
+  const bookMutation = useMutation({
+    mutationFn: (dto) => parcelApi.book(dto),
+    onSuccess: (res) => {
+      setSuccess(res.data)
+      queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
+    },
+    onError: (err) => setBookError(err.message),
+  })
 
   const handleNext = useCallback((extraData) => {
     if (step === 3) setQuoteData(extraData)
@@ -874,8 +902,9 @@ export default function BookParcelPage() {
                               heightCm: Number(data.dimensions.heightCm),
                             }
                           : null,
-      quoteId:          quoteData?.quote?.id ?? null,
+      quoteId: quoteData?.quote?.quoteId ?? null,
       paymentMethod:    quoteData?.paymentMethod ?? 'CashOnCollection',
+      cardToken:        quoteData?.cardToken ?? null,
     })
   }
 

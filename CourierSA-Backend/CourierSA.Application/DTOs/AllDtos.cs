@@ -45,7 +45,8 @@ namespace CourierSA.Application.DTOs.Parcels
         bool InsuranceRequired,
         Guid? QuoteId,
         PaymentMethod PaymentMethod,   // ← was: bool PayFromWallet
-        string? ClientReference = null
+        string? ClientReference = null,
+         string? CardToken = null
     );
 
     public record CreateAddressDto(
