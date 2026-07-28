@@ -87,7 +87,7 @@ public class ParcelService : IParcelService
             {
                 quote = await _uow.Quotes.GetByIdAsync(calculatedQuote.QuoteId.Value, ct);
             }
-        }
+        } 
 
         // 2. Generate Tracking Number & Addresses
         var trackingNumber = await _uow.Parcels.GenerateTrackingNumberAsync();
@@ -139,16 +139,29 @@ public class ParcelService : IParcelService
             _uow.Quotes.Update(quote);
         }
 
-        // 5. Debit Wallet
-        if (dto.PayFromWallet)
+        parcel.PaymentMethod = dto.PaymentMethod;
+
+        switch (dto.PaymentMethod)
         {
-            if (parcel.QuoteAmountZAR is null)
-                throw new BadRequestException("Cannot pay from wallet: No quote amount provided.");
+            case PaymentMethod.Wallet:
+                if (parcel.QuoteAmountZAR is null)
+                    throw new BadRequestException("Cannot pay from wallet: No quote amount provided.");
+                if (customer.WalletBalanceZAR < parcel.QuoteAmountZAR)
+                    throw new BadRequestException("Insufficient wallet balance to book this parcel.");
+                await DebitWalletAsync(customer, parcel, ct);
+                parcel.IsPaid = true;
+                parcel.PaidAt = DateTime.UtcNow;
+                break;
 
-            if (customer.WalletBalanceZAR < parcel.QuoteAmountZAR)
-                throw new BadRequestException("Insufficient wallet balance to book this parcel.");
+            case PaymentMethod.Card:
+            case PaymentMethod.EFT:
+                parcel.IsPaid = true;
+                parcel.PaidAt = DateTime.UtcNow;
+                break;
 
-            await DebitWalletAsync(customer, parcel, ct);
+            case PaymentMethod.CashOnCollection:
+                parcel.IsPaid = false;
+                break;
         }
 
         // 6. Save & Notify

@@ -95,6 +95,7 @@ export const walletApi = {
   balance:      ()     => api.get('/wallet/balance'),
   transactions: params => api.get('/wallet/transactions', { params }),
   topUp:        dto    => api.post('/wallet/topup', dto),
+  selfTopUp:    dto    => api.post('/wallet/topup/self', dto),
 }
 
 export const bulkUploadApi = {

@@ -31,24 +31,24 @@ public record AuthResponseDto(
 
 namespace CourierSA.Application.DTOs.Parcels
 {
-public record CreateParcelDto(
-    CreateAddressDto     PickupAddress,
-    CreateAddressDto     DeliveryAddress,
-    ServiceType          ServiceType,
-    decimal              WeightKg,
-    ParcelDimensionsDto? Dimensions,
-    decimal?             DeclaredValueZAR,
-    string?              Description,
-    string?              SpecialInstructions,
-    bool                 IsFragile,
-    bool                 RequiresSignature,
-    bool                 InsuranceRequired,
-    Guid?                QuoteId,
-    bool                 PayFromWallet,
-     string? ClientReference = null
-);
+    public record CreateParcelDto(
+        CreateAddressDto PickupAddress,
+        CreateAddressDto DeliveryAddress,
+        ServiceType ServiceType,
+        decimal WeightKg,
+        ParcelDimensionsDto? Dimensions,
+        decimal? DeclaredValueZAR,
+        string? Description,
+        string? SpecialInstructions,
+        bool IsFragile,
+        bool RequiresSignature,
+        bool InsuranceRequired,
+        Guid? QuoteId,
+        PaymentMethod PaymentMethod,   // ← was: bool PayFromWallet
+        string? ClientReference = null
+    );
 
-public record CreateAddressDto(
+    public record CreateAddressDto(
     string     RecipientName,
     string     RecipientPhone,
     string?    RecipientEmail,

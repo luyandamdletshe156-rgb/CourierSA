@@ -96,6 +96,10 @@ public class Parcel : BaseEntity
     public ParcelAddress?   DeliveryAddress { get; set; }
     public Delivery?        ActiveDelivery  { get; set; }
     public ICollection<TrackingEvent> TrackingEvents { get; set; } = [];
+
+    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;   // ← add
+    public bool IsPaid { get; set; }                                     // ← add
+    public DateTime? PaidAt { get; set; }                                     // ← add
 }
 
 public class ParcelDimensions

@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import { StatCard, EmptyState, PageLoader, Pagination, Modal } from '@/components/ui'
+import { StatCard, EmptyState, PageLoader, Pagination, Modal, Alert } from '@/components/ui'
 import { walletApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
-import { CreditCard, TrendingUp, TrendingDown, RefreshCw, ArrowUpRight, ArrowDownLeft, Plus } from 'lucide-react'
+import { CreditCard, TrendingUp, TrendingDown, RefreshCw, ArrowUpRight, ArrowDownLeft, Plus, Landmark } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
@@ -111,29 +111,119 @@ export default function WalletPage() {
       </div>
 
       {/* Top-up modal — for demo, shows instructions */}
-      <Modal open={topUpOpen} onClose={() => setTopUpOpen(false)} title="Top up wallet" size="sm">
-        <div className="space-y-4">
-          <div className="bg-[#DCEEFF]/50 border border-[#D8E4F5] rounded-xl p-4 text-sm text-[#0A3D91]">
-            <p className="font-bold mb-1">Payment gateway integration</p>
-            <p className="text-xs font-medium leading-relaxed">
-              In production this connects to PayFast or Peach Payments. For the demo, an administrator can credit your wallet via the Admin panel.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[100, 250, 500, 1000, 2500, 5000].map(amt => (
-              <div key={amt} className="border border-[#D8E4F5] rounded-xl p-3 text-center text-sm font-bold font-mono text-[#172554] hover:border-[#1E63E9] hover:bg-[#F6FAFF] cursor-pointer transition-colors">
+      {/* Top-up modal */}
+      <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} />
+    </AppShell>
+  )
+}
+
+// ── Top-up modal ───────────────────────────────────────────────────────────────
+const TOPUP_AMOUNTS = [100, 250, 500, 1000, 2500, 5000]
+
+function TopUpModal({ open, onClose }) {
+  const queryClient = useQueryClient()
+  const [amount, setAmount]   = useState(500)
+  const [custom, setCustom]   = useState('')
+  const [method, setMethod]   = useState('Card')
+  const [error, setError]     = useState('')
+
+  const topUpMutation = useMutation({
+    mutationFn: (dto) => walletApi.selfTopUp(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
+      handleClose()
+    },
+    onError: (err) => setError(err.message),
+  })
+
+  const finalAmount = custom ? Number(custom) : amount
+
+  const handleClose = () => {
+    setAmount(500); setCustom(''); setMethod('Card'); setError('')
+    onClose()
+  }
+
+  const submit = () => {
+    setError('')
+    if (!finalAmount || finalAmount <= 0) {
+      setError('Enter a valid amount.')
+      return
+    }
+    topUpMutation.mutate({ amount: finalAmount, method })
+  }
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Top up wallet" size="sm">
+      <div className="space-y-4">
+        <div>
+          <label className="label">Amount</label>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {TOPUP_AMOUNTS.map(amt => (
+              <button
+                key={amt}
+                type="button"
+                onClick={() => { setAmount(amt); setCustom('') }}
+                className={clsx(
+                  'border rounded-xl p-3 text-center text-sm font-bold font-mono transition-colors',
+                  !custom && amount === amt
+                    ? 'border-[#1E63E9] bg-[#DCEEFF]/50 text-[#0A3D91]'
+                    : 'border-[#D8E4F5] text-[#172554] hover:border-[#1E63E9] hover:bg-[#F6FAFF]'
+                )}
+              >
                 {formatZAR(amt)}
-              </div>
+              </button>
             ))}
           </div>
-          <p className="text-[11px] font-medium text-[#94A3B8] text-center">
-            Select an amount — payment gateway coming in Phase 2
-          </p>
-          <button className="btn-primary w-full justify-center" onClick={() => setTopUpOpen(false)}>
-            Close
-          </button>
+          <input
+            type="number"
+            min="1"
+            step="0.01"
+            placeholder="Custom amount"
+            className="input font-mono"
+            value={custom}
+            onChange={e => setCustom(e.target.value)}
+          />
         </div>
-      </Modal>
-    </AppShell>
+
+        <div>
+          <label className="label">Payment method</label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { value: 'Card', label: 'Card' },
+              { value: 'EFT',  label: 'EFT' },
+            ].map(m => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setMethod(m.value)}
+                className={clsx(
+                  'flex items-center justify-center gap-2 border-2 rounded-xl py-3 text-sm font-bold transition-colors',
+                  method === m.value
+                    ? 'border-[#1E63E9] bg-[#DCEEFF]/40 text-[#0A3D91]'
+                    : 'border-[#D8E4F5] text-[#64748B] hover:border-[#1E63E9]/50'
+                )}
+              >
+                <Landmark size={15} /> {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-[#DCEEFF]/50 border border-[#D8E4F5] rounded-xl p-3 text-xs text-[#0A3D91] font-medium leading-relaxed">
+          This is a simulated payment for demo purposes — your wallet is credited instantly, no real charge is made.
+        </div>
+
+        {error && <Alert type="error" message={error} />}
+
+        <button
+          className="btn-primary w-full justify-center"
+          onClick={submit}
+          disabled={topUpMutation.isPending}
+        >
+          {topUpMutation.isPending ? 'Processing…' : `Top up ${formatZAR(finalAmount || 0)}`}
+        </button>
+      </div>
+    </Modal>
   )
 }

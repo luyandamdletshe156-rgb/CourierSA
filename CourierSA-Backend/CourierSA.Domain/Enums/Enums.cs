@@ -207,3 +207,11 @@ public enum NotificationChannel
     Sms,
     Push
 }
+
+public enum PaymentMethod
+{
+    Wallet,
+    Card,
+    EFT,
+    CashOnCollection
+}

@@ -129,7 +129,6 @@ public class WalletController : CourierSABaseController
     /// In production this would be called by a payment gateway webhook.
     /// </summary>
     [HttpPost("topup")]
-    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> TopUp(
         [FromBody] TopUpDto dto, CancellationToken ct)
     {

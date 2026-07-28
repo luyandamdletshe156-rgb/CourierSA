@@ -392,7 +392,7 @@ public class BulkCsvService : IBulkCsvService
             InsuranceRequired:    IsTruthy(row.InsuranceRequired),
             Dimensions:           dims,
             QuoteId:              null,
-            PayFromWallet:        false,
+            PaymentMethod: PaymentMethod.CashOnCollection,
             SpecialInstructions:  row.SpecialInstructions,
             ClientReference:      row.ClientReference
         );
