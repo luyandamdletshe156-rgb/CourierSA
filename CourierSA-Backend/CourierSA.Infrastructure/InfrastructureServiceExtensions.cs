@@ -117,13 +117,15 @@ public static class InfrastructureServiceExtensions
         });
 
         // ── CORS ──────────────────────────────────────────────────────────────
+        // ── CORS ──────────────────────────────────────────────────────────────
         services.AddCors(opts =>
         {
             opts.AddPolicy("CourierSACors", policy =>
                 policy
                     .WithOrigins(
-                        configuration.GetSection("AllowedOrigins").Get<string[]>()
-                        ?? ["http://localhost:5173"])
+                        "http://localhost:5173", // Keep this for local testing
+                        "https://couriersa2frontend.z1.web.core.windows.net" // Add your live Azure frontend!
+                    )
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials()); // required for SignalR
