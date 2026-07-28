@@ -24,6 +24,10 @@ jobs:
         working-directory: ./CourierSA-Frontend
         run: npm install
 
+      - name: Create .env file
+        working-directory: ./CourierSA-Frontend
+        run: echo "VITE_API_BASE_URL=https://couriersa2-api-epccfjgagfbwa5cp.southafricanorth-01.azurewebsites.net/api" > .env
+
       - name: Build
         working-directory: ./CourierSA-Frontend
         run: npm run build
