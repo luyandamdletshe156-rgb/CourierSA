@@ -87,6 +87,7 @@ export default function App() {
 
                 {/* Driver */}
                 <Route element={<RequireRole roles={['Driver']} />}>
+                  <Route path="/driver/dashboard"  element={<DriverDeliveries />} />
                   <Route path="/driver/deliveries" element={<DriverDeliveries />} />
                   <Route path="/driver/route"      element={<DriverDeliveries />} />
                   <Route path="/driver/history"    element={<DriverHistoryPage />} />

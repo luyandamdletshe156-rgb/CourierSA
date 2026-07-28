@@ -30,13 +30,15 @@ public class TrackingHub : Hub
     public override async Task OnConnectedAsync()
     {
         var userId = Context.UserIdentifier;
-        var role   = Context.User?.FindFirstValue(ClaimTypes.Role);
+        // Check ClaimTypes.Role as well as raw "role" or "Role" strings
+        var role = Context.User?.FindFirstValue(ClaimTypes.Role)
+                  ?? Context.User?.FindFirstValue("role")
+                  ?? Context.User?.FindFirstValue("Role");
 
         _logger.LogInformation(
             "User {UserId} ({Role}) connected to TrackingHub [{ConnectionId}]",
             userId, role, Context.ConnectionId);
 
-        // Add to role-based group for targeted broadcasts
         if (!string.IsNullOrEmpty(role))
             await Groups.AddToGroupAsync(Context.ConnectionId, $"role:{role}");
 
@@ -45,7 +47,10 @@ public class TrackingHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        var role = Context.User?.FindFirstValue(ClaimTypes.Role);
+        var role = Context.User?.FindFirstValue(ClaimTypes.Role)
+                  ?? Context.User?.FindFirstValue("role")
+                  ?? Context.User?.FindFirstValue("Role");
+
         if (!string.IsNullOrEmpty(role))
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"role:{role}");
 

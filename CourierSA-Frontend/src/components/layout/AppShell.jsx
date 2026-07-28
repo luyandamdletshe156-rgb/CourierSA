@@ -36,6 +36,7 @@ const NAV = {
     { label: 'Inspections', icon: ClipboardCheck,  to: '/warehouse/inspections'},
   ],
   Driver: [
+    { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,         to: '/driver/deliveries'    },
     { label: 'Route',         icon: MapPin,        to: '/driver/route'         },
     { label: 'History',       icon: FileText,      to: '/driver/history'       },

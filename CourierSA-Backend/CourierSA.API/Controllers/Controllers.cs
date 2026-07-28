@@ -94,7 +94,8 @@ public class ParcelsController : CourierSABaseController
     }
     /// <summary>GET /api/parcels – Customer's own parcels (paged)</summary>
     [HttpGet]
-    [Authorize(Policy = "CustomerOrBiz")]
+    [HttpGet]
+    [Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
     public async Task<IActionResult> GetMyParcels(
         [FromQuery] ParcelFilterDto filter, CancellationToken ct)
     {
@@ -113,7 +114,7 @@ public class ParcelsController : CourierSABaseController
 
     /// <summary>POST /api/parcels – Book a new parcel</summary>
     [HttpPost]
-    [Authorize(Policy = "CustomerOrBiz")]
+[Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
     public async Task<IActionResult> Book(
         [FromBody] CreateParcelDto dto, CancellationToken ct)
     {
@@ -193,6 +194,16 @@ public class ParcelsController : CourierSABaseController
         var result = await _bulkCsvService.ProcessAsync(stream, CurrentUserId, file.FileName, ct);
         return Ok(result, $"Bulk upload complete: {result.Successful} succeeded, {result.Failed} failed.");
     }
+
+    /// <summary>GET /api/parcels/queue – Dispatcher/Admin: unscoped parcel queue (not customer-scoped)</summary>
+    [HttpGet("queue")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> GetQueue(
+        [FromQuery] ParcelFilterDto filter, CancellationToken ct)
+    {
+        var result = await _parcelService.GetQueueAsync(filter, ct);
+        return Ok(result);
+    }
 }
 
 // ── Tracking Controller (public) ──────────────────────────────────────────────
@@ -219,7 +230,7 @@ public class TrackingController : CourierSABaseController
 
 // ── Deliveries Controller (Driver) ────────────────────────────────────────────
 [Route("api/deliveries")]
-[Authorize(Policy = "DriverOnly")]
+[Authorize]
 public class DeliveriesController : CourierSABaseController
 {
     private readonly IParcelService _parcelService;
@@ -233,6 +244,7 @@ public class DeliveriesController : CourierSABaseController
 
     /// <summary>GET /api/deliveries/my – Driver's active deliveries</summary>
     [HttpGet("my")]
+        [Authorize(Policy = "DriverOnly")]
     public async Task<IActionResult> GetMyDeliveries(CancellationToken ct)
     {
         var result = await _parcelService.GetDriverDeliveriesAsync(CurrentUserId, ct);
@@ -244,6 +256,7 @@ public class DeliveriesController : CourierSABaseController
     /// Driver's completed and failed deliveries — for the History page.
     /// </summary>
     [HttpGet("history")]
+    [Authorize(Policy = "DriverOnly")]
     public async Task<IActionResult> GetMyHistory(
         [FromQuery] int page     = 1,
         [FromQuery] int pageSize = 15,

@@ -407,6 +407,43 @@ public class ParcelService : IParcelService
             PageSize: filter.PageSize
         );
     }
+    // ── Paged Queue (Dispatcher/Admin — not scoped to a customer) ──────────────
+    public async Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(
+     ParcelFilterDto filter, CancellationToken ct = default)
+    {
+        var query = _uow.Query<Parcel>()
+            .Query()
+            .AsNoTracking()
+            .Include(p => p.DeliveryAddress)
+            .Include(p => p.PickupAddress)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(filter.Status) &&
+            Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
+        {
+            query = query.Where(p => p.Status == statusEnum);
+        }
+
+        query = query.OrderByDescending(p => p.CreatedAt);
+
+        var count = await query.CountAsync(ct);
+
+        var page = filter.Page <= 0 ? 1 : filter.Page;
+        var pageSize = filter.PageSize <= 0 ? 20 : filter.PageSize;
+
+        var parcels = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new PagedResult<ParcelSummaryDto>(
+            Items: parcels.Select(MapToSummary).ToList(),
+            TotalCount: count,
+            Page: page,
+            PageSize: pageSize
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
     private async Task<Parcel> GetOrThrowAsync(Guid id, CancellationToken ct)
         => await _uow.Parcels.GetByIdAsync(id, ct)

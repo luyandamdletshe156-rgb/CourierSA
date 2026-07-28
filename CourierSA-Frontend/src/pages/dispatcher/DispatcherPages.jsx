@@ -20,9 +20,11 @@ export function DispatcherDashboard() {
 
   const { data: pendingData, isLoading } = useQuery({
     queryKey: ['parcels-pending'],
-    queryFn:  () => parcelApi.list({ status: 'Pending', pageSize: 50 }),
+    queryFn:  () => parcelApi.queue({ status: 'PendingApproval', pageSize: 50 }),
     refetchInterval: 30000,
-  })
+    
+})
+
 
   const pendingParcels = pendingData?.data?.items ?? []
 
@@ -193,7 +195,7 @@ export function DispatchQueue() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-approved'],
-    queryFn:  () => parcelApi.list({ status: 'Approved', pageSize: 50 }),
+     queryFn:  () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
     refetchInterval: 30000,
   })
 

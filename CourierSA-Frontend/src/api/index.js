@@ -65,6 +65,7 @@ export const authApi = {
 
 export const parcelApi = {
   list:       params => api.get('/parcels', { params }),
+  queue:   (params) => api.get('/parcels/queue', { params }),
   get:        id     => api.get(`/parcels/${id}`),
   book:       dto    => api.post('/parcels', dto),
   approve:    id     => api.put(`/parcels/${id}/approve`),

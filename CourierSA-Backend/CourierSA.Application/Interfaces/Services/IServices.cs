@@ -40,12 +40,15 @@ public interface IParcelService
     Task                             DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
     Task                             MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverId, CancellationToken ct = default);
     Task                             MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);
+    Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default); // NEW
     Task<TrackingResultDto?>         TrackAsync(string trackingNumber, CancellationToken ct = default);
     Task<ParcelDetailDto?>           GetDetailAsync(Guid id, CancellationToken ct = default);
     Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(ParcelFilterDto filter, Guid customerId, CancellationToken ct = default);
     Task<IEnumerable<DeliveryDto>>   GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
     Task                             UpdateDriverLocationAsync(Guid driverId, decimal lat, decimal lng, CancellationToken ct = default);
 }
+
+
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
 public interface IQuoteService
