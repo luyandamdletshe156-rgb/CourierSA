@@ -5,6 +5,7 @@ using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace CourierSA.Infrastructure.Services;
 
@@ -39,8 +40,9 @@ public class ParcelService : IParcelService
     CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>()
-            .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
-            ?? throw new NotFoundException("Customer profile not found.");
+    .Query()
+    .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
+    ?? throw new NotFoundException("Customer profile not found.");
 
         // 1. Fetch or recalculate the quote
         Quote? quote = null;

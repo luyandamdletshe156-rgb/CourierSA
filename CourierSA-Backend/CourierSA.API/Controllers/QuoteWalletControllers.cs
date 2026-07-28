@@ -135,8 +135,8 @@ public class WalletController : CourierSABaseController
     {
         if (dto.Amount <= 0)
             throw new BadRequestException("Top-up amount must be greater than zero.");
-
         var customer = await _uow.Query<CustomerProfile>()
+            .Query()
             .FirstOrDefaultAsync(c => c.UserId == dto.UserId, ct)
             ?? throw new NotFoundException("Customer not found.");
 
