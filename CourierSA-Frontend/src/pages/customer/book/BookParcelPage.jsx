@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { z } from 'zod'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { Alert, Spinner } from '@/components/ui'
 import { parcelApi, quoteApi } from '@/api'
@@ -803,6 +803,7 @@ export default function BookParcelPage() {
   const [success,   setSuccess]   = useState(null)
   const [bookError, setBookError] = useState('')
 
+  const queryClient = useQueryClient()
   const methods = useForm({
     defaultValues: {
       pickupAddress:    { country: 'South Africa' },
@@ -818,11 +819,15 @@ export default function BookParcelPage() {
     },
   })
 
-  const bookMutation = useMutation({
-    mutationFn: (dto) => parcelApi.book(dto),
-    onSuccess: (res) => setSuccess(res.data),
-    onError:   (err) => setBookError(err.message),
-  })
+ const bookMutation = useMutation({
+  mutationFn: (dto) => parcelApi.book(dto),
+  onSuccess: (res) => {
+    setSuccess(res.data)
+    queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+    queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
+  },
+  onError: (err) => setBookError(err.message),
+})
 
   const handleNext = useCallback((extraData) => {
     if (step === 3) setQuoteData(extraData)
