@@ -85,7 +85,7 @@ export function DriverDeliveries() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <TrackingBadge value={d.parcel?.trackingNumber} />
+                    <TrackingBadge value={d.trackingNumber} />
                     <StatusPill status={d.status} />
                   </div>
 
@@ -93,35 +93,33 @@ export function DriverDeliveries() {
                     <MapPin size={14} className="mt-0.5 text-gray-400 flex-shrink-0" />
                     <div>
                       <span className="font-medium text-gray-800">
-                        {d.parcel?.deliveryAddress?.recipientName}
+                        {d.recipientName}
                       </span>
                       <br />
-                      {d.parcel?.deliveryAddress?.streetAddress},{' '}
-                      {d.parcel?.deliveryAddress?.suburb},{' '}
-                      {d.parcel?.deliveryAddress?.city}
+                      {d.deliveryAddress}, {d.city}
                     </div>
                   </div>
 
-                  {d.parcel?.deliveryAddress?.recipientPhone && (
+                  {d.recipientPhone && (
                     <a
-                      href={`tel:${d.parcel.deliveryAddress.recipientPhone}`}
+                      href={`tel:${d.recipientPhone}`}
                       className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:text-brand-600 font-medium"
                     >
                       <Phone size={12} />
-                      {d.parcel.deliveryAddress.recipientPhone}
+                      {d.recipientPhone}
                     </a>
                   )}
 
-                  {d.parcel?.specialInstructions && (
+                  {d.specialInstructions && (
                     <p className="mt-2 text-xs text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded border border-amber-200">
-                      ⚠ {d.parcel.specialInstructions}
+                      ⚠ {d.specialInstructions}
                     </p>
                   )}
                 </div>
 
                 <div className="flex flex-col gap-2 flex-shrink-0">
                   <a
-                    href={`https://maps.google.com/?q=${d.parcel?.deliveryAddress?.streetAddress}, ${d.parcel?.deliveryAddress?.city}`}
+                    href={`https://maps.google.com/?q=${d.deliveryAddress}, ${d.city}`}
                     target="_blank"
                     rel="noreferrer"
                     className="btn-secondary btn-sm"
@@ -159,8 +157,8 @@ export function DriverDeliveries() {
       >
         <p className="text-sm text-gray-600 mb-4">
           Confirming delivery of{' '}
-          <TrackingBadge value={deliveredModal?.parcel?.trackingNumber} />{' '}
-          to <strong>{deliveredModal?.parcel?.deliveryAddress?.recipientName}</strong>.
+          <TrackingBadge value={deliveredModal?.trackingNumber} />{' '}
+          to <strong>{deliveredModal?.recipientName}</strong>.
         </p>
         <label className="label">Notes (optional)</label>
         <textarea
@@ -190,7 +188,7 @@ export function DriverDeliveries() {
         size="sm"
       >
         <p className="text-sm text-gray-600 mb-4">
-          <TrackingBadge value={failedModal?.parcel?.trackingNumber} />
+          <TrackingBadge value={failedModal?.trackingNumber} />
         </p>
         <label className="label">Reason</label>
         <select
