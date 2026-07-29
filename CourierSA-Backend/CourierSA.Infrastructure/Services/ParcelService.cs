@@ -229,9 +229,11 @@ public class ParcelService : IParcelService
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
 
+    // ── Dispatch ──────────────────────────────────────────────────────────────
+
     public async Task DispatchAsync(
-    Guid parcelId, Guid driverId,
-    Guid dispatcherId, CancellationToken ct = default)
+        Guid parcelId, Guid driverId,
+        Guid dispatcherId, CancellationToken ct = default)
     {
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct)
             ?? throw new NotFoundException($"Parcel {parcelId} not found.");
@@ -268,27 +270,32 @@ public class ParcelService : IParcelService
 
         await _uow.Deliveries.AddAsync(delivery, ct);
 
-        AddTrackingEvent(parcel, TrackingEventType.OutForDelivery,
-            $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()}");
+        // Add the new tracking event directly to the repository to prevent EF Core 
+        // from attempting to update pre-existing tracking events in parcel.TrackingEvents
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.OutForDelivery,
+            Description = $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()}",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
-        // Notification failure should never roll back a successful dispatch —
-        // isolate it so a broken email/SMS provider can't corrupt parcel state.
         try
         {
             await _uow.SaveChangesAsync(ct);
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            // 1. Inspect ex.Entries to find out exactly which entity failed
             var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
             var failedEntitiesStr = string.Join(", ", failedTypes);
 
-            // 2. Log it so you can confirm if TrackingHub is the culprit
-            // (Assuming you have an ILogger _logger injected, otherwise use Console.WriteLine)
             Console.WriteLine($"[CONCURRENCY] SaveChanges 0-rows-affected on: {failedEntitiesStr} " +
                               $"(parcelId={parcelId}, driverId={driverId})");
 
-            // 3. Return a clean, user-friendly 400 error instead of a 500
             throw new BadRequestException(
                 $"The {failedEntitiesStr} was updated by another process. Please refresh and try again.");
         }
@@ -296,7 +303,6 @@ public class ParcelService : IParcelService
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId,
             null, new { Status = "OutForDelivery", driverId }, dispatcherId, null, ct);
     }
-
     // ── Mark Delivered ────────────────────────────────────────────────────────
     public async Task MarkDeliveredAsync(
         Guid deliveryId, ProofOfDeliveryDto pod,
