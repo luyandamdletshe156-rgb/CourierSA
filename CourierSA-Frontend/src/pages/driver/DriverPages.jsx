@@ -6,7 +6,7 @@ import {
   EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
 import { deliveryApi } from '@/api'
-import { Truck, CheckCircle, XCircle, Navigation, Phone, MapPin } from 'lucide-react'
+import { Truck, CheckCircle, XCircle, Navigation, Phone, MapPin, Info, Calendar } from 'lucide-react'
 
 export function DriverDeliveries() {
   const qc = useQueryClient()
@@ -18,8 +18,15 @@ export function DriverDeliveries() {
 
   const deliveries = data?.data ?? []
 
+  // Active Tab State: 'active' | 'delivered' | 'failed'
+  const [activeTab, setActiveTab]           = useState('active')
+
+  // Modal States
   const [deliveredModal, setDeliveredModal] = useState(null)
   const [failedModal, setFailedModal]       = useState(null)
+  const [detailModal, setDetailModal]       = useState(null)
+
+  // Form States
   const [podNotes, setPodNotes]             = useState('')
   const [failReason, setFailReason]         = useState('RecipientAbsent')
   const [failNotes, setFailNotes]           = useState('')
@@ -51,6 +58,9 @@ export function DriverDeliveries() {
 
   const active    = deliveries.filter(d => d.status !== 'Delivered' && d.status !== 'Failed')
   const completed = deliveries.filter(d => d.status === 'Delivered')
+  const failed    = deliveries.filter(d => d.status === 'Failed')
+
+  const currentList = activeTab === 'active' ? active : activeTab === 'delivered' ? completed : failed
 
   return (
     <AppShell title="My Deliveries">
@@ -61,32 +71,101 @@ export function DriverDeliveries() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatCard label="Active"    value={active.length}    icon={Truck}        color="bg-brand-500" />
-        <StatCard label="Delivered" value={completed.length} icon={CheckCircle}  color="bg-emerald-500" />
-        <StatCard label="Failed"    value={deliveries.filter(d => d.status === 'Failed').length}
-                  icon={XCircle} color="bg-red-500" />
+      {/* Interactive Stat Cards / Quick Filter */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <button
+          onClick={() => setActiveTab('active')}
+          className={`text-left transition-all ${activeTab === 'active' ? 'ring-2 ring-brand-500 rounded-xl' : 'opacity-80 hover:opacity-100'}`}
+        >
+          <StatCard label="Active" value={active.length} icon={Truck} color="bg-brand-500" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('delivered')}
+          className={`text-left transition-all ${activeTab === 'delivered' ? 'ring-2 ring-emerald-500 rounded-xl' : 'opacity-80 hover:opacity-100'}`}
+        >
+          <StatCard label="Delivered" value={completed.length} icon={CheckCircle} color="bg-emerald-500" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('failed')}
+          className={`text-left transition-all ${activeTab === 'failed' ? 'ring-2 ring-red-500 rounded-xl' : 'opacity-80 hover:opacity-100'}`}
+        >
+          <StatCard label="Failed" value={failed.length} icon={XCircle} color="bg-red-500" />
+        </button>
       </div>
 
-      {/* Active deliveries */}
-      {isLoading ? <PageLoader /> : active.length === 0 ? (
+      {/* Tab Navigation Buttons */}
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          onClick={() => setActiveTab('active')}
+          className={`py-2 px-4 font-medium text-sm border-b-2 ${
+            activeTab === 'active'
+              ? 'border-brand-500 text-brand-600 font-semibold'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Active ({active.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('delivered')}
+          className={`py-2 px-4 font-medium text-sm border-b-2 ${
+            activeTab === 'delivered'
+              ? 'border-emerald-500 text-emerald-600 font-semibold'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Delivered ({completed.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('failed')}
+          className={`py-2 px-4 font-medium text-sm border-b-2 ${
+            activeTab === 'failed'
+              ? 'border-red-500 text-red-600 font-semibold'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Failed ({failed.length})
+        </button>
+      </div>
+
+      {/* Deliveries List */}
+      {isLoading ? (
+        <PageLoader />
+      ) : currentList.length === 0 ? (
         <div className="card">
           <EmptyState
-            icon={Truck}
-            title="No active deliveries"
-            description="Your dispatcher will assign parcels to you shortly."
+            icon={activeTab === 'active' ? Truck : activeTab === 'delivered' ? CheckCircle : XCircle}
+            title={`No ${activeTab} deliveries`}
+            description={
+              activeTab === 'active'
+                ? "Your dispatcher will assign parcels to you shortly."
+                : `Parcels marked as ${activeTab} will appear here.`
+            }
           />
         </div>
       ) : (
         <div className="space-y-3">
-          {active.map(d => (
-            <div key={d.id} className="card">
+          {currentList.map(d => (
+            <div key={d.id} className="card hover:border-gray-300 transition-all">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <TrackingBadge value={d.trackingNumber} />
+                    {/* Click tracking number to view full parcel details */}
+                    <button
+                      onClick={() => setDetailModal(d)}
+                      className="hover:scale-105 transition-transform text-left cursor-pointer"
+                      title="Click for full details"
+                    >
+                      <TrackingBadge value={d.trackingNumber} />
+                    </button>
                     <StatusPill status={d.status} />
+                    <button
+                      onClick={() => setDetailModal(d)}
+                      className="text-xs text-brand-500 hover:underline flex items-center gap-1 font-medium ml-1"
+                    >
+                      <Info size={13} /> Details
+                    </button>
                   </div>
 
                   <div className="flex items-start gap-1.5 text-sm text-gray-600 mb-1">
@@ -118,35 +197,133 @@ export function DriverDeliveries() {
                 </div>
 
                 <div className="flex flex-col gap-2 flex-shrink-0">
-                  <a
-                    href={`https://maps.google.com/?q=${d.deliveryAddress}, ${d.city}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-secondary btn-sm"
-                  >
-                    <Navigation size={13} />
-                    Navigate
-                  </a>
-                  <button
-                    className="btn-primary btn-sm"
-                    onClick={() => setDeliveredModal(d)}
-                  >
-                    <CheckCircle size={13} />
-                    Delivered
-                  </button>
-                  <button
-                    className="btn-danger btn-sm"
-                    onClick={() => setFailedModal(d)}
-                  >
-                    <XCircle size={13} />
-                    Failed
-                  </button>
+                  {activeTab === 'active' && (
+                    <>
+                      <a
+                        href={`https://maps.google.com/?q=${encodeURIComponent(`${d.deliveryAddress}, ${d.city}`)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-secondary btn-sm"
+                      >
+                        <Navigation size={13} />
+                        Navigate
+                      </a>
+                      <button
+                        className="btn-primary btn-sm"
+                        onClick={() => setDeliveredModal(d)}
+                      >
+                        <CheckCircle size={13} />
+                        Delivered
+                      </button>
+                      <button
+                        className="btn-danger btn-sm"
+                        onClick={() => setFailedModal(d)}
+                      >
+                        <XCircle size={13} />
+                        Failed
+                      </button>
+                    </>
+                  )}
+
+                  {activeTab !== 'active' && (
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={() => setDetailModal(d)}
+                    >
+                      <Info size={13} />
+                      View Details
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* PARCEL DETAILS MODAL (Opened by touching tracking number) */}
+      <Modal
+        open={!!detailModal}
+        onClose={() => setDetailModal(null)}
+        title="Delivery Details"
+        size="md"
+      >
+        {detailModal && (
+          <div className="space-y-4 text-sm">
+            <div className="flex items-center justify-between pb-3 border-b">
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Tracking Number</p>
+                <div className="mt-1">
+                  <TrackingBadge value={detailModal.trackingNumber} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">Status</p>
+                <StatusPill status={detailModal.status} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border">
+              <div>
+                <p className="text-xs text-gray-500 font-semibold uppercase">Recipient</p>
+                <p className="font-medium text-gray-800 mt-0.5">{detailModal.recipientName}</p>
+                {detailModal.recipientPhone && (
+                  <a href={`tel:${detailModal.recipientPhone}`} className="text-xs text-brand-500 hover:underline flex items-center gap-1 mt-1 font-medium">
+                    <Phone size={12} /> {detailModal.recipientPhone}
+                  </a>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 font-semibold uppercase">Destination City</p>
+                <p className="font-medium text-gray-800 mt-0.5">{detailModal.city}</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full Delivery Address</p>
+              <p className="bg-gray-50 p-2.5 rounded border text-gray-800 font-medium flex items-start gap-2">
+                <MapPin size={16} className="text-brand-500 mt-0.5 flex-shrink-0" />
+                <span>{detailModal.deliveryAddress}, {detailModal.city}</span>
+              </p>
+            </div>
+
+            {detailModal.specialInstructions && (
+              <div>
+                <p className="text-xs text-amber-800 font-semibold uppercase mb-1">Special Instructions</p>
+                <p className="bg-amber-50 text-amber-900 p-2.5 rounded border border-amber-200">
+                  ⚠ {detailModal.specialInstructions}
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 text-xs text-gray-600 border-t pt-3">
+              <div>
+                <span className="font-semibold text-gray-700">Fragile:</span> {detailModal.isFragile ? 'Yes ⚠' : 'No'}
+              </div>
+              {detailModal.dispatchedAt && (
+                <div className="flex items-center gap-1">
+                  <Calendar size={12} />
+                  <span>Dispatched: {new Date(detailModal.dispatchedAt).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent(`${detailModal.deliveryAddress}, ${detailModal.city}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-secondary btn-sm"
+              >
+                <Navigation size={13} />
+                Open Navigation
+              </a>
+              <button className="btn-secondary" onClick={() => setDetailModal(null)}>Close</button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Mark delivered modal */}
       <Modal
