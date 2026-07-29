@@ -4,6 +4,9 @@ import { useAuth } from './AuthContext'
 
 const TrackingContext = createContext(null)
 
+// Your Live Azure API URL
+const API_BASE_URL = 'https://couriersa2-api-epccfjgagfbwa5cp.southafricanorth-01.azurewebsites.net'
+
 export function TrackingProvider({ children }) {
   const { isAuthenticated } = useAuth()
   const connectionRef = useRef(null)
@@ -16,8 +19,10 @@ export function TrackingProvider({ children }) {
     if (!isAuthenticated) return
 
     const token = localStorage.getItem('accessToken')
+
+    // Connected directly to your Azure App Service API endpoint
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl('/hubs/tracking', { accessTokenFactory: () => token })
+      .withUrl(`${API_BASE_URL}/hubs/tracking`, { accessTokenFactory: () => token })
       .withAutomaticReconnect([0, 2000, 5000, 10000])
       .configureLogging(signalR.LogLevel.Warning)
       .build()

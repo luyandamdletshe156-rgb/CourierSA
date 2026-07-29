@@ -228,46 +228,70 @@ public class ParcelService : IParcelService
     }
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
+
     public async Task DispatchAsync(
-        Guid parcelId, Guid driverId,
-        Guid dispatcherId, CancellationToken ct = default)
+    Guid parcelId, Guid driverId,
+    Guid dispatcherId, CancellationToken ct = default)
     {
-        var parcel = await GetOrThrowAsync(parcelId, ct);
+        var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct)
+            ?? throw new NotFoundException($"Parcel {parcelId} not found.");
+
         if (parcel.Status != ParcelStatus.InWarehouse &&
             parcel.Status != ParcelStatus.Approved)
             throw new BadRequestException(
                 $"Cannot dispatch parcel in status '{parcel.Status}'.");
+
+        if (parcel.Customer is null)
+            throw new InvalidOperationException(
+                $"Parcel {parcel.TrackingNumber} has no linked customer profile — data integrity issue.");
+
         var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct)
-    ?? throw new NotFoundException("Driver not found.");
+            ?? throw new NotFoundException("Driver not found.");
 
         if (driver.Status != DriverStatus.Available)
             throw new BadRequestException("Driver is not currently available.");
 
         var delivery = new Delivery
         {
-            Id            = Guid.NewGuid(),
-            ParcelId      = parcel.Id,
-            DriverId      = driverId,
-            Status        = DeliveryStatus.Assigned,
-            DispatchedAt  = DateTime.UtcNow,
-            CreatedAt     = DateTime.UtcNow,
-            UpdatedAt     = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            DriverId = driverId,
+            Status = DeliveryStatus.Assigned,
+            DispatchedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
-        parcel.Status    = ParcelStatus.OutForDelivery;
+        parcel.Status = ParcelStatus.OutForDelivery;
         parcel.UpdatedAt = DateTime.UtcNow;
-
-        driver.Status    = DriverStatus.OnDelivery;
+        driver.Status = DriverStatus.OnDelivery;
 
         await _uow.Deliveries.AddAsync(delivery, ct);
-        _uow.Parcels.Update(parcel);
 
         AddTrackingEvent(parcel, TrackingEventType.OutForDelivery,
             $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()}");
 
-        await _uow.SaveChangesAsync(ct);
-        await _notificationService.SendDispatchedAsync(
-            parcel.Customer!.UserId, parcel.TrackingNumber, ct);
+        // Notification failure should never roll back a successful dispatch —
+        // isolate it so a broken email/SMS provider can't corrupt parcel state.
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // 1. Inspect ex.Entries to find out exactly which entity failed
+            var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
+            var failedEntitiesStr = string.Join(", ", failedTypes);
+
+            // 2. Log it so you can confirm if TrackingHub is the culprit
+            // (Assuming you have an ILogger _logger injected, otherwise use Console.WriteLine)
+            Console.WriteLine($"[CONCURRENCY] SaveChanges 0-rows-affected on: {failedEntitiesStr} " +
+                              $"(parcelId={parcelId}, driverId={driverId})");
+
+            // 3. Return a clean, user-friendly 400 error instead of a 500
+            throw new BadRequestException(
+                $"The {failedEntitiesStr} was updated by another process. Please refresh and try again.");
+        }
 
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId,
             null, new { Status = "OutForDelivery", driverId }, dispatcherId, null, ct);
@@ -302,8 +326,6 @@ public class ParcelService : IParcelService
         AddTrackingEvent(parcel, TrackingEventType.Delivered,
             "Parcel delivered successfully");
 
-        _uow.Deliveries.Update(delivery);
-        _uow.Parcels.Update(parcel);
         await _uow.SaveChangesAsync(ct);
 
         await _notificationService.SendDeliveredAsync(
@@ -340,8 +362,6 @@ public class ParcelService : IParcelService
         AddTrackingEvent(parcel, TrackingEventType.DeliveryFailed,
             $"Delivery failed: {dto.Reason}");
 
-        _uow.Deliveries.Update(delivery);
-        _uow.Parcels.Update(parcel);
         await _uow.SaveChangesAsync(ct);
 
         await _notificationService.SendFailedDeliveryAsync(
