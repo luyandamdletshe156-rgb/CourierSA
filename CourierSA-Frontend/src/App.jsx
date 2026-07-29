@@ -18,10 +18,10 @@ import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/Dispatche
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
 import LiveMapPage          from '@/pages/dispatcher/LiveMapPage'
 
-import { DriverDashboard } from '@/pages/driver/DriverDashboard'
+// Driver Pages
+import { DriverDashboard }  from '@/pages/driver/DriverDashboard'
 import { DriverDeliveries } from '@/pages/driver/DriverDeliveries'
-import { DriverRoute } from '@/pages/driver/DriverRoute'
-import { DriverDeliveries } from '@/pages/driver/DriverPages'
+import { DriverRoute }      from '@/pages/driver/DriverRoute'
 import { DriverHistoryPage } from '@/pages/shared/OperationalPages'
 
 import {
@@ -89,13 +89,10 @@ export default function App() {
                 </Route>
 
                 {/* Driver */}
-                 <Route element={<RequireRole roles={['Driver']} />}>
+                <Route element={<RequireRole roles={['Driver']} />}>
                   <Route path="/driver/dashboard"  element={<DriverDashboard />} />
                   <Route path="/driver/deliveries" element={<DriverDeliveries />} />
                   <Route path="/driver/route"      element={<DriverRoute />} />
-                  <Route path="/driver/dashboard"  element={<DriverDeliveries />} />
-                  <Route path="/driver/deliveries" element={<DriverDeliveries />} />
-                  <Route path="/driver/route"      element={<DriverDeliveries />} />
                   <Route path="/driver/history"    element={<DriverHistoryPage />} />
                 </Route>
 
