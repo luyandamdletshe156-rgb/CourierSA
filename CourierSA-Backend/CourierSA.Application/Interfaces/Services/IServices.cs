@@ -17,6 +17,9 @@ public interface IAuthService
 
     Task ForgotPasswordAsync(string email, CancellationToken ct = default);     
     Task ResetPasswordAsync(ResetPasswordDto dto, CancellationToken ct = default);
+    Task<User> CreateStaffUserAsync(CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default);  // ← add
+    Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken ct = default);
+
 }
 
 public interface ITokenService

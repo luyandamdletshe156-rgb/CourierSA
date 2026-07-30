@@ -24,12 +24,25 @@ public record AuthResponseDto(
     string Email,
     string FirstName,
     string LastName,
-    string Role
+    string Role,
+     bool MustChangePassword
 
 );
     public record ForgotPasswordDto(string Email);
     public record ResetPasswordDto(string Token, string NewPassword);
 }
+
+public record CreateStaffUserDto(
+    string FirstName,
+    string LastName,
+    string Email,
+    string PhoneNumber,
+    UserRole Role   // restrict to Dispatcher / WarehouseStaff / Driver at the service layer
+);
+
+public record ChangePasswordDto(string CurrentPassword, string NewPassword);
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace CourierSA.Application.DTOs.Parcels

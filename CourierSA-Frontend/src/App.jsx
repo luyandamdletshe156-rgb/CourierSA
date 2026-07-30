@@ -9,6 +9,8 @@ import LoginPage from '@/pages/auth/LoginPage'
 import RegisterPage from '@/pages/auth/RegisterPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
 import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
+import ChangePasswordPage from '@/pages/auth/ChangePasswordPage'
+import CreateStaffPage from '@/pages/admin/CreateStaffPage'
 
 import { CustomerDashboard, CustomerParcels } from '@/pages/customer/CustomerPages'
 import ParcelDetailPage from '@/pages/customer/ParcelDetailPage'
@@ -72,6 +74,7 @@ export default function App() {
               </Route>
 
               <Route element={<RequireAuth />}>
+              <Route path="/change-password" element={<ChangePasswordPage />} />
                 {/* Customer */}
                 <Route element={<RequireRole roles={['Customer']} />}>
                   <Route path="/customer/dashboard" element={<CustomerDashboard />} />
@@ -118,6 +121,7 @@ export default function App() {
                   <Route path="/admin/reports"    element={<AdminReportsPage />} />
                   <Route path="/admin/audit-logs" element={<AuditLogPage />} />
                   <Route path="/admin/settings"   element={<AdminDashboard />} />
+                  <Route path="/admin/staff/new" element={<CreateStaffPage />} />
                 </Route>
 
                 {/* Business Client */}

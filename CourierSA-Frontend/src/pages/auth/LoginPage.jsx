@@ -21,18 +21,22 @@ export default function LoginPage() {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
   const handleSubmit = async e => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      const user = await login(form.email, form.password)
+  e.preventDefault()
+  setError('')
+  setLoading(true)
+  try {
+    const user = await login(form.email, form.password)
+    if (user.mustChangePassword) {
+      navigate('/change-password', { replace: true })   // ignore `from` — password must be set first
+    } else {
       navigate(from || dashboardPath(user.role), { replace: true })
-    } catch (err) {
-      setError(err.message ?? 'Login failed. Check your credentials.')
-    } finally {
-      setLoading(false)
     }
+  } catch (err) {
+    setError(err.message ?? 'Login failed. Check your credentials.')
+  } finally {
+    setLoading(false)
   }
+}
 
   // Quick-fill demo credentials
   const DEMO = [

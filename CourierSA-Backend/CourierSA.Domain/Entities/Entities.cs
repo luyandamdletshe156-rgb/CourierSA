@@ -29,6 +29,7 @@ public class User : BaseEntity
 
     public string? PasswordResetToken { get; set; }
     public DateTime? PasswordResetTokenExpiry { get; set; }
+    public bool MustChangePassword { get; set; } = false;
 
     public string FullName => $"{FirstName} {LastName}";
 

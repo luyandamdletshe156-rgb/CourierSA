@@ -3,11 +3,16 @@ import { useAuth } from '@/context/AuthContext'
 
 // ── Require login ─────────────────────────────────────────────────────────────
 export function RequireAuth() {
-  const { isAuthenticated, loading } = useAuth()
+  const { user, isAuthenticated, loading } = useAuth()   // ← add `user`
   const location = useLocation()
 
   if (loading) return <PageSpinner />
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />
+
+  if (user?.mustChangePassword && location.pathname !== '/change-password') {   // ← add
+    return <Navigate to="/change-password" replace />                          // ← add
+  }                                                                             // ← add
+
   return <Outlet />
 }
 

@@ -97,6 +97,16 @@ public class AuthController : CourierSABaseController
         await _authService.ResetPasswordAsync(dto, ct);
         return NoContent("Password reset successful. Please sign in with your new password.");
     }
+    /// <summary>POST /api/auth/change-password</summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword(
+        [FromBody] ChangePasswordDto dto, CancellationToken ct)
+    {
+        await _authService.ChangePasswordAsync(CurrentUserId, dto, ct);
+        return NoContent("Password changed successfully");
+    }
+
 }
 
 // ── Parcels Controller ────────────────────────────────────────────────────────
@@ -493,4 +503,14 @@ public class AdminController : CourierSABaseController
             generatedAt = DateTime.UtcNow
         });
     }
+
+    /// <summary>POST /api/admin/staff</summary>
+    [HttpPost("staff")]
+    public async Task<IActionResult> CreateStaff(
+        [FromBody] CreateStaffUserDto dto, [FromServices] IAuthService authService, CancellationToken ct)
+    {
+        var user = await authService.CreateStaffUserAsync(dto, CurrentUserId, ct);
+        return Created(new { user.Id, user.Email, user.Role }, $"Staff account created for {user.FullName}.");
+    }
+
 }

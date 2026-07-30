@@ -332,15 +332,96 @@ public class AuthService : IAuthService
     }
 
     private static AuthResponseDto MapToResponse(
-        User user, string accessToken, string refreshToken, DateTime refreshExpiry)
-        => new(
-            AccessToken:        accessToken,
-            RefreshToken:       refreshToken,
-            RefreshTokenExpiry: refreshExpiry,
-            UserId:             user.Id,
-            Email:              user.Email,
-            FirstName:          user.FirstName,
-            LastName:           user.LastName,
-            Role:               user.Role.ToString()
-        );
+     User user, string accessToken, string refreshToken, DateTime refreshExpiry)
+     => new(
+         AccessToken: accessToken,
+         RefreshToken: refreshToken,
+         RefreshTokenExpiry: refreshExpiry,
+         UserId: user.Id,
+         Email: user.Email,
+         FirstName: user.FirstName,
+         LastName: user.LastName,
+         Role: user.Role.ToString(),
+         MustChangePassword: user.MustChangePassword   // ← add
+     );
+
+    private static readonly UserRole[] AllowedStaffRoles =
+    { UserRole.Dispatcher, UserRole.WarehouseStaff, UserRole.Driver };
+
+    public async Task<User> CreateStaffUserAsync(
+        CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default)
+    {
+        if (!AllowedStaffRoles.Contains(dto.Role))
+            throw new BadRequestException("Only Dispatcher, WarehouseStaff, or Driver accounts can be created this way.");
+
+        if (await _uow.Users.EmailExistsAsync(dto.Email, ct))
+            throw new ConflictException("An account with this email already exists.");
+
+        var tempPassword = GenerateTempPassword();
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = dto.Email.ToLowerInvariant(),
+            PasswordHash = _passwordService.Hash(tempPassword),
+            FirstName = dto.FirstName.Trim(),
+            LastName = dto.LastName.Trim(),
+            PhoneNumber = dto.PhoneNumber.Trim(),
+            Role = dto.Role,
+            Status = UserStatus.Active,
+            MustChangePassword = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _uow.Users.AddAsync(user, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        // If the role needs a profile row (e.g. Driver), create it here —
+        // mirrors what RegisterAsync does for CustomerProfile.
+        if (dto.Role == UserRole.Driver)
+        {
+            // DriverProfile requires LicenseNumber/LicenseExpiry — admin will need
+            // to complete these separately, or extend CreateStaffUserDto to collect them.
+        }
+
+        var subject = "Your CourierSA staff account";
+        var htmlBody = $"""
+        <p>Hi {user.FirstName},</p>
+        <p>An administrator has created a CourierSA account for you as a <strong>{dto.Role}</strong>.</p>
+        <p><strong>Email:</strong> {user.Email}<br/>
+           <strong>Temporary password:</strong> {tempPassword}</p>
+        <p>Please sign in and change your password immediately — you'll be prompted automatically.</p>
+        """;
+        await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
+
+        await _audit.LogAsync("STAFF_CREATED", "User", user.Id, null, new { dto.Role }, createdByAdminId, null, ct);
+
+        return user;
+    }
+
+    public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken ct = default)
+    {
+        var user = await _uow.Users.GetByIdAsync(userId, ct)
+            ?? throw new NotFoundException("User not found.");
+
+        if (!_passwordService.Verify(dto.CurrentPassword, user.PasswordHash))
+            throw new UnauthorizedException("Current password is incorrect.");
+
+        user.PasswordHash = _passwordService.Hash(dto.NewPassword);
+        user.MustChangePassword = false;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("PASSWORD_CHANGED", "User", user.Id, null, null, user.Id, null, ct);
+    }
+
+    private static string GenerateTempPassword()
+    {
+        // 12 chars, URL-safe, always includes upper/lower/digit for a decent temp password
+        const string chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        var bytes = RandomNumberGenerator.GetBytes(12);
+        return new string(bytes.Select(b => chars[b % chars.Length]).ToArray());
+    }
+
 }

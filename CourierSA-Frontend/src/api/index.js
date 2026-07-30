@@ -62,6 +62,7 @@ export const authApi = {
   revoke:  ()     => api.post('/auth/revoke'),
   forgotPassword: email => api.post('/auth/forgot-password', { email }),
   resetPassword:  dto   => api.post('/auth/reset-password', dto),
+  changePassword: dto   => api.post('/auth/change-password', dto),
   me:      ()     => api.get('/auth/me'),
 }
 
@@ -140,6 +141,7 @@ export const adminApi = {
   suspendUser:    id       => api.put(`/admin/users/${id}/suspend`),
   auditLogs:      params   => api.get('/admin/audit-logs', { params }),
   dashboardStats: ()       => api.get('/admin/dashboard/stats'),
+  createStaffUser: dto => api.post('/admin/staff', dto),
 }
 
 export const driverApi = {

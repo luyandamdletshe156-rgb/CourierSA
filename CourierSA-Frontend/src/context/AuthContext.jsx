@@ -20,13 +20,13 @@ export function AuthProvider({ children }) {
   // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password) => {
     const res = await authApi.login({ email, password })
-    const { accessToken, refreshToken, userId, firstName, lastName, role, email: userEmail } =
-      res.data
+     const { accessToken, refreshToken, userId, firstName, lastName, role, email: userEmail, mustChangePassword } =
+    res.data  
 
     localStorage.setItem('accessToken',  accessToken)
     localStorage.setItem('refreshToken', refreshToken)
 
-    const profile = { id: userId, firstName, lastName, email: userEmail, role }
+    const profile = { id: userId, firstName, lastName, email: userEmail, role, mustChangePassword } 
     localStorage.setItem('user', JSON.stringify(profile))
     setUser(profile)
     return profile
@@ -38,6 +38,15 @@ export function AuthProvider({ children }) {
     localStorage.clear()
     setUser(null)
   }, [])
+
+  const clearMustChangePassword = useCallback(() => {
+  setUser(prev => {
+    if (!prev) return prev
+    const updated = { ...prev, mustChangePassword: false }
+    localStorage.setItem('user', JSON.stringify(updated))
+    return updated
+  })
+}, [])
 
   // ── Role helpers ──────────────────────────────────────────────────────────
   const isRole  = (...roles) => roles.includes(user?.role)
@@ -57,6 +66,7 @@ export function AuthProvider({ children }) {
       user, loading, login, logout,
       isRole, isAdmin,
       dashboardPath,
+      clearMustChangePassword, 
       isAuthenticated: !!user,
     }}>
       {children}
