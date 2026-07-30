@@ -37,7 +37,9 @@ public record CreateStaffUserDto(
     string LastName,
     string Email,
     string PhoneNumber,
-    UserRole Role   // restrict to Dispatcher / WarehouseStaff / Driver at the service layer
+    UserRole Role,   // restrict to Dispatcher / WarehouseStaff / Driver at the service layer
+    string? LicenseNumber = null,     // ← add, required only when Role == Driver
+    DateTime? LicenseExpiry = null
 );
 
 public record ChangePasswordDto(string CurrentPassword, string NewPassword);

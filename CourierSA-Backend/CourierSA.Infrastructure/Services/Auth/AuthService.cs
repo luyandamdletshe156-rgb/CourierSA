@@ -349,10 +349,18 @@ public class AuthService : IAuthService
     { UserRole.Dispatcher, UserRole.WarehouseStaff, UserRole.Driver };
 
     public async Task<User> CreateStaffUserAsync(
-        CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default)
+     CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default)
     {
         if (!AllowedStaffRoles.Contains(dto.Role))
             throw new BadRequestException("Only Dispatcher, WarehouseStaff, or Driver accounts can be created this way.");
+
+        if (dto.Role == UserRole.Driver)
+        {
+            if (string.IsNullOrWhiteSpace(dto.LicenseNumber))
+                throw new BadRequestException("License number is required for driver accounts.");
+            if (dto.LicenseExpiry is null || dto.LicenseExpiry <= DateTime.UtcNow)
+                throw new BadRequestException("A valid, non-expired license expiry date is required for driver accounts.");
+        }
 
         if (await _uow.Users.EmailExistsAsync(dto.Email, ct))
             throw new ConflictException("An account with this email already exists.");
@@ -377,12 +385,20 @@ public class AuthService : IAuthService
         await _uow.Users.AddAsync(user, ct);
         await _uow.SaveChangesAsync(ct);
 
-        // If the role needs a profile row (e.g. Driver), create it here —
-        // mirrors what RegisterAsync does for CustomerProfile.
         if (dto.Role == UserRole.Driver)
         {
-            // DriverProfile requires LicenseNumber/LicenseExpiry — admin will need
-            // to complete these separately, or extend CreateStaffUserDto to collect them.
+            var driverProfile = new DriverProfile
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                LicenseNumber = dto.LicenseNumber!.Trim(),
+                LicenseExpiry = dto.LicenseExpiry!.Value,
+                Status = DriverStatus.OffDuty, // starts off-duty until they log in and are scheduled
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.Query<DriverProfile>().AddAsync(driverProfile, ct); // adjust to however your UoW exposes generic Add — see note below
+            await _uow.SaveChangesAsync(ct);
         }
 
         var subject = "Your CourierSA staff account";

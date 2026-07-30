@@ -10,7 +10,10 @@ const STAFF_ROLES = [
   { value: 'Driver',         label: 'Driver',           blurb: 'Delivers parcels, updates delivery status' },
 ]
 
-const initialForm = { firstName: '', lastName: '', email: '', phoneNumber: '', role: 'Dispatcher' }
+const initialForm = {
+  firstName: '', lastName: '', email: '', phoneNumber: '', role: 'Dispatcher',
+  licenseNumber: '', licenseExpiry: '',
+}
 
 // Staff accounts (Dispatcher / WarehouseStaff / Driver) are never self-registered —
 // an admin creates them here. The backend generates a temporary password, emails
@@ -34,6 +37,11 @@ export function CreateStaffPage() {
     if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = 'Enter a valid email address'
     if (!/^(\+27|0)[6-8][0-9]{8}$/.test(form.phoneNumber.replace(/\s/g, '')))
       e.phoneNumber = 'Enter a valid South African phone number'
+    if (form.role === 'Driver') {
+      if (!form.licenseNumber.trim()) e.licenseNumber = 'License number is required for drivers'
+      if (!form.licenseExpiry) e.licenseExpiry = 'License expiry date is required for drivers'
+      else if (new Date(form.licenseExpiry) <= new Date()) e.licenseExpiry = 'License must not be already expired'
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -51,6 +59,10 @@ export function CreateStaffPage() {
         email:       form.email.trim().toLowerCase(),
         phoneNumber: form.phoneNumber.trim(),
         role:        form.role,
+        ...(form.role === 'Driver' && {
+          licenseNumber: form.licenseNumber.trim(),
+          licenseExpiry: form.licenseExpiry, // yyyy-mm-dd from <input type="date">, ASP.NET binds this fine
+        }),
       })
       setCreated({ ...form })
       setForm(initialForm)
@@ -184,6 +196,40 @@ export function CreateStaffPage() {
               </div>
               {errors.phoneNumber && <p className="field-error">{errors.phoneNumber}</p>}
             </div>
+
+            {form.role === 'Driver' && (
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-[#F6FAFF] border border-[#D8E4F5]">
+                <div className="col-span-2">
+                  <p className="text-xs font-semibold text-[#0A3D91] uppercase tracking-wider mb-1">
+                    Driver license details
+                  </p>
+                  <p className="text-xs text-[#64748B] mb-3">Required to create a driver's delivery profile.</p>
+                </div>
+                <div>
+                  <label className="label" htmlFor="licenseNumber">License number</label>
+                  <input
+                    id="licenseNumber"
+                    className={`input ${errors.licenseNumber ? 'input-error' : ''}`}
+                    placeholder="e.g. KZN12345678"
+                    value={form.licenseNumber}
+                    onChange={update('licenseNumber')}
+                  />
+                  {errors.licenseNumber && <p className="field-error">{errors.licenseNumber}</p>}
+                </div>
+                <div>
+                  <label className="label" htmlFor="licenseExpiry">License expiry</label>
+                  <input
+                    id="licenseExpiry"
+                    type="date"
+                    className={`input ${errors.licenseExpiry ? 'input-error' : ''}`}
+                    value={form.licenseExpiry}
+                    onChange={update('licenseExpiry')}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                  {errors.licenseExpiry && <p className="field-error">{errors.licenseExpiry}</p>}
+                </div>
+              </div>
+            )}
 
             <button type="submit" className="btn-primary w-full sm:w-auto" disabled={loading}>
               {loading ? <Spinner size="sm" className="text-white" /> : (
