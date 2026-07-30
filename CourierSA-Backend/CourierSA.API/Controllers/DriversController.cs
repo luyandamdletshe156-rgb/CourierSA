@@ -1,3 +1,5 @@
+using CourierSA.Application.DTOs.Parcels; // Needed for DriverLocationDto
+using CourierSA.Application.DTOs.Vehicles; // Needed for DriverDirectoryItemDto
 using CourierSA.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,13 +13,9 @@ namespace CourierSA.API.Controllers;
 /// <summary>
 /// Provides dispatcher and admin endpoints for fleet visibility.
 ///
-/// GET /api/drivers/locations  — snapshot of every driver's last known position,
-///     status, and active delivery. Called once on map load; real-time updates
-///     arrive via SignalR DriverLocationUpdated events.
-///
-/// GET /api/drivers/available  — drivers with status=Available, used by dispatch
-///     assignment dropdowns so dispatchers can pick real drivers instead of
-///     pasting raw UUIDs.
+/// GET /api/drivers             — full directory for Admin/Dispatcher vehicle assignment
+/// GET /api/drivers/locations  — snapshot of every driver's last known position
+/// GET /api/drivers/available  — drivers with status=Available
 /// </summary>
 [Route("api/drivers")]
 [Authorize(Policy = "DispatcherOrAdmin")]
@@ -26,6 +24,38 @@ public class DriversController : CourierSABaseController
     private readonly ApplicationDbContext _db;
 
     public DriversController(ApplicationDbContext db) => _db = db;
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NEW: DRIVER DIRECTORY (For Fleet Assignment Dropdowns)
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Full driver directory (including License Numbers) 
+    /// Used by Admin and Dispatcher Fleet pages to populate vehicle assignment dropdowns.
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+    {
+        var drivers = await _db.DriverProfiles
+            .AsNoTracking()
+            .Include(d => d.User)
+            .Where(d => !d.IsDeleted)
+            .OrderBy(d => d.User!.FirstName) // Sorted alphabetically for UI dropdowns
+            .Select(d => new DriverDirectoryItemDto(
+                d.Id,
+                d.User != null ? d.User.FirstName : string.Empty,
+                d.User != null ? d.User.LastName : string.Empty,
+                d.Status.ToString(),
+                d.LicenseNumber
+            ))
+            .ToListAsync(ct);
+
+        return Ok(drivers);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXISTING: LIVE MAP & DISPATCH ENDPOINTS
+    // ══════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Full fleet snapshot for the live map initial load.
@@ -52,30 +82,30 @@ public class DriversController : CourierSABaseController
             var activeDelivery = d.Deliveries.FirstOrDefault();
             return new
             {
-                driverId       = d.Id,
-                userId         = d.UserId,
-                firstName      = d.User?.FirstName ?? "—",
-                lastName       = d.User?.LastName  ?? "—",
-                phone          = d.User?.PhoneNumber,
-                status         = d.Status.ToString(),
-                latitude       = d.CurrentLatitude,
-                longitude      = d.CurrentLongitude,
-                lastUpdatedAt  = d.UpdatedAt,
+                driverId = d.Id,
+                userId = d.UserId,
+                firstName = d.User?.FirstName ?? "—",
+                lastName = d.User?.LastName ?? "—",
+                phone = d.User?.PhoneNumber,
+                status = d.Status.ToString(),
+                latitude = d.CurrentLatitude,
+                longitude = d.CurrentLongitude,
+                lastUpdatedAt = d.UpdatedAt,
                 activeDelivery = activeDelivery is null ? null : new
                 {
-                    deliveryId     = activeDelivery.Id,
-                    parcelId       = activeDelivery.ParcelId,
+                    deliveryId = activeDelivery.Id,
+                    parcelId = activeDelivery.ParcelId,
                     trackingNumber = activeDelivery.Parcel?.TrackingNumber,
-                    recipientName  = activeDelivery.Parcel?.DeliveryAddress?.RecipientName,
+                    recipientName = activeDelivery.Parcel?.DeliveryAddress?.RecipientName,
                     recipientPhone = activeDelivery.Parcel?.DeliveryAddress?.RecipientPhone,
-                    deliveryCity   = activeDelivery.Parcel?.DeliveryAddress?.City,
-                    deliveryAddress= activeDelivery.Parcel?.DeliveryAddress?.StreetAddress,
-                    deliveryLat    = activeDelivery.Parcel?.DeliveryAddress?.Latitude,
-                    deliveryLng    = activeDelivery.Parcel?.DeliveryAddress?.Longitude,
-                    status         = activeDelivery.Status.ToString(),
-                    dispatchedAt   = activeDelivery.DispatchedAt,
+                    deliveryCity = activeDelivery.Parcel?.DeliveryAddress?.City,
+                    deliveryAddress = activeDelivery.Parcel?.DeliveryAddress?.StreetAddress,
+                    deliveryLat = activeDelivery.Parcel?.DeliveryAddress?.Latitude,
+                    deliveryLng = activeDelivery.Parcel?.DeliveryAddress?.Longitude,
+                    status = activeDelivery.Status.ToString(),
+                    dispatchedAt = activeDelivery.DispatchedAt,
                 },
-                totalDeliveries      = d.TotalDeliveries,
+                totalDeliveries = d.TotalDeliveries,
                 successfulDeliveries = d.SuccessfulDeliveries,
             };
         });
@@ -96,11 +126,11 @@ public class DriversController : CourierSABaseController
             .Include(d => d.User)
             .Select(d => new
             {
-                driverId  = d.Id,
+                driverId = d.Id,
                 firstName = d.User!.FirstName,
-                lastName  = d.User.LastName,
-                phone     = d.User.PhoneNumber,
-                status    = d.Status.ToString(),
+                lastName = d.User.LastName,
+                phone = d.User.PhoneNumber,
+                status = d.Status.ToString(),
             })
             .ToListAsync(ct);
 
@@ -121,9 +151,9 @@ public class DriversController : CourierSABaseController
         var driver = await _db.DriverProfiles.FindAsync([driverId], ct)
             ?? throw new NotFoundException("Driver not found.");
 
-        driver.CurrentLatitude  = dto.Latitude;
+        driver.CurrentLatitude = dto.Latitude;
         driver.CurrentLongitude = dto.Longitude;
-        driver.UpdatedAt        = DateTime.UtcNow;
+        driver.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
         return NoContent("Location updated");

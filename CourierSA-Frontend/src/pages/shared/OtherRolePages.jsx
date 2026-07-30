@@ -8,7 +8,7 @@ import {
 import { parcelApi, adminApi } from '@/api'
 import {
   Warehouse, Package, CheckCircle, BarChart3,
-  Users, ShieldCheck, Truck, AlertTriangle,UserPlus, UserCheck,
+  Users, ShieldCheck, Truck, AlertTriangle, UserPlus, UserCheck,
   UserX, FileText, TrendingUp
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
@@ -139,13 +139,25 @@ export function WarehouseDashboard() {
 export function AdminDashboard() {
   const { dashboardStats } = useTracking() ?? {}
 
+  // 1. Existing Query: General system stats
   const { data, isLoading } = useQuery({
     queryKey: ['admin-stats'],
     queryFn:  adminApi.dashboardStats,
     refetchInterval: 60000,
   })
 
+  // 2. New Query: Fetch real-time fleet vehicles to display live counts
+  const { data: fleetData } = useQuery({
+    queryKey: ['admin-vehicles'],
+    queryFn: async () => {
+      const res = await adminApi.vehicles()
+      return Array.isArray(res) ? res : res?.data || []
+    },
+    staleTime: 60000,
+  })
+
   const stats = dashboardStats ?? data?.data ?? {}
+  const fleetCount = fleetData?.length ?? '—'
 
   return (
     <AppShell title="Admin Dashboard">
@@ -166,8 +178,15 @@ export function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <StatCard label="Registered users" value={stats.totalUsers} icon={Users}     color="bg-[#172554]" />
-            <StatCard label="Reports generated" value="—"               icon={BarChart3} color="bg-[#64748B]" />
+            <StatCard label="Registered users" value={stats.totalUsers} icon={Users} color="bg-[#172554]" />
+            
+            {/* Real-time Fleet Card pointing directly to your new Page */}
+            <Link 
+              to="/admin/vehicles" 
+              className="block group hover:-translate-y-1 transition-transform duration-300"
+            >
+              <StatCard label="Active Fleet Size" value={fleetCount} icon={Truck} color="bg-[#0A3D91]" />
+            </Link>
           </div>
         </>
       )}

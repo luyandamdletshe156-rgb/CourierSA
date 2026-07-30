@@ -139,15 +139,29 @@ export const notificationApi = {
 export const adminApi = {
   users:          ()       => api.get('/admin/users'),
   suspendUser:    id       => api.put(`/admin/users/${id}/suspend`),
-  reactivateUser:  id  => api.put(`/admin/users/${id}/reactivate`),
+  reactivateUser: id       => api.put(`/admin/users/${id}/reactivate`),
   auditLogs:      params   => api.get('/admin/audit-logs', { params }),
   dashboardStats: ()       => api.get('/admin/dashboard/stats'),
-  createStaffUser: dto => api.post('/admin/staff', dto),
+  createStaffUser: dto     => api.post('/admin/staff', dto),
+  
+  // Fleet Management
+  vehicles:       ()       => api.get('/admin/vehicles'),
+  createVehicle:  dto      => api.post('/admin/vehicles', dto),
+  updateVehicle:  (id, dto)=> api.put(`/admin/vehicles/${id}`, dto),
+  assignDriver:   (id, driverId) => api.put(`/admin/vehicles/${id}/assign`, { driverId }),
+  retireVehicle:  id       => api.delete(`/admin/vehicles/${id}`),
 }
 
 export const driverApi = {
+  all:        ()         => api.get('/drivers'), // Shared directory
   locations:  ()         => api.get('/drivers/locations'),
   available:  ()         => api.get('/drivers/available'),
   updateLocation: (driverId, lat, lng) =>
     api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
+}
+
+// ── Add dispatcherApi ────────────────────────────────────────────────────────
+export const dispatcherApi = {
+  vehicles:       ()       => api.get('/dispatcher/vehicles'),
+  reassignDriver: (id, driverId) => api.put(`/dispatcher/vehicles/${id}/reassign`, { driverId }),
 }

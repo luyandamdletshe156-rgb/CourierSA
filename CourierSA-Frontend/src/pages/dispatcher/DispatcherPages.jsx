@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import {
   StatCard, StatusPill, TrackingBadge, EmptyState,
   PageLoader, Modal, Alert, LiveDot
 } from '@/components/ui'
-import { parcelApi, driverApi } from '@/api'
+import { parcelApi, driverApi, dispatcherApi } from '@/api' // 👈 Added dispatcherApi
 import {
   ClipboardCheck, Truck, AlertTriangle,
   CheckCircle, XCircle, ChevronRight, MapPin, Package
@@ -16,17 +17,33 @@ import { useTracking } from '@/context/TrackingContext'
 
 export function DispatcherDashboard() {
   const qc = useQueryClient()
+  const navigate = useNavigate() // 👈 Added navigation
   const { driverLocations, connected } = useTracking() ?? {}
 
+  // 1. Fetch pending approvals
   const { data: pendingData, isLoading } = useQuery({
     queryKey: ['parcels-pending'],
     queryFn:  () => parcelApi.queue({ status: 'PendingApproval', pageSize: 50 }),
     refetchInterval: 30000,
-    
-})
+  })
 
+  // 2. Query dispatcher fleet to compute real-time maintenance alert counts
+  const { data: fleetData } = useQuery({
+    queryKey: ['dispatcher-fleet'],
+    queryFn: async () => {
+      const res = await dispatcherApi.vehicles()
+      return Array.isArray(res) ? res : res?.data || []
+    },
+    staleTime: 30000,
+  })
 
   const pendingParcels = pendingData?.data?.items ?? []
+  const fleet = fleetData ?? []
+
+  // Count vehicles in maintenance or with failed inspections
+  const needingSwapCount = fleet.filter(
+    v => v.status === 'InMaintenance' || v.lastInspection?.result === 'Fail'
+  ).length
 
   const approveMutation = useMutation({
     mutationFn: id => parcelApi.approve(id),
@@ -60,6 +77,29 @@ export function DispatcherDashboard() {
         </div>
       </div>
 
+      {/* Dynamic Warning Banner for Maintenance Reassignments */}
+      {needingSwapCount > 0 && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between text-amber-850">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <span className="font-bold text-sm">
+                {needingSwapCount} vehicle(s) require driver reassignments!
+              </span>
+              <p className="text-xs opacity-90">
+                Vehicles in maintenance or with failed inspections should have their drivers swapped.
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn-sm bg-amber-600 text-white hover:bg-amber-700 font-semibold"
+            onClick={() => navigate('/dispatcher/reassign')}
+          >
+            Manage Swaps
+          </button>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="Awaiting approval" value={pendingParcels.length}
@@ -68,8 +108,18 @@ export function DispatcherDashboard() {
                   icon={Truck} color="bg-blue-500" />
         <StatCard label="Out for delivery" value="—"
                   icon={MapPin} color="bg-brand-500" />
-        <StatCard label="Failed today" value="—"
-                  icon={AlertTriangle} color="bg-red-500" />
+        {/* Dynamic stat card linking directly to fleet swaps */}
+        <div 
+          onClick={() => navigate('/dispatcher/reassign')} 
+          className="cursor-pointer group"
+        >
+          <StatCard 
+            label="Maintenance Swaps" 
+            value={needingSwapCount}
+            icon={AlertTriangle} 
+            color={needingSwapCount > 0 ? "bg-amber-600" : "bg-gray-400"} 
+          />
+        </div>
       </div>
 
       {/* Pending approval queue */}
@@ -195,7 +245,7 @@ export function DispatchQueue() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-approved'],
-     queryFn:  () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
+    queryFn:  () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
     refetchInterval: 30000,
   })
 

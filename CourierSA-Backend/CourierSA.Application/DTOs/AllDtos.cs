@@ -326,3 +326,78 @@ namespace CourierSA.Application.DTOs.Bulk
         List<string> Errors
     );
 }
+
+namespace CourierSA.Application.DTOs.Vehicles
+{
+    // ── Requests ─────────────────────────────────────────────────────────────
+
+    public record CreateVehicleDto(
+        string RegistrationNumber,
+        string? Make,
+        string? Model,
+        int Year,
+        VehicleType VehicleType,
+        decimal PayloadCapacityKg
+    );
+
+    public record UpdateVehicleDto(
+        string RegistrationNumber,
+        string? Make,
+        string? Model,
+        int Year,
+        VehicleType VehicleType,
+        decimal PayloadCapacityKg
+    );
+
+    public record AssignDriverDto(
+        Guid? DriverId
+    );
+
+    // ── Responses ────────────────────────────────────────────────────────────
+
+    // For the GET /api/drivers directory
+    public record DriverDirectoryItemDto(
+        Guid Id,
+        string FirstName,
+        string LastName,
+        string Status,
+        string LicenseNumber
+    );
+
+    // For the GET /api/admin/vehicles list
+    public record VehicleBaseDto(
+        Guid Id,
+        string RegistrationNumber,
+        string? Make,
+        string? Model,
+        int Year,
+        string VehicleType,
+        string Status,
+        decimal PayloadCapacityKg,
+        Guid? AssignedDriverId
+    );
+
+    // For the GET /api/dispatcher/vehicles list
+    public record DispatcherVehicleDto(
+        Guid Id,
+        string RegistrationNumber,
+        string? Make,
+        string? Model,
+        string Status,
+        Guid? AssignedDriverId,
+        DispatcherDriverDto? AssignedDriver,
+        LastInspectionDto? LastInspection
+    );
+
+    // Sub-records for the Dispatcher view
+    public record DispatcherDriverDto(
+        Guid Id,
+        string FirstName,
+        string LastName
+    );
+
+    public record LastInspectionDto(
+        string Result,
+        DateTime CreatedAt
+    );
+}

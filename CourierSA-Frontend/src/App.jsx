@@ -11,6 +11,8 @@ import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
 import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 import ChangePasswordPage from '@/pages/auth/ChangePasswordPage'
 import CreateStaffPage from '@/pages/admin/CreateStaffPage'
+import AdminParcelsPage from '@/pages/admin/AdminParcelsPage'
+import AdminFleetPage from '@/pages/admin/AdminFleetPage'
 
 import { CustomerDashboard, CustomerParcels } from '@/pages/customer/CustomerPages'
 import ParcelDetailPage from '@/pages/customer/ParcelDetailPage'
@@ -22,6 +24,7 @@ import InvoicesPage    from '@/pages/customer/InvoicesPage'
 import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/DispatcherPages'
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
 import LiveMapPage          from '@/pages/dispatcher/LiveMapPage'
+import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
 
 // Driver Pages
 import { DriverDashboard }  from '@/pages/driver/DriverDashboard'
@@ -94,6 +97,7 @@ export default function App() {
                   <Route path="/dispatcher/dispatch"  element={<DispatchQueue />} />
                   <Route path="/dispatcher/map"       element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed"    element={<FailedDeliveriesPage />} />
+                  <Route path="/dispatcher/reassign"  element={<DispatcherReassignmentPage />} /> 
                 </Route>
 
                 {/* Driver */}
@@ -115,13 +119,15 @@ export default function App() {
                 {/* Admin */}
                 <Route element={<RequireRole roles={['Administrator']} />}>
                   <Route path="/admin/dashboard"  element={<AdminDashboard />} />
-                  <Route path="/admin/parcels"    element={<CustomerParcels />} />
+                  <Route path="/admin/parcels"    element={<AdminParcelsPage />} />
                   <Route path="/admin/users"      element={<AdminDashboard />} />
                   <Route path="/admin/vehicles"   element={<VehicleInspectionsPage />} />
                   <Route path="/admin/reports"    element={<AdminReportsPage />} />
                   <Route path="/admin/audit-logs" element={<AuditLogPage />} />
                   <Route path="/admin/settings"   element={<AdminDashboard />} />
                   <Route path="/admin/staff/new" element={<CreateStaffPage />} />
+                  <Route path="/admin/fleet" element={<AdminFleetPage />} />
+
                 </Route>
 
                 {/* Business Client */}
