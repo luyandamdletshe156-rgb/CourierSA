@@ -8,11 +8,12 @@ import {
 import { parcelApi, adminApi } from '@/api'
 import {
   Warehouse, Package, CheckCircle, BarChart3,
-  Users, ShieldCheck, Truck, AlertTriangle,
+  Users, ShieldCheck, Truck, AlertTriangle,UserPlus, UserCheck,
   UserX, FileText, TrendingUp
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import { useTracking } from '@/context/TrackingContext'
+import { Link } from 'react-router-dom'
 
 // ════════════════════════════════════════════════════════════════════════════
 // WAREHOUSE STAFF
@@ -178,6 +179,8 @@ export function AdminDashboard() {
 
 function AdminUsersSection() {
   const qc = useQueryClient()
+  const [roleFilter, setRoleFilter] = useState('All')
+  const [confirmTarget, setConfirmTarget] = useState(null) // user pending suspend confirmation
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users'],
@@ -188,8 +191,21 @@ function AdminUsersSection() {
 
   const suspendMutation = useMutation({
     mutationFn: id => adminApi.suspendUser(id),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmTarget(null)
+    },
   })
+
+  const reactivateMutation = useMutation({
+    mutationFn: id => adminApi.reactivateUser(id),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmTarget(null)
+    },
+  })
+
+  const activeMutation = confirmTarget?.status === 'Active' ? suspendMutation : reactivateMutation
 
   const ROLE_COLORS = {
     Administrator:  'bg-[#172554]/10 text-[#172554] border-[#172554]/20',
@@ -200,15 +216,42 @@ function AdminUsersSection() {
     Customer:       'bg-[#64748B]/10 text-[#64748B] border-[#64748B]/20',
   }
 
+  const ROLE_FILTERS = ['All', 'Customer', 'BusinessClient', 'Dispatcher', 'WarehouseStaff', 'Driver', 'Administrator']
+
+  const filteredUsers = roleFilter === 'All' ? users : users.filter(u => u.role === roleFilter)
+
   return (
     <div className="card">
       <div className="card-header">
         <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
           <Users size={16} className="text-[#0A3D91]" /> All users
+          <span className="text-xs font-normal text-[#94A3B8]">({filteredUsers.length})</span>
         </h2>
+        <Link to="/admin/staff/new" className="btn-primary btn-sm">
+          <UserPlus size={14} /> Add staff
+        </Link>
       </div>
 
-      {isLoading ? <PageLoader /> : (
+      {/* Role filter chips */}
+      <div className="flex gap-2 flex-wrap mb-5">
+        {ROLE_FILTERS.map(r => (
+          <button
+            key={r}
+            onClick={() => setRoleFilter(r)}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              roleFilter === r
+                ? 'bg-[#0A3D91] text-white border-[#0A3D91]'
+                : 'bg-white text-[#64748B] border-[#D8E4F5] hover:border-[#1E63E9]/50 hover:text-[#172554]'
+            }`}
+          >
+            {r === 'All' ? 'All' : r.replace(/([A-Z])/g, ' $1').trim()}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? <PageLoader /> : filteredUsers.length === 0 ? (
+        <EmptyState icon={Users} title="No users in this category" />
+      ) : (
         <div className="table-container">
           <table className="table">
             <thead>
@@ -222,7 +265,7 @@ function AdminUsersSection() {
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {filteredUsers.map(u => (
                 <tr key={u.id}>
                   <td>
                     <div className="flex items-center gap-3">
@@ -250,13 +293,15 @@ function AdminUsersSection() {
                   </td>
                   <td className="text-xs text-[#94A3B8] font-mono">{formatDate(u.createdAt)}</td>
                   <td>
-                    {u.status === 'Active' && (
-                      <button
-                        className="btn-danger btn-sm"
-                        disabled={suspendMutation.isPending}
-                        onClick={() => suspendMutation.mutate(u.id)}
-                      >
+                    {u.role === 'Administrator' ? (
+                      <span className="text-[11px] text-[#94A3B8] italic">Protected</span>
+                    ) : u.status === 'Active' ? (
+                      <button className="btn-danger btn-sm" onClick={() => setConfirmTarget(u)}>
                         <UserX size={14} /> Suspend
+                      </button>
+                    ) : (
+                      <button className="btn-secondary btn-sm" onClick={() => setConfirmTarget(u)}>
+                        <UserCheck size={14} /> Reactivate
                       </button>
                     )}
                   </td>
@@ -266,10 +311,40 @@ function AdminUsersSection() {
           </table>
         </div>
       )}
+
+      <Modal
+        open={!!confirmTarget}
+        onClose={() => setConfirmTarget(null)}
+        title={confirmTarget?.status === 'Active' ? 'Suspend user?' : 'Reactivate user?'}
+        size="sm"
+      >
+        <p className="text-sm text-[#64748B] leading-relaxed mb-2">
+          <strong className="text-[#172554]">
+            {confirmTarget?.firstName} {confirmTarget?.lastName}
+          </strong>{' '}
+          {confirmTarget?.status === 'Active'
+            ? 'will immediately lose access to their account. You can reactivate them at any time from this page.'
+            : 'will regain access to their account with their existing password.'}
+        </p>
+        {activeMutation.error && (
+          <Alert type="error" message={activeMutation.error.message} className="mt-3" />
+        )}
+        <div className="flex justify-end gap-3 mt-6">
+          <button className="btn-secondary" onClick={() => setConfirmTarget(null)}>Cancel</button>
+          <button
+            className={confirmTarget?.status === 'Active' ? 'btn-danger' : 'btn-primary'}
+            disabled={activeMutation.isPending}
+            onClick={() => activeMutation.mutate(confirmTarget.id)}
+          >
+            {confirmTarget?.status === 'Active'
+              ? <><UserX size={16} /> Confirm suspend</>
+              : <><UserCheck size={16} /> Confirm reactivate</>}
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }
-
 // ════════════════════════════════════════════════════════════════════════════
 // BUSINESS CLIENT
 // ════════════════════════════════════════════════════════════════════════════

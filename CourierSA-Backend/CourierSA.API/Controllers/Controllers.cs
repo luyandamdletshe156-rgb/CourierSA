@@ -455,13 +455,16 @@ public class AdminController : CourierSABaseController
             u.Role, u.Status, u.CreatedAt, u.LastLoginAt
         }));
     }
-
     [HttpPut("users/{id:guid}/suspend")]
     public async Task<IActionResult> SuspendUser(Guid id, CancellationToken ct)
     {
         var user = await _uow.Users.GetByIdAsync(id, ct)
             ?? throw new NotFoundException("User not found.");
-        user.Status    = UserStatus.Suspended;
+
+        if (user.Role == UserRole.Administrator)
+            throw new BadRequestException("Administrator accounts cannot be suspended.");
+
+        user.Status = UserStatus.Suspended;
         user.UpdatedAt = DateTime.UtcNow;
         _uow.Users.Update(user);
         await _uow.SaveChangesAsync(ct);
@@ -469,6 +472,24 @@ public class AdminController : CourierSABaseController
         return NoContent("User suspended");
     }
 
+    /// <summary>PUT /api/admin/users/{id}/reactivate</summary>
+    [HttpPut("users/{id:guid}/reactivate")]
+    public async Task<IActionResult> ReactivateUser(Guid id, CancellationToken ct)
+    {
+        var user = await _uow.Users.GetByIdAsync(id, ct)
+            ?? throw new NotFoundException("User not found.");
+
+        if (user.Status != UserStatus.Suspended)
+            throw new BadRequestException("Only suspended accounts can be reactivated.");
+
+        user.Status = UserStatus.Active;
+        user.FailedLoginAttempts = 0;   // clear any lockout counter from before suspension
+        user.UpdatedAt = DateTime.UtcNow;
+        _uow.Users.Update(user);
+        await _uow.SaveChangesAsync(ct);
+        await _audit.LogAsync("USER_REACTIVATED", "User", id, null, null, CurrentUserId, null, ct);
+        return NoContent("User reactivated");
+    }
     [HttpGet("audit-logs")]
     public async Task<IActionResult> GetAuditLogs(
         [FromQuery] string entityType, [FromQuery] Guid? entityId,

@@ -139,6 +139,7 @@ export const notificationApi = {
 export const adminApi = {
   users:          ()       => api.get('/admin/users'),
   suspendUser:    id       => api.put(`/admin/users/${id}/suspend`),
+  reactivateUser:  id  => api.put(`/admin/users/${id}/reactivate`),
   auditLogs:      params   => api.get('/admin/audit-logs', { params }),
   dashboardStats: ()       => api.get('/admin/dashboard/stats'),
   createStaffUser: dto => api.post('/admin/staff', dto),
