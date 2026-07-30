@@ -27,6 +27,9 @@ public class User : BaseEntity
     public string?   RefreshToken         { get; set; }
     public DateTime? RefreshTokenExpiryTime { get; set; }
 
+    public string? PasswordResetToken { get; set; }
+    public DateTime? PasswordResetTokenExpiry { get; set; }
+
     public string FullName => $"{FirstName} {LastName}";
 
     // Nav

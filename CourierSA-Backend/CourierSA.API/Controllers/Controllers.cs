@@ -77,6 +77,26 @@ public class AuthController : CourierSABaseController
             LastName  = User.FindFirstValue("lastName")
         });
     }
+
+    /// <summary>POST /api/auth/forgot-password</summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ForgotPassword(
+        [FromBody] ForgotPasswordDto dto, CancellationToken ct)
+    {
+        await _authService.ForgotPasswordAsync(dto.Email, ct);
+        return Ok(new { }, "If an account exists for that email, a reset link has been sent.");
+    }
+
+    /// <summary>POST /api/auth/reset-password</summary>
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordDto dto, CancellationToken ct)
+    {
+        await _authService.ResetPasswordAsync(dto, ct);
+        return NoContent("Password reset successful. Please sign in with your new password.");
+    }
 }
 
 // ── Parcels Controller ────────────────────────────────────────────────────────

@@ -60,6 +60,8 @@ export const authApi = {
   register:dto    => api.post('/auth/register', dto),
   refresh: token  => api.post('/auth/refresh', { refreshToken: token }),
   revoke:  ()     => api.post('/auth/revoke'),
+  forgotPassword: email => api.post('/auth/forgot-password', { email }),
+  resetPassword:  dto   => api.post('/auth/reset-password', dto),
   me:      ()     => api.get('/auth/me'),
 }
 

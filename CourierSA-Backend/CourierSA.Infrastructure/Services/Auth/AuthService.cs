@@ -145,17 +145,21 @@ public class AuthService : IAuthService
     private readonly ITokenService    _tokenService;
     private readonly IPasswordService _passwordService;
     private readonly IAuditService    _audit;
+    private readonly IEmailService _emailService;
 
     public AuthService(
         IUnitOfWork      uow,
         ITokenService    tokenService,
         IPasswordService passwordService,
-        IAuditService    audit)
+        IAuditService    audit,
+        IEmailService    emailService)
+
     {
         _uow             = uow;
         _tokenService    = tokenService;
         _passwordService = passwordService;
         _audit           = audit;
+        _emailService    = emailService;
     }
 
     public async Task<AuthResponseDto> LoginAsync(
@@ -276,6 +280,55 @@ public class AuthService : IAuthService
         user.UpdatedAt              = DateTime.UtcNow;
 
         await _uow.SaveChangesAsync(ct);
+    }
+
+
+    public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)
+    {
+        var user = await _uow.Users.GetByEmailAsync(email, ct);
+
+        if (user is null || user.Status != UserStatus.Active)
+            return; // don't reveal whether the account exists
+
+        var tokenBytes = RandomNumberGenerator.GetBytes(32);
+        var token = Convert.ToBase64String(tokenBytes)
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+
+        user.PasswordResetToken = token;
+        user.PasswordResetTokenExpiry = DateTime.UtcNow.AddMinutes(30);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        var resetLink = $"https://couriersa2frontend.z1.web.core.windows.net/reset-password?token={token}";
+        var subject = "Reset your CourierSA password";
+        var htmlBody = $"""
+            <p>Hi {user.FirstName},</p>
+            <p>We received a request to reset your CourierSA password. This link expires in 30 minutes:</p>
+            <p><a href="{resetLink}">{resetLink}</a></p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+            """;
+
+        await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
+    }
+
+    public async Task ResetPasswordAsync(ResetPasswordDto dto, CancellationToken ct = default)
+    {
+        var user = await _uow.Users.FirstOrDefaultAsync(
+            u => u.PasswordResetToken == dto.Token, ct)
+            ?? throw new UnauthorizedException("This reset link is invalid or has expired.");
+
+        if (user.PasswordResetTokenExpiry is null || user.PasswordResetTokenExpiry < DateTime.UtcNow)
+            throw new UnauthorizedException("This reset link is invalid or has expired.");
+
+        user.PasswordHash = _passwordService.Hash(dto.NewPassword);
+        user.PasswordResetToken = null;
+        user.PasswordResetTokenExpiry = null;
+        user.UpdatedAt = DateTime.UtcNow;
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
+
+        await _uow.SaveChangesAsync(ct);
+        await _audit.LogAsync("PASSWORD_RESET", "User", user.Id, null, null, user.Id, null, ct);
     }
 
     private static AuthResponseDto MapToResponse(

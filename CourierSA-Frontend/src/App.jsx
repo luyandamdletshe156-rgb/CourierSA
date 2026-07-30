@@ -6,6 +6,9 @@ import { RequireAuth, RequireRole, GuestOnly } from '@/routes/guards'
 
 import LandingPage from '@/pages/LandingPage'
 import LoginPage from '@/pages/auth/LoginPage'
+import RegisterPage from '@/pages/auth/RegisterPage'
+import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 
 import { CustomerDashboard, CustomerParcels } from '@/pages/customer/CustomerPages'
 import ParcelDetailPage from '@/pages/customer/ParcelDetailPage'
@@ -63,7 +66,9 @@ export default function App() {
 
               <Route element={<GuestOnly />}>
                 <Route path="/login"    element={<LoginPage />} />
-                <Route path="/register" element={<LoginPage />} />
+                <Route path="/register"        element={<RegisterPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password"  element={<ResetPasswordPage />} />
               </Route>
 
               <Route element={<RequireAuth />}>

@@ -14,6 +14,9 @@ public interface IAuthService
     Task<AuthResponseDto> RegisterAsync(RegisterDto dto, string ipAddress, CancellationToken ct = default);
     Task<AuthResponseDto> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
     Task RevokeTokenAsync(Guid userId, CancellationToken ct = default);
+
+    Task ForgotPasswordAsync(string email, CancellationToken ct = default);     
+    Task ResetPasswordAsync(ResetPasswordDto dto, CancellationToken ct = default);
 }
 
 public interface ITokenService

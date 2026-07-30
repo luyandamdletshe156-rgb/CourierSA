@@ -25,7 +25,10 @@ public record AuthResponseDto(
     string FirstName,
     string LastName,
     string Role
+
 );
+    public record ForgotPasswordDto(string Email);
+    public record ResetPasswordDto(string Token, string NewPassword);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
