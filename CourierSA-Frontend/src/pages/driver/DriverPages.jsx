@@ -6,7 +6,10 @@ import {
   EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
 import { deliveryApi } from '@/api'
-import { Truck, CheckCircle, XCircle, Navigation, Phone, MapPin, Info, Calendar } from 'lucide-react'
+import { 
+  Truck, CheckCircle, XCircle, Navigation, Phone, 
+  MapPin, Info, Calendar, X, AlertCircle 
+} from 'lucide-react'
 
 export function DriverDeliveries() {
   const qc = useQueryClient()
@@ -151,7 +154,6 @@ export function DriverDeliveries() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    {/* Click tracking number to view full parcel details */}
                     <button
                       onClick={() => setDetailModal(d)}
                       className="hover:scale-105 transition-transform text-left cursor-pointer"
@@ -241,7 +243,7 @@ export function DriverDeliveries() {
         </div>
       )}
 
-      {/* PARCEL DETAILS MODAL (Opened by touching tracking number) */}
+      {/* PARCEL DETAILS MODAL (Kept original ui/Modal layout for info display) */}
       <Modal
         open={!!detailModal}
         onClose={() => setDetailModal(null)}
@@ -250,7 +252,7 @@ export function DriverDeliveries() {
       >
         {detailModal && (
           <div className="space-y-4 text-sm">
-            <div className="flex items-center justify-between pb-3 border-b">
+            <div className="flex items-center justify-between pb-3 border-b border-[#D8E4F5]">
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Tracking Number</p>
                 <div className="mt-1">
@@ -263,7 +265,7 @@ export function DriverDeliveries() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border">
+            <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-[#D8E4F5]">
               <div>
                 <p className="text-xs text-gray-500 font-semibold uppercase">Recipient</p>
                 <p className="font-medium text-gray-800 mt-0.5">{detailModal.recipientName}</p>
@@ -282,7 +284,7 @@ export function DriverDeliveries() {
 
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full Delivery Address</p>
-              <p className="bg-gray-50 p-2.5 rounded border text-gray-800 font-medium flex items-start gap-2">
+              <p className="bg-gray-50 p-2.5 rounded border border-[#D8E4F5] text-gray-800 font-medium flex items-start gap-2">
                 <MapPin size={16} className="text-brand-500 mt-0.5 flex-shrink-0" />
                 <span>{detailModal.deliveryAddress}, {detailModal.city}</span>
               </p>
@@ -297,18 +299,6 @@ export function DriverDeliveries() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3 text-xs text-gray-600 border-t pt-3">
-              <div>
-                <span className="font-semibold text-gray-700">Fragile:</span> {detailModal.isFragile ? 'Yes ⚠' : 'No'}
-              </div>
-              {detailModal.dispatchedAt && (
-                <div className="flex items-center gap-1">
-                  <Calendar size={12} />
-                  <span>Dispatched: {new Date(detailModal.dispatchedAt).toLocaleString()}</span>
-                </div>
-              )}
-            </div>
-
             <div className="flex justify-between items-center pt-2">
               <a
                 href={`https://maps.google.com/?q=${encodeURIComponent(`${detailModal.deliveryAddress}, ${detailModal.city}`)}`}
@@ -319,86 +309,162 @@ export function DriverDeliveries() {
                 <Navigation size={13} />
                 Open Navigation
               </a>
-              <button className="btn-secondary" onClick={() => setDetailModal(null)}>Close</button>
+              <button className="btn-secondary btn-sm" onClick={() => setDetailModal(null)}>Close</button>
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Mark delivered modal */}
-      <Modal
-        open={!!deliveredModal}
-        onClose={() => setDeliveredModal(null)}
-        title="Confirm delivery"
-        size="sm"
-      >
-        <p className="text-sm text-gray-600 mb-4">
-          Confirming delivery of{' '}
-          <TrackingBadge value={deliveredModal?.trackingNumber} />{' '}
-          to <strong>{deliveredModal?.recipientName}</strong>.
-        </p>
-        <label className="label">Notes (optional)</label>
-        <textarea
-          className="input h-20 resize-none"
-          placeholder="e.g. Left with security, signed by J. Smith…"
-          value={podNotes}
-          onChange={e => setPodNotes(e.target.value)}
-        />
-        {deliveredMutation.error && <Alert message={deliveredMutation.error.message} className="mt-3" />}
-        <div className="flex justify-end gap-2 mt-4">
-          <button className="btn-secondary" onClick={() => setDeliveredModal(null)}>Cancel</button>
-          <button
-            className="btn-primary"
-            disabled={deliveredMutation.isPending}
-            onClick={() => deliveredMutation.mutate({ id: deliveredModal.id })}
-          >
-            <CheckCircle size={14} /> Confirm delivered
-          </button>
-        </div>
-      </Modal>
+      {/* RE-DESIGNED CONFIRM DELIVERY MODAL */}
+      {deliveredModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
+            
+            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#D8E4F5]">
+              <h3 className="text-xl font-bold text-[#172554] tracking-tight">
+                Confirm delivery
+              </h3>
+              <button 
+                onClick={() => setDeliveredModal(null)}
+                className="p-2 text-[#94A3B8] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" strokeWidth={2.5} />
+              </button>
+            </div>
 
-      {/* Mark failed modal */}
-      <Modal
-        open={!!failedModal}
-        onClose={() => setFailedModal(null)}
-        title="Report failed delivery"
-        size="sm"
-      >
-        <p className="text-sm text-gray-600 mb-4">
-          <TrackingBadge value={failedModal?.trackingNumber} />
-        </p>
-        <label className="label">Reason</label>
-        <select
-          className="input mb-3"
-          value={failReason}
-          onChange={e => setFailReason(e.target.value)}
-        >
-          <option value="RecipientAbsent">Recipient absent</option>
-          <option value="AddressNotFound">Address not found</option>
-          <option value="AccessDenied">Access denied</option>
-          <option value="ParcelDamaged">Parcel damaged</option>
-          <option value="RefusedDelivery">Recipient refused delivery</option>
-          <option value="Other">Other</option>
-        </select>
-        <label className="label">Notes</label>
-        <textarea
-          className="input h-20 resize-none"
-          placeholder="Additional details…"
-          value={failNotes}
-          onChange={e => setFailNotes(e.target.value)}
-        />
-        {failedMutation.error && <Alert message={failedMutation.error.message} className="mt-3" />}
-        <div className="flex justify-end gap-2 mt-4">
-          <button className="btn-secondary" onClick={() => setFailedModal(null)}>Cancel</button>
-          <button
-            className="btn-danger"
-            disabled={failedMutation.isPending}
-            onClick={() => failedMutation.mutate({ id: failedModal.id })}
-          >
-            <XCircle size={14} /> Report failed
-          </button>
+            <div className="p-6 pt-5">
+              <div className="mb-6 p-4 bg-[#F6FAFF] border border-[#D8E4F5] rounded-xl flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-[#64748B]">Confirming delivery of</span>
+                <span className="tracking-number">{deliveredModal.trackingNumber}</span>
+                <span className="text-sm text-[#64748B]">to</span>
+                <strong className="text-[#172554] font-bold">{deliveredModal.recipientName}</strong>.
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="notes" className="label">
+                  Notes (optional)
+                </label>
+                <textarea 
+                  id="notes"
+                  className="input min-h-[120px] resize-none"
+                  placeholder="e.g. Left with security, signed by J. Smith..."
+                  value={podNotes}
+                  onChange={e => setPodNotes(e.target.value)}
+                ></textarea>
+              </div>
+
+              {deliveredMutation.error && (
+                <Alert message={deliveredMutation.error.message} className="mt-4" />
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-[#F6FAFF]/50 border-t border-[#D8E4F5]">
+              <button 
+                onClick={() => setDeliveredModal(null)} 
+                className="btn-secondary"
+                disabled={deliveredMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary"
+                disabled={deliveredMutation.isPending}
+                onClick={() => deliveredMutation.mutate({ id: deliveredModal.id })}
+              >
+                <CheckCircle size={16} />
+                {deliveredMutation.isPending ? 'Confirming...' : 'Confirm delivered'}
+              </button>
+            </div>
+
+          </div>
         </div>
-      </Modal>
+      )}
+
+      {/* RE-DESIGNED REPORT FAILED DELIVERY MODAL */}
+      {failedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
+            
+            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#EF4444]/20">
+              <h3 className="text-xl font-bold text-[#172554] tracking-tight flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-[#EF4444]/10 text-[#EF4444] flex items-center justify-center">
+                  <AlertCircle className="w-5 h-5" />
+                </span>
+                Report failed delivery
+              </h3>
+              <button 
+                onClick={() => setFailedModal(null)}
+                className="p-2 text-[#94A3B8] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" strokeWidth={2.5} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-[#172554]">Parcel:</span>
+                <span className="tracking-number">{failedModal.trackingNumber}</span>
+              </div>
+
+              <div>
+                <label className="label" htmlFor="reason">Reason</label>
+                <div className="relative">
+                  <select 
+                    id="reason" 
+                    className="input appearance-none pr-10 cursor-pointer"
+                    value={failReason}
+                    onChange={e => setFailReason(e.target.value)}
+                  >
+                    <option value="RecipientAbsent">Recipient absent</option>
+                    <option value="AddressNotFound">Address not found</option>
+                    <option value="AccessDenied">Access denied</option>
+                    <option value="ParcelDamaged">Parcel damaged</option>
+                    <option value="RefusedDelivery">Recipient refused delivery</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-[#94A3B8]">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="label" htmlFor="failed-notes">Notes</label>
+                <textarea 
+                  id="failed-notes"
+                  className="input min-h-[100px] resize-none"
+                  placeholder="Additional details about why the delivery failed..."
+                  value={failNotes}
+                  onChange={e => setFailNotes(e.target.value)}
+                ></textarea>
+              </div>
+
+              {failedMutation.error && (
+                <Alert message={failedMutation.error.message} className="mt-2" />
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-[#F6FAFF]/50 border-t border-[#D8E4F5]">
+              <button 
+                onClick={() => setFailedModal(null)} 
+                className="btn-secondary"
+                disabled={failedMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-danger"
+                disabled={failedMutation.isPending}
+                onClick={() => failedMutation.mutate({ id: failedModal.id })}
+              >
+                <X className="w-4 h-4" strokeWidth={2.5} /> 
+                {failedMutation.isPending ? 'Reporting...' : 'Report failed'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }
