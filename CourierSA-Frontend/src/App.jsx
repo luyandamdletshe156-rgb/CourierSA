@@ -20,7 +20,7 @@ import LiveMapPage          from '@/pages/dispatcher/LiveMapPage'
 
 // Driver Pages
 import { DriverDashboard }  from '@/pages/driver/DriverDashboard'
-import { DriverDeliveries } from '@/pages/driver/DriverDeliveries'
+import { DriverDeliveries } from '@/pages/driver/DriverPages'
 import { DriverRoute }      from '@/pages/driver/DriverRoute'
 import { DriverHistoryPage } from '@/pages/shared/OperationalPages'
 
