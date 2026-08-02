@@ -20,6 +20,7 @@ import BookParcelPage  from '@/pages/customer/book/BookParcelPage'
 import WalletPage      from '@/pages/customer/WalletPage'
 import ClaimsPage      from '@/pages/customer/ClaimsPage'
 import InvoicesPage    from '@/pages/customer/InvoicesPage'
+import CustomerTrackPage from '@/pages/customer/CustomerTrackPage'
 
 import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/DispatcherPages'
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
@@ -84,7 +85,7 @@ export default function App() {
                   <Route path="/customer/parcels"   element={<CustomerParcels />} />
                   <Route path="/customer/book"      element={<BookParcelPage />} />
                   <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
-                  <Route path="/customer/track"     element={<PublicTrackingPage />} />
+                  <Route path="/customer/track" element={<CustomerTrackPage />} />
                   <Route path="/customer/wallet"    element={<WalletPage />} />
                   <Route path="/customer/claims"    element={<ClaimsPage />} />
                   <Route path="/customer/invoices"  element={<InvoicesPage />} />
