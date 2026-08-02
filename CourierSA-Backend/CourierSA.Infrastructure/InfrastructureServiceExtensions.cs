@@ -4,6 +4,7 @@ using CourierSA.Infrastructure.Data;
 using CourierSA.Infrastructure.Data.Repositories;
 using CourierSA.Infrastructure.Services;
 using CourierSA.Infrastructure.Services.Auth;
+using CourierSA.Infrastructure.Services.Email;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -107,6 +108,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAuditService,        AuditService>();
         services.AddScoped<IBarcodeService,      BarcodeService>();
         services.AddScoped<IStorageService,      LocalStorageService>();
+        services.Configure<BrevoEmailSettings>(configuration.GetSection("BrevoEmailSettings"));
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IBulkCsvService, BulkCsvService>();
 

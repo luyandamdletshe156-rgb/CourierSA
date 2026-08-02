@@ -3,6 +3,7 @@ using CourierSA.API.Middleware;
 using CourierSA.Infrastructure;
 using CourierSA.Infrastructure.Data;
 using Microsoft.OpenApi.Models;
+using CourierSA.Application.Interfaces.Services;
 using Microsoft.EntityFrameworkCore;
 using CourierSA.Infrastructure.Data.Seeds;
 

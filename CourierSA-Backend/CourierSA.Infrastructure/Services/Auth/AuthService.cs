@@ -1,15 +1,17 @@
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
+using CourierSA.Domain.Exceptions;
+using CourierSA.Infrastructure.Services.Email;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using CourierSA.Application.Interfaces.Repositories;
-using CourierSA.Domain.Exceptions;
+using static CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder;
 
 namespace CourierSA.Infrastructure.Services.Auth;
 
@@ -234,6 +236,7 @@ public class AuthService : IAuthService
         };
 
         await _uow.Users.AddAsync(user, ct);
+        await _uow.Query<CustomerProfile>().AddAsync(profile, ct);
         await _uow.SaveChangesAsync(ct);
 
         var accessToken  = _tokenService.GenerateAccessToken(user);
@@ -245,7 +248,15 @@ public class AuthService : IAuthService
 
         await _audit.LogAsync("REGISTER", "User", user.Id, null, null, user.Id, ipAddress, ct);
 
+        await _audit.LogAsync("REGISTER", "User", user.Id, null, null, user.Id, ipAddress, ct);
+
+        var (welcomeSubject, welcomeContent) = EmailContent.Welcome(
+            user.FirstName, "https://couriersa2frontend.z1.web.core.windows.net/customer/dashboard");
+        var welcomeHtml = EmailTemplateBuilder.Build(welcomeSubject, welcomeContent);
+        await _emailService.SendAsync(user.Email, welcomeSubject, welcomeHtml, ct);
+
         return MapToResponse(user, accessToken, refreshToken, user.RefreshTokenExpiryTime.Value);
+
     }
 
     public async Task<AuthResponseDto> RefreshTokenAsync(
@@ -298,16 +309,18 @@ public class AuthService : IAuthService
         user.PasswordResetTokenExpiry = DateTime.UtcNow.AddMinutes(30);
         user.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
-
         var resetLink = $"https://couriersa2frontend.z1.web.core.windows.net/reset-password?token={token}";
         var subject = "Reset your CourierSA password";
-        var htmlBody = $"""
-            <p>Hi {user.FirstName},</p>
-            <p>We received a request to reset your CourierSA password. This link expires in 30 minutes:</p>
-            <p><a href="{resetLink}">{resetLink}</a></p>
-            <p>If you didn't request this, you can safely ignore this email.</p>
-            """;
 
+        var content = $"""
+    <h2 style="margin:0 0 16px 0; color:#0B1B33; font-size:20px;">Reset your password</h2>
+    <p style="margin:0 0 12px 0;">Hi {user.FirstName},</p>
+    <p style="margin:0 0 12px 0;">We received a request to reset your CourierSA password. Click the button below to choose a new one — this link expires in 30 minutes.</p>
+    {EmailTemplateBuilder.Button(resetLink, "Reset Password")}
+    <p style="margin:16px 0 0 0; font-size:13px; color:#9CA3AF;">If you didn't request this, you can safely ignore this email — your password won't be changed.</p>
+    """;
+
+        var htmlBody = EmailTemplateBuilder.Build(subject, content);
         await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
     }
 
@@ -402,20 +415,27 @@ public class AuthService : IAuthService
         }
 
         var subject = "Your CourierSA staff account";
-        var htmlBody = $"""
-        <p>Hi {user.FirstName},</p>
-        <p>An administrator has created a CourierSA account for you as a <strong>{dto.Role}</strong>.</p>
-        <p><strong>Email:</strong> {user.Email}<br/>
-           <strong>Temporary password:</strong> {tempPassword}</p>
-        <p>Please sign in and change your password immediately — you'll be prompted automatically.</p>
-        """;
+        var content = $"""
+<h2 style="margin:0 0 16px 0; color:#0B1B33; font-size:20px;">Welcome to CourierSA</h2>
+<p style="margin:0 0 12px 0;">Hi {user.FirstName},</p>
+<p style="margin:0 0 16px 0;">An administrator has created a CourierSA account for you as a <strong>{dto.Role}</strong>.</p>
+<table role="presentation" style="width:100%; background-color:#F9FAFB; border-radius:6px; margin:0 0 16px 0;">
+    <tr>
+        <td style="padding:16px;">
+            <p style="margin:0 0 8px 0;"><strong>Email:</strong> {user.Email}</p>
+            <p style="margin:0;"><strong>Temporary password:</strong> {tempPassword}</p>
+        </td>
+    </tr>
+</table>
+<p style="margin:0; font-size:13px; color:#9CA3AF;">Please sign in and change your password immediately — you'll be prompted automatically on first login.</p>
+""";
+        var htmlBody = EmailTemplateBuilder.Build(subject, content);
         await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
 
         await _audit.LogAsync("STAFF_CREATED", "User", user.Id, null, new { dto.Role }, createdByAdminId, null, ct);
 
         return user;
     }
-
     public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken ct = default)
     {
         var user = await _uow.Users.GetByIdAsync(userId, ct)

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using CourierSA.Infrastructure.Data;
 using System.Security.Claims;
+using CourierSA.Application.Interfaces.Services;
 
 namespace CourierSA.API.Hubs;
 
@@ -138,18 +139,6 @@ public class TrackingHub : Hub
 /// Helper service injected into application services to push events to SignalR groups
 /// without the Hub having direct business logic dependencies.
 /// </summary>
-public interface ITrackingHubService
-{
-    Task NotifyParcelStatusChangedAsync(
-        string trackingNumber, string newStatus,
-        string? location = null, CancellationToken ct = default);
-
-    Task NotifyAdminDashboardAsync(
-        object stats, CancellationToken ct = default);
-
-    Task NotifyDriverNewAssignmentAsync(
-        Guid driverId, object deliveryDetails, CancellationToken ct = default);
-}
 
 public class TrackingHubService : ITrackingHubService
 {

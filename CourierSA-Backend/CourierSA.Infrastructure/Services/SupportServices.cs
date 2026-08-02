@@ -6,6 +6,7 @@ using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Domain.Exceptions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using CourierSA.Infrastructure.Services.Email;
 
 namespace CourierSA.Infrastructure.Services;
 
@@ -50,24 +51,45 @@ public class AuditService : IAuditService
 /// Persists in-app notifications and triggers email/SMS via injected channel services.
 /// Keeps the domain events decoupled from transport layer details.
 /// </summary>
+// ── Notification Service ──────────────────────────────────────────────────────
+/// <summary>
+/// Persists in-app notifications and triggers email via IEmailService.
+/// Keeps the domain events decoupled from transport layer details.
+/// </summary>
 public class NotificationService : INotificationService
 {
-    private readonly IUnitOfWork    _uow;
-    private readonly IEmailService  _emailService;
+    private readonly IUnitOfWork _uow;
+    private readonly IEmailService _emailService;
+
+    private const string TrackBaseUrl =
+        "https://couriersa2frontend.z1.web.core.windows.net/track";
 
     public NotificationService(IUnitOfWork uow, IEmailService emailService)
     {
-        _uow          = uow;
+        _uow = uow;
         _emailService = emailService;
     }
 
     public async Task SendParcelBookedAsync(
-        Guid userId, string trackingNumber, CancellationToken ct = default)
+        Guid userId, string trackingNumber,
+        string? serviceType = null, string? destinationCity = null, decimal? amountZAR = null,
+        CancellationToken ct = default)
     {
         await PersistAsync(userId, NotificationType.ParcelBooked,
             "Booking Confirmed",
             $"Your parcel {trackingNumber} has been booked and is awaiting approval.",
             ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.BookingConfirmed(
+            user.FirstName, trackingNumber,
+            serviceType ?? "—", destinationCity ?? "—", amountZAR,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
     public async Task SendDispatchedAsync(
@@ -77,6 +99,18 @@ public class NotificationService : INotificationService
             "Out for Delivery",
             $"Your parcel {trackingNumber} is now out for delivery.",
             ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Out for Delivery",
+            "your parcel is on its way and should arrive soon.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorInfo,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
     public async Task SendDeliveredAsync(
@@ -86,6 +120,18 @@ public class NotificationService : INotificationService
             "Parcel Delivered",
             $"Your parcel {trackingNumber} has been delivered successfully.",
             ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Delivered",
+            "your parcel has been delivered successfully. Thank you for using CourierSA.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorSuccess,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
     public async Task SendFailedDeliveryAsync(
@@ -96,6 +142,18 @@ public class NotificationService : INotificationService
             $"We were unable to deliver parcel {trackingNumber}. Reason: {reason}. " +
             $"Please contact support to reschedule.",
             ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Delivery Failed",
+            $"we were unable to deliver your parcel. Reason: {reason}. Please visit the Support Hub to reschedule or update your address.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorDanger,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
     public async Task SendClaimStatusUpdateAsync(
@@ -105,6 +163,18 @@ public class NotificationService : INotificationService
             "Claim Status Updated",
             $"Your insurance claim {claimNumber} has been updated to: {status}.",
             ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, claimNumber, "Claim Update",
+            $"your insurance claim has been updated to: {status}.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorWarning,
+            "https://couriersa2frontend.z1.web.core.windows.net/customer/claims");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
     public async Task SendWalletTopUpAsync(
@@ -114,6 +184,8 @@ public class NotificationService : INotificationService
             "Wallet Credited",
             $"Your wallet has been credited with R{amount:N2}.",
             ct: ct);
+
+        // In-app only — no email for wallet top-ups to avoid noise; extend here if desired.
     }
 
     public async Task SendSystemAlertAsync(
@@ -132,8 +204,8 @@ public class NotificationService : INotificationService
     {
         var n = await _uow.Notifications.GetByIdAsync(notificationId, ct);
         if (n is null) return;
-        n.IsRead    = true;
-        n.ReadAt    = DateTime.UtcNow;
+        n.IsRead = true;
+        n.ReadAt = DateTime.UtcNow;
         n.UpdatedAt = DateTime.UtcNow;
         _uow.Notifications.Update(n);
         await _uow.SaveChangesAsync(ct);
@@ -145,8 +217,8 @@ public class NotificationService : INotificationService
             n => n.UserId == userId && !n.IsRead, ct);
         foreach (var n in unread)
         {
-            n.IsRead    = true;
-            n.ReadAt    = DateTime.UtcNow;
+            n.IsRead = true;
+            n.ReadAt = DateTime.UtcNow;
             n.UpdatedAt = DateTime.UtcNow;
             _uow.Notifications.Update(n);
         }
@@ -159,23 +231,23 @@ public class NotificationService : INotificationService
         NotificationType type,
         string title,
         string body,
-        Guid?  referenceId   = null,
+        Guid? referenceId = null,
         string? referenceType = null,
         CancellationToken ct = default)
     {
         var notification = new Notification
         {
-            Id            = Guid.NewGuid(),
-            UserId        = userId,
-            Type          = type,
-            Channel       = NotificationChannel.InApp,
-            Title         = title,
-            Body          = body,
-            IsRead        = false,
-            ReferenceId   = referenceId,
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Type = type,
+            Channel = NotificationChannel.InApp,
+            Title = title,
+            Body = body,
+            IsRead = false,
+            ReferenceId = referenceId,
             ReferenceType = referenceType,
-            CreatedAt     = DateTime.UtcNow,
-            UpdatedAt     = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _uow.Notifications.AddAsync(notification, ct);

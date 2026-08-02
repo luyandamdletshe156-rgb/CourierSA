@@ -87,7 +87,8 @@ export const parcelApi = {
 }
 
 export const trackingApi = {
-  track: trackingNumber => api.get(`/tracking/${trackingNumber}`),
+  track:        trackingNumber => api.get(`/tracking/${trackingNumber}`),
+  trackPrivate: trackingNumber => api.get(`/tracking/private/${trackingNumber}`),
 }
 
 export const quoteApi = {

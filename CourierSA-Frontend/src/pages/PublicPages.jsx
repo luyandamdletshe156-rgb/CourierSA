@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { trackingApi } from '@/api'
 import { StatusPill, Alert, Spinner } from '@/components/ui'
 import { Search, Truck, MapPin, Package, CheckCircle, XCircle, AlertTriangle, Clock, ArrowLeft } from 'lucide-react'
 import { formatDate } from '@/utils'
 import { Link } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
+import { useTracking } from '@/context/TrackingContext'
 
 // Import the logo
 import logo from '@/assets/logo.png'
@@ -27,6 +29,9 @@ export function PublicTrackingPage() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
 
+  const { isAuthenticated } = useAuth()
+  const tracking = useTracking() // null when TrackingProvider isn't mounted (unauthenticated)
+
   const handleTrack = async e => {
     e.preventDefault()
     if (!query.trim()) return
@@ -34,7 +39,9 @@ export function PublicTrackingPage() {
     setResult(null)
     setLoading(true)
     try {
-      const res = await trackingApi.track(query.trim())
+      const res = isAuthenticated
+        ? await trackingApi.trackPrivate(query.trim())
+        : await trackingApi.track(query.trim())
       setResult(res.data)
     } catch (err) {
       setError(err.status === 404
@@ -44,6 +51,35 @@ export function PublicTrackingPage() {
       setLoading(false)
     }
   }
+
+  // Subscribe to live updates for the currently displayed parcel
+  useEffect(() => {
+    if (!result?.trackingNumber || !tracking) return
+    tracking.subscribeToParcel(result.trackingNumber)
+    return () => tracking.unsubscribeFromParcel(result.trackingNumber)
+  }, [result?.trackingNumber, tracking])
+
+  // Merge live SignalR pushes into the displayed result
+  // Hub payload (TrackingHubService.NotifyParcelStatusChangedAsync), camelCased over the wire:
+  //   { trackingNumber, newStatus, location, updatedAt }
+  const liveEvent = result?.trackingNumber ? tracking?.parcelUpdates?.[result.trackingNumber] : null
+
+  useEffect(() => {
+    if (!liveEvent) return
+    setResult(prev => prev && ({
+      ...prev,
+      status: liveEvent.newStatus ?? prev.status,
+      events: [
+        {
+          eventType:   liveEvent.newStatus,
+          location:    liveEvent.location ?? null,
+          description: liveEvent.newStatus, // hub doesn't send a separate description field
+          occurredAt:  liveEvent.updatedAt ?? new Date().toISOString(),
+        },
+        ...prev.events,
+      ],
+    }))
+  }, [liveEvent])
 
   return (
     <div className="min-h-screen bg-[#F6FAFF] font-sans">
@@ -134,6 +170,21 @@ export function PublicTrackingPage() {
                   <MapPin size={16} className="text-[#1E63E9]" />
                 </div>
                 <span>Delivering to <strong className="text-[#172554]">{result.destination}</strong></span>
+              </div>
+            )}
+
+            {/* Active delivery / driver contact (private-tracking only) */}
+            {result.activeDelivery && (result.activeDelivery.driverName || result.activeDelivery.driverPhone) && (
+              <div className="flex items-center gap-3 text-sm text-[#334155] mb-8 px-4 py-3 bg-[#F6FAFF] rounded-xl border border-[#D8E4F5]">
+                <div className="w-8 h-8 rounded-full bg-[#0A3D91]/10 flex items-center justify-center flex-shrink-0">
+                  <Truck size={16} className="text-[#0A3D91]" />
+                </div>
+                <span>
+                  Your driver: <strong className="text-[#172554]">{result.activeDelivery.driverName ?? 'Assigned'}</strong>
+                  {result.activeDelivery.driverPhone && (
+                    <> &middot; <a href={`tel:${result.activeDelivery.driverPhone}`} className="text-[#1E63E9] font-semibold">{result.activeDelivery.driverPhone}</a></>
+                  )}
+                </span>
               </div>
             )}
 

@@ -222,20 +222,21 @@ public class ParcelServiceStateMachineTests
 
     private (ParcelService svc, ApplicationDbContext db) BuildSut()
     {
-        var db  = CreateContext();
+        var db = CreateContext();
         var uow = new UnitOfWork(db);
 
-        var quoteMock    = new Mock<IQuoteService>();
-        var barcodeMock  = new Mock<IBarcodeService>();
+        var quoteMock = new Mock<IQuoteService>();
+        var barcodeMock = new Mock<IBarcodeService>();
         barcodeMock.Setup(b => b.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
                    .ReturnsAsync("/uploads/barcodes/test.png");
 
-        var notifyMock   = new Mock<INotificationService>();
-        var auditMock    = new Mock<IAuditService>();
-        var bulkMock     = new Mock<IBulkCsvService>();
+        var notifyMock = new Mock<INotificationService>();
+        var auditMock = new Mock<IAuditService>();
+        var bulkMock = new Mock<IBulkCsvService>();
+        var hubMock = new Mock<ITrackingHubService>();
 
         var svc = new ParcelService(uow, quoteMock.Object, barcodeMock.Object,
-                                    notifyMock.Object, auditMock.Object);
+                                    notifyMock.Object, auditMock.Object, hubMock.Object);
         return (svc, db);
     }
 

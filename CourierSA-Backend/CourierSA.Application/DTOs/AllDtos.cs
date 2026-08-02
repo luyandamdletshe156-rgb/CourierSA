@@ -130,7 +130,11 @@ public record ParcelDetailDto(
     ParcelAddressDto? PickupAddress,
     ParcelAddressDto? DeliveryAddress,
     IList<TrackingEventDto> TrackingEvents,
-    DeliveryDto? ActiveDelivery
+    DeliveryDto? ActiveDelivery,
+    string? PaymentMethod = null,
+    bool IsPaid = false,
+    DateTime? PaidAt = null,
+    string? ClaimStatus = null
 );
 public record TrackingResultDto(
     string   TrackingNumber,
@@ -183,17 +187,19 @@ public record FailedDeliveryDto(
 public record DriverLocationDto(decimal Latitude, decimal Longitude);
 
 public record DeliveryDto(
-    Guid     Id,
-    Guid     ParcelId,
-    string   TrackingNumber,
-    string   Status,
-    string   RecipientName,
-    string   RecipientPhone,
-    string   DeliveryAddress,
-    string   City,
-    string?  SpecialInstructions,
-    bool     IsFragile,
-    DateTime? DispatchedAt
+    Guid Id,
+    Guid ParcelId,
+    string TrackingNumber,
+    string Status,
+    string RecipientName,
+    string RecipientPhone,
+    string DeliveryAddress,
+    string City,
+    string? SpecialInstructions,
+    bool IsFragile,
+    DateTime? DispatchedAt,
+    string? DriverName = null,
+    string? DriverPhone = null
 );
 
 public record BulkUploadResultDto(

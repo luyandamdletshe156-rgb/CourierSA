@@ -256,6 +256,18 @@ public class TrackingController : CourierSABaseController
             throw new NotFoundException($"No parcel found with tracking number '{trackingNumber}'.");
         return Ok(result);
     }
+
+    /// <summary>GET /api/tracking/private/{trackingNumber} – Authenticated, richer detail, ownership-checked</summary>
+    [HttpGet("private/{trackingNumber}")]
+    [Authorize]
+    public async Task<IActionResult> TrackPrivate(
+        string trackingNumber, CancellationToken ct)
+    {
+        var result = await _parcelService.GetPrivateTrackingAsync(trackingNumber, CurrentUserId, ct);
+        if (result is null)
+            throw new NotFoundException($"No parcel found with tracking number '{trackingNumber}'.");
+        return Ok(result);
+    }
 }
 
 // ── Deliveries Controller (Driver) ────────────────────────────────────────────

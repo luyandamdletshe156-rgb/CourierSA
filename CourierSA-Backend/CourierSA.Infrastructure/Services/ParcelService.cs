@@ -15,24 +15,27 @@ namespace CourierSA.Infrastructure.Services;
 /// </summary>
 public class ParcelService : IParcelService
 {
-    private readonly IUnitOfWork          _uow;
-    private readonly IQuoteService        _quoteService;
-    private readonly IBarcodeService      _barcodeService;
+    private readonly IUnitOfWork _uow;
+    private readonly IQuoteService _quoteService;
+    private readonly IBarcodeService _barcodeService;
     private readonly INotificationService _notificationService;
-    private readonly IAuditService        _audit;
+    private readonly IAuditService _audit;
+    private readonly ITrackingHubService _hubService;
 
     public ParcelService(
-        IUnitOfWork          uow,
-        IQuoteService        quoteService,
-        IBarcodeService      barcodeService,
+        IUnitOfWork uow,
+        IQuoteService quoteService,
+        IBarcodeService barcodeService,
         INotificationService notificationService,
-        IAuditService        audit)
+        IAuditService audit,
+        ITrackingHubService hubService)
     {
-        _uow                 = uow;
-        _quoteService        = quoteService;
-        _barcodeService      = barcodeService;
+        _uow = uow;
+        _quoteService = quoteService;
+        _barcodeService = barcodeService;
         _notificationService = notificationService;
-        _audit               = audit;
+        _audit = audit;
+        _hubService = hubService;
     }
 
     // ── Book ──────────────────────────────────────────────────────────────────
@@ -87,7 +90,7 @@ public class ParcelService : IParcelService
             {
                 quote = await _uow.Quotes.GetByIdAsync(calculatedQuote.QuoteId.Value, ct);
             }
-        } 
+        }
 
         // 2. Generate Tracking Number & Addresses
         var trackingNumber = await _uow.Parcels.GenerateTrackingNumberAsync();
@@ -169,8 +172,7 @@ public class ParcelService : IParcelService
 
         await _uow.SaveChangesAsync(ct);
 
-        await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, ct);
-
+        await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
         await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id,
             null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
 
@@ -184,13 +186,15 @@ public class ParcelService : IParcelService
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.PendingApproval);
 
-        parcel.Status    = ParcelStatus.Approved;
+        parcel.Status = ParcelStatus.Approved;
         parcel.UpdatedAt = DateTime.UtcNow;
 
         var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Approved,
       "Booking approved by dispatcher");
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Approved", ct: ct);
     }
 
     // ── Reject ────────────────────────────────────────────────────────────────
@@ -201,7 +205,7 @@ public class ParcelService : IParcelService
         EnsureStatus(parcel, ParcelStatus.PendingApproval);
 
         var old = new { parcel.Status };
-        parcel.Status    = ParcelStatus.Cancelled;
+        parcel.Status = ParcelStatus.Cancelled;
         parcel.UpdatedAt = DateTime.UtcNow;
 
         var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Cancelled,
@@ -218,16 +222,16 @@ public class ParcelService : IParcelService
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.Approved);
 
-        parcel.Status    = ParcelStatus.InWarehouse;
+        parcel.Status = ParcelStatus.InWarehouse;
         parcel.UpdatedAt = DateTime.UtcNow;
         var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ReceivedAtWarehouse,
             "Parcel received at warehouse", warehouseLocation);
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
         await _uow.SaveChangesAsync(ct);
-    }
 
-    // ── Dispatch ──────────────────────────────────────────────────────────────
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", warehouseLocation, ct);
+    }
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
 
@@ -302,6 +306,8 @@ public class ParcelService : IParcelService
 
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId,
             null, new { Status = "OutForDelivery", driverId }, dispatcherId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "OutForDelivery", ct: ct);
     }
     // ── Mark Delivered ────────────────────────────────────────────────────────
     public async Task MarkDeliveredAsync(
@@ -316,14 +322,14 @@ public class ParcelService : IParcelService
 
         var parcel = await GetOrThrowAsync(delivery.ParcelId, ct);
 
-        delivery.Status                  = DeliveryStatus.Delivered;
-        delivery.DeliveredAt             = DateTime.UtcNow;
+        delivery.Status = DeliveryStatus.Delivered;
+        delivery.DeliveredAt = DateTime.UtcNow;
         delivery.ProofOfDeliveryImagePath = pod.ImagePath;
-        delivery.RecipientSignaturePath  = pod.SignaturePath;
-        delivery.AttemptNotes            = pod.Notes;
-        delivery.UpdatedAt               = DateTime.UtcNow;
+        delivery.RecipientSignaturePath = pod.SignaturePath;
+        delivery.AttemptNotes = pod.Notes;
+        delivery.UpdatedAt = DateTime.UtcNow;
 
-        parcel.Status    = ParcelStatus.Delivered;
+        parcel.Status = ParcelStatus.Delivered;
         parcel.UpdatedAt = DateTime.UtcNow;
 
         var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
@@ -339,6 +345,8 @@ public class ParcelService : IParcelService
 
         await _audit.LogAsync("PARCEL_DELIVERED", "Parcel", parcel.Id,
             null, new { Status = "Delivered" }, driverId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Delivered", ct: ct);
     }
 
     // ── Mark Failed ───────────────────────────────────────────────────────────
@@ -354,12 +362,12 @@ public class ParcelService : IParcelService
 
         var parcel = await GetOrThrowAsync(delivery.ParcelId, ct);
 
-        delivery.Status        = DeliveryStatus.Failed;
+        delivery.Status = DeliveryStatus.Failed;
         delivery.FailureReason = dto.Reason;
-        delivery.AttemptNotes  = dto.Notes;
-        delivery.UpdatedAt     = DateTime.UtcNow;
+        delivery.AttemptNotes = dto.Notes;
+        delivery.UpdatedAt = DateTime.UtcNow;
 
-        parcel.Status    = ParcelStatus.FailedDelivery;
+        parcel.Status = ParcelStatus.FailedDelivery;
         parcel.UpdatedAt = DateTime.UtcNow;
 
         var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
@@ -375,6 +383,8 @@ public class ParcelService : IParcelService
 
         await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId,
             null, new { dto.Reason, dto.Notes }, driverId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "FailedDelivery", ct: ct);
     }
 
     // ── Public Tracking (no auth required) ───────────────────────────────────
@@ -388,9 +398,9 @@ public class ParcelService : IParcelService
 
         return new TrackingResultDto(
             TrackingNumber: parcel.TrackingNumber,
-            Status:         parcel.Status.ToString(),
-            ServiceType:    parcel.ServiceType.ToString(),
-            Destination:    $"{parcel.DeliveryAddress!.City}, {parcel.DeliveryAddress.Province}",
+            Status: parcel.Status.ToString(),
+            ServiceType: parcel.ServiceType.ToString(),
+            Destination: $"{parcel.DeliveryAddress!.City}, {parcel.DeliveryAddress.Province}",
             EstimatedDelivery: parcel.EstimatedDeliveryDate,
             Events: parcel.TrackingEvents
                 .OrderByDescending(e => e.OccurredAt)
@@ -403,6 +413,60 @@ public class ParcelService : IParcelService
                     e.Longitude))
                 .ToList()
         );
+    }
+
+    // ── Private Tracking (authenticated, richer detail) ────────────────────────
+    public async Task<ParcelDetailDto?> GetPrivateTrackingAsync(
+        string trackingNumber, Guid requestingUserId, CancellationToken ct = default)
+    {
+        var parcel = await _uow.Parcels.GetByTrackingNumberAsync(trackingNumber, ct);
+        if (parcel is null) return null;
+
+        var requestingUser = await _uow.Users.GetByIdAsync(requestingUserId, ct);
+        var isStaff = requestingUser?.Role is UserRole.Dispatcher or UserRole.Administrator;
+
+        if (!isStaff && parcel.Customer?.UserId != requestingUserId)
+            return null; // 404, not 403 — don't confirm the parcel exists to a non-owner
+
+        var full = await _uow.Parcels.GetWithFullDetailsAsync(parcel.Id, ct);
+        if (full is null) return null;
+
+        var detail = MapToDetail(full);
+
+        // Enrich with driver contact, if a delivery is active
+        DeliveryDto? enrichedDelivery = detail.ActiveDelivery;
+        if (full.ActiveDelivery is not null)
+        {
+            var driver = await _uow.Query<DriverProfile>()
+                .Query()
+                .Include(d => d.User)
+                .FirstOrDefaultAsync(d => d.Id == full.ActiveDelivery.DriverId, ct);
+
+            if (driver?.User is not null)
+            {
+                enrichedDelivery = detail.ActiveDelivery with
+                {
+                    DriverName = driver.User.FullName,
+                    DriverPhone = driver.User.PhoneNumber
+                };
+            }
+        }
+
+        // Insurance claim status, if one exists for this parcel
+        var claim = await _uow.Query<InsuranceClaim>()
+            .Query()
+            .Where(c => c.ParcelId == full.Id)
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return detail with
+        {
+            ActiveDelivery = enrichedDelivery,
+            PaymentMethod = full.PaymentMethod.ToString(),
+            IsPaid = full.IsPaid,
+            PaidAt = full.PaidAt,
+            ClaimStatus = claim?.Status.ToString()
+        };
     }
 
     // ── Get Detail ────────────────────────────────────────────────────────────
@@ -508,34 +572,34 @@ public class ParcelService : IParcelService
 
         await _uow.WalletTransactions.AddAsync(new WalletTransaction
         {
-            Id              = Guid.NewGuid(),
-            UserId          = customer.UserId,
-            Type            = WalletTransactionType.Debit,
-            AmountZAR       = amount,
+            Id = Guid.NewGuid(),
+            UserId = customer.UserId,
+            Type = WalletTransactionType.Debit,
+            AmountZAR = amount,
             BalanceAfterZAR = customer.WalletBalanceZAR,
-            ReferenceId     = parcel.Id,
-            ReferenceType   = "Parcel",
-            Description     = $"Payment for parcel {parcel.TrackingNumber}",
-            CreatedAt       = DateTime.UtcNow,
-            UpdatedAt       = DateTime.UtcNow
+            ReferenceId = parcel.Id,
+            ReferenceType = "Parcel",
+            Description = $"Payment for parcel {parcel.TrackingNumber}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         }, ct);
     }
 
     private static ParcelAddress MapAddress(CreateAddressDto dto) => new()
     {
-        Id               = Guid.NewGuid(),
-        RecipientName    = dto.RecipientName,
-        RecipientPhone   = dto.RecipientPhone,
-        RecipientEmail   = dto.RecipientEmail,
-        StreetAddress    = dto.StreetAddress,
-        Suburb           = dto.Suburb,
-        City             = dto.City,
-        Province         = dto.Province,
-        PostalCode       = dto.PostalCode,
-        Country          = dto.Country ?? "South Africa",
+        Id = Guid.NewGuid(),
+        RecipientName = dto.RecipientName,
+        RecipientPhone = dto.RecipientPhone,
+        RecipientEmail = dto.RecipientEmail,
+        StreetAddress = dto.StreetAddress,
+        Suburb = dto.Suburb,
+        City = dto.City,
+        Province = dto.Province,
+        PostalCode = dto.PostalCode,
+        Country = dto.Country ?? "South Africa",
         SpecialInstructions = dto.SpecialInstructions,
-        CreatedAt        = DateTime.UtcNow,
-        UpdatedAt        = DateTime.UtcNow
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
     };
 
     private static ParcelSummaryDto MapToSummary(Parcel p) => new(
@@ -585,17 +649,17 @@ public class ParcelService : IParcelService
             .GetDriverActiveDeliveriesAsync(profile.Id, ct);
 
         return deliveries.Select(d => new DeliveryDto(
-            Id:                  d.Id,
-            ParcelId:            d.ParcelId,
-            TrackingNumber:      d.Parcel?.TrackingNumber ?? "—",
-            Status:              d.Status.ToString(),
-            RecipientName:       d.Parcel?.DeliveryAddress?.RecipientName ?? "—",
-            RecipientPhone:      d.Parcel?.DeliveryAddress?.RecipientPhone ?? "—",
-            DeliveryAddress:     $"{d.Parcel?.DeliveryAddress?.StreetAddress}, {d.Parcel?.DeliveryAddress?.Suburb}".Trim(',', ' '),
-            City:                d.Parcel?.DeliveryAddress?.City ?? "—",
+            Id: d.Id,
+            ParcelId: d.ParcelId,
+            TrackingNumber: d.Parcel?.TrackingNumber ?? "—",
+            Status: d.Status.ToString(),
+            RecipientName: d.Parcel?.DeliveryAddress?.RecipientName ?? "—",
+            RecipientPhone: d.Parcel?.DeliveryAddress?.RecipientPhone ?? "—",
+            DeliveryAddress: $"{d.Parcel?.DeliveryAddress?.StreetAddress}, {d.Parcel?.DeliveryAddress?.Suburb}".Trim(',', ' '),
+            City: d.Parcel?.DeliveryAddress?.City ?? "—",
             SpecialInstructions: d.Parcel?.SpecialInstructions,
-            IsFragile:           d.Parcel?.IsFragile ?? false,
-            DispatchedAt:        d.DispatchedAt
+            IsFragile: d.Parcel?.IsFragile ?? false,
+            DispatchedAt: d.DispatchedAt
         ));
     }
 
@@ -608,12 +672,12 @@ public class ParcelService : IParcelService
 
         if (profile is null) return;   // silent — GPS pings should never crash the app
 
-        profile.CurrentLatitude  = lat;
+        profile.CurrentLatitude = lat;
         profile.CurrentLongitude = lng;
-        profile.UpdatedAt        = DateTime.UtcNow;
+        profile.UpdatedAt = DateTime.UtcNow;
 
         await _uow.SaveChangesAsync(ct);
     }
 
-    
+
 }

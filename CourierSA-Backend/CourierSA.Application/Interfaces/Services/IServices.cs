@@ -36,24 +36,23 @@ public interface IPasswordService
     bool   Verify(string password, string storedHash);
 }
 
-// ── Parcels ───────────────────────────────────────────────────────────────────
 public interface IParcelService
 {
-    Task<ParcelDetailDto>            BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default);
-    Task                             ApproveAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
-    Task                             RejectAsync(Guid parcelId, string reason, Guid staffId, CancellationToken ct = default);
-    Task                             CheckInAsync(Guid parcelId, string warehouseLocation, Guid staffId, CancellationToken ct = default);
-    Task                             DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
-    Task                             MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverId, CancellationToken ct = default);
-    Task                             MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);
-    Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default); // NEW
-    Task<TrackingResultDto?>         TrackAsync(string trackingNumber, CancellationToken ct = default);
-    Task<ParcelDetailDto?>           GetDetailAsync(Guid id, CancellationToken ct = default);
+    Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default);
+    Task ApproveAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
+    Task RejectAsync(Guid parcelId, string reason, Guid staffId, CancellationToken ct = default);
+    Task CheckInAsync(Guid parcelId, string warehouseLocation, Guid staffId, CancellationToken ct = default);
+    Task DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
+    Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverId, CancellationToken ct = default);
+    Task MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);
+    Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default);
+    Task<TrackingResultDto?> TrackAsync(string trackingNumber, CancellationToken ct = default);
+    Task<ParcelDetailDto?> GetDetailAsync(Guid id, CancellationToken ct = default);
+    Task<ParcelDetailDto?> GetPrivateTrackingAsync(string trackingNumber, Guid requestingUserId, CancellationToken ct = default); // ← ADD
     Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(ParcelFilterDto filter, Guid customerId, CancellationToken ct = default);
-    Task<IEnumerable<DeliveryDto>>   GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
-    Task                             UpdateDriverLocationAsync(Guid driverId, decimal lat, decimal lng, CancellationToken ct = default);
+    Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
+    Task UpdateDriverLocationAsync(Guid driverId, decimal lat, decimal lng, CancellationToken ct = default);
 }
-
 
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
@@ -79,7 +78,10 @@ public interface IBulkCsvService
 // ── Notifications ─────────────────────────────────────────────────────────────
 public interface INotificationService
 {
-    Task SendParcelBookedAsync(Guid userId, string trackingNumber, CancellationToken ct = default);
+    Task SendParcelBookedAsync(
+    Guid userId, string trackingNumber,
+    string? serviceType = null, string? destinationCity = null, decimal? amountZAR = null,
+    CancellationToken ct = default);
     Task SendDispatchedAsync(Guid userId, string trackingNumber, CancellationToken ct = default);
     Task SendDeliveredAsync(Guid userId, string trackingNumber, CancellationToken ct = default);
     Task SendFailedDeliveryAsync(Guid userId, string trackingNumber, string reason, CancellationToken ct = default);
@@ -125,4 +127,17 @@ public interface IBarcodeService
 public interface IEmailService
 {
     Task SendAsync(string to, string subject, string htmlBody, CancellationToken ct = default);
+}
+
+public interface ITrackingHubService
+{
+    Task NotifyParcelStatusChangedAsync(
+        string trackingNumber, string newStatus,
+        string? location = null, CancellationToken ct = default);
+
+    Task NotifyAdminDashboardAsync(
+        object stats, CancellationToken ct = default);
+
+    Task NotifyDriverNewAssignmentAsync(
+        Guid driverId, object deliveryDetails, CancellationToken ct = default);
 }
