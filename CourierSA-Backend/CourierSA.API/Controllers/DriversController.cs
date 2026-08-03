@@ -1,5 +1,5 @@
-using CourierSA.Application.DTOs.Parcels; // Needed for DriverLocationDto
-using CourierSA.Application.DTOs.Vehicles; // Needed for DriverDirectoryItemDto
+using CourierSA.Application.DTOs.Parcels;
+using CourierSA.Application.DTOs.Vehicles;
 using CourierSA.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -26,13 +26,9 @@ public class DriversController : CourierSABaseController
     public DriversController(ApplicationDbContext db) => _db = db;
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // NEW: DRIVER DIRECTORY (For Fleet Assignment Dropdowns)
+    // DRIVER DIRECTORY (For Fleet Assignment Dropdowns)
     // ══════════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Full driver directory (including License Numbers) 
-    /// Used by Admin and Dispatcher Fleet pages to populate vehicle assignment dropdowns.
-    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
@@ -40,7 +36,7 @@ public class DriversController : CourierSABaseController
             .AsNoTracking()
             .Include(d => d.User)
             .Where(d => !d.IsDeleted)
-            .OrderBy(d => d.User!.FirstName) // Sorted alphabetically for UI dropdowns
+            .OrderBy(d => d.User!.FirstName)
             .Select(d => new DriverDirectoryItemDto(
                 d.Id,
                 d.User != null ? d.User.FirstName : string.Empty,
@@ -54,20 +50,16 @@ public class DriversController : CourierSABaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // EXISTING: LIVE MAP & DISPATCH ENDPOINTS
+    // LIVE MAP & DISPATCH ENDPOINTS
     // ══════════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Full fleet snapshot for the live map initial load.
-    /// Returns every driver regardless of status so the map shows offline
-    /// drivers as greyed-out pins (useful for shift planning).
-    /// </summary>
     [HttpGet("locations")]
     public async Task<IActionResult> GetLocations(CancellationToken ct)
     {
         var drivers = await _db.DriverProfiles
             .AsNoTracking()
             .Include(d => d.User)
+            // Include DeliveryAddress for Final deliveries
             .Include(d => d.Deliveries
                 .Where(del => del.Status != DeliveryStatus.Delivered &&
                               del.Status != DeliveryStatus.Failed)
@@ -75,11 +67,24 @@ public class DriversController : CourierSABaseController
                 .Take(1))
                 .ThenInclude(del => del.Parcel)
                     .ThenInclude(p => p!.DeliveryAddress)
+            // Include PickupAddress for Collections/Pickups
+            .Include(d => d.Deliveries
+                .Where(del => del.Status != DeliveryStatus.Delivered &&
+                              del.Status != DeliveryStatus.Failed)
+                .OrderByDescending(del => del.CreatedAt)
+                .Take(1))
+                .ThenInclude(del => del.Parcel)
+                    .ThenInclude(p => p!.PickupAddress)
             .ToListAsync(ct);
 
         var result = drivers.Select(d =>
         {
             var activeDelivery = d.Deliveries.FirstOrDefault();
+
+            // Determine if the active task is a pickup or final delivery
+            bool isPickup = activeDelivery?.Parcel?.Status == ParcelStatus.Approved;
+            var targetAddress = isPickup ? activeDelivery?.Parcel?.PickupAddress : activeDelivery?.Parcel?.DeliveryAddress;
+
             return new
             {
                 driverId = d.Id,
@@ -96,14 +101,15 @@ public class DriversController : CourierSABaseController
                     deliveryId = activeDelivery.Id,
                     parcelId = activeDelivery.ParcelId,
                     trackingNumber = activeDelivery.Parcel?.TrackingNumber,
-                    recipientName = activeDelivery.Parcel?.DeliveryAddress?.RecipientName,
-                    recipientPhone = activeDelivery.Parcel?.DeliveryAddress?.RecipientPhone,
-                    deliveryCity = activeDelivery.Parcel?.DeliveryAddress?.City,
-                    deliveryAddress = activeDelivery.Parcel?.DeliveryAddress?.StreetAddress,
-                    deliveryLat = activeDelivery.Parcel?.DeliveryAddress?.Latitude,
-                    deliveryLng = activeDelivery.Parcel?.DeliveryAddress?.Longitude,
+                    recipientName = targetAddress?.RecipientName,
+                    recipientPhone = targetAddress?.RecipientPhone,
+                    deliveryCity = targetAddress?.City,
+                    deliveryAddress = targetAddress?.StreetAddress,
+                    deliveryLat = targetAddress?.Latitude,
+                    deliveryLng = targetAddress?.Longitude,
                     status = activeDelivery.Status.ToString(),
                     dispatchedAt = activeDelivery.DispatchedAt,
+                    isPickup = isPickup // Let frontend know if they are collecting or delivering
                 },
                 totalDeliveries = d.TotalDeliveries,
                 successfulDeliveries = d.SuccessfulDeliveries,
@@ -113,10 +119,6 @@ public class DriversController : CourierSABaseController
         return Ok(result);
     }
 
-    /// <summary>
-    /// Available drivers only — used by the dispatch assignment dropdown.
-    /// Replaces the "paste UUID" workaround in DispatchQueue.
-    /// </summary>
     [HttpGet("available")]
     public async Task<IActionResult> GetAvailable(CancellationToken ct)
     {
@@ -137,10 +139,6 @@ public class DriversController : CourierSABaseController
         return Ok(available);
     }
 
-    /// <summary>
-    /// Updates a driver's stored location from a REST call (alternative to SignalR).
-    /// The driver app can call this if SignalR is unavailable (offline/fallback).
-    /// </summary>
     [HttpPut("{driverId:guid}/location")]
     [Authorize(Policy = "StaffOnly")]
     public async Task<IActionResult> UpdateLocation(

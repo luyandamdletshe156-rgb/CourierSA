@@ -300,11 +300,10 @@ public class DeliveriesController : CourierSABaseController
     [HttpGet("history")]
     [Authorize(Policy = "DriverOnly")]
     public async Task<IActionResult> GetMyHistory(
-        [FromQuery] int page     = 1,
+        [FromQuery] int page = 1,
         [FromQuery] int pageSize = 15,
         CancellationToken ct = default)
     {
-        // Resolve driver profile from the authenticated user ID
         var driverProfile = await _uow.Query<DriverProfile>()
             .FirstOrDefaultAsync(d => d.UserId == CurrentUserId, ct)
             ?? throw new NotFoundException("Driver profile not found.");
@@ -317,6 +316,8 @@ public class DeliveriesController : CourierSABaseController
                          d.Status == DeliveryStatus.Failed))
             .Include(d => d.Parcel)
                 .ThenInclude(p => p!.DeliveryAddress)
+            .Include(d => d.Parcel)
+                .ThenInclude(p => p!.PickupAddress)
             .OrderByDescending(d => d.UpdatedAt);
 
         var total = await query.CountAsync(ct);
@@ -333,9 +334,22 @@ public class DeliveriesController : CourierSABaseController
                 d.DeliveredAt,
                 d.UpdatedAt,
                 trackingNumber = d.Parcel != null ? d.Parcel.TrackingNumber : "—",
-                recipientName  = d.Parcel!.DeliveryAddress != null
+
+                // If it failed and the parcel is STILL 'Approved', we know it was a pickup failure.
+                isPickup = d.Parcel != null && d.Parcel.Status == ParcelStatus.Approved,
+
+                recipientName = d.Parcel!.DeliveryAddress != null
                     ? d.Parcel.DeliveryAddress.RecipientName : "—",
                 city = d.Parcel!.DeliveryAddress != null
+                    ? d.Parcel.DeliveryAddress.City : "—",
+
+                pickupName = d.Parcel!.PickupAddress != null
+                    ? d.Parcel.PickupAddress.RecipientName : "—",
+                pickupCity = d.Parcel!.PickupAddress != null
+                    ? d.Parcel.PickupAddress.City : "—",
+                deliveryName = d.Parcel!.DeliveryAddress != null
+                    ? d.Parcel.DeliveryAddress.RecipientName : "—",
+                deliveryCity = d.Parcel!.DeliveryAddress != null
                     ? d.Parcel.DeliveryAddress.City : "—",
             })
             .ToListAsync(ct);
@@ -349,6 +363,7 @@ public class DeliveriesController : CourierSABaseController
     public async Task<IActionResult> GetFailed(CancellationToken ct)
     {
         var deliveries = await _uow.Deliveries.GetFailedDeliveriesAsync(ct);
+
         var result = deliveries.Select(d => new
         {
             d.Id,
@@ -358,11 +373,22 @@ public class DeliveriesController : CourierSABaseController
             d.FailureReason,
             d.AttemptNotes,
             d.UpdatedAt,
+
+            // Expose the flag so the dispatcher UI knows if it's a failed collection or failed dropoff
+            isPickup = d.Parcel != null && d.Parcel.Status == ParcelStatus.Approved,
+
             parcel = d.Parcel == null ? null : new
             {
                 d.Parcel.Id,
                 d.Parcel.TrackingNumber,
                 d.Parcel.Status,
+                pickupAddress = d.Parcel.PickupAddress == null ? null : new
+                {
+                    d.Parcel.PickupAddress.RecipientName,
+                    d.Parcel.PickupAddress.RecipientPhone,
+                    d.Parcel.PickupAddress.StreetAddress,
+                    d.Parcel.PickupAddress.City,
+                },
                 deliveryAddress = d.Parcel.DeliveryAddress == null ? null : new
                 {
                     d.Parcel.DeliveryAddress.RecipientName,
@@ -378,6 +404,7 @@ public class DeliveriesController : CourierSABaseController
                 d.Driver.User.PhoneNumber,
             },
         });
+
         return Ok(result);
     }
 

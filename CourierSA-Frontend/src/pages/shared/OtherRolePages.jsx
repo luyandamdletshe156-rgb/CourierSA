@@ -23,18 +23,30 @@ export function WarehouseDashboard() {
   const [checkInModal, setCheckInModal] = useState(null)
   const [location, setLocation]         = useState('')
 
+  // 1. Parcels awaiting check-in (Status: Approved)
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-approved-wh'],
     queryFn:  () => parcelApi.list({ status: 'Approved', pageSize: 50 }),
     refetchInterval: 30000,
   })
 
+  // 2. Real-time count of parcels currently stored in the warehouse
+  const { data: inWhData } = useQuery({
+    queryKey: ['parcels-in-warehouse-count'],
+    queryFn:  () => parcelApi.list({ status: 'InWarehouse', pageSize: 1 }),
+    refetchInterval: 30000,
+  })
+
   const approved = data?.data?.items ?? []
+  const awaitingCount = data?.data?.totalCount ?? approved.length
+  const inWarehouseCount = inWhData?.data?.totalCount ?? '—'
 
   const checkInMutation = useMutation({
     mutationFn: ({ id }) => parcelApi.checkIn(id, location),
     onSuccess:  () => {
       qc.invalidateQueries({ queryKey: ['parcels-approved-wh'] })
+      qc.invalidateQueries({ queryKey: ['parcels-in-warehouse-count'] })
+      qc.invalidateQueries({ queryKey: ['warehouse-inventory'] })
       setCheckInModal(null)
       setLocation('')
     },
@@ -50,9 +62,9 @@ export function WarehouseDashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Awaiting check-in" value={approved.length}
+        <StatCard label="Awaiting check-in" value={awaitingCount}
                   icon={Warehouse} color="bg-[#0A3D91]" />
-        <StatCard label="In warehouse" value="—"
+        <StatCard label="In warehouse" value={inWarehouseCount}
                   icon={Package} color="bg-[#1E63E9]" />
         <StatCard label="Checked in today" value="—"
                   icon={CheckCircle} color="bg-[#10B981]" />
@@ -364,6 +376,7 @@ function AdminUsersSection() {
     </div>
   )
 }
+
 // ════════════════════════════════════════════════════════════════════════════
 // BUSINESS CLIENT
 // ════════════════════════════════════════════════════════════════════════════

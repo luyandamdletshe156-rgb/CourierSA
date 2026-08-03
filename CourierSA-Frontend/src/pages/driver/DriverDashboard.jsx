@@ -19,7 +19,7 @@ export function DriverDashboard() {
   const completed = deliveries.filter(d => d.status === 'Delivered')
   const failed    = deliveries.filter(d => d.status === 'Failed')
 
-  // Next delivery stop
+  // Next delivery or pickup stop
   const currentStop = active[0]
 
   return (
@@ -34,7 +34,7 @@ export function DriverDashboard() {
             <h1 className="text-2xl font-bold mt-2">Welcome back, {user?.firstName || 'Driver'}! 👋</h1>
             <p className="text-brand-100 text-sm mt-1">
               {active.length > 0 
-                ? `You have ${active.length} active delivery assigned.` 
+                ? `You have ${active.length} active ${active.length === 1 ? 'task' : 'tasks'} assigned.` 
                 : 'All caught up! Waiting for new dispatches.'}
             </p>
           </div>
@@ -49,7 +49,7 @@ export function DriverDashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Active Deliveries" value={active.length} icon={Truck} color="bg-brand-500" />
+        <StatCard label="Active Tasks" value={active.length} icon={Truck} color="bg-brand-500" />
         <StatCard label="Completed Today" value={completed.length} icon={CheckCircle} color="bg-emerald-500" />
         <StatCard label="Failed Attempts" value={failed.length} icon={XCircle} color="bg-red-500" />
       </div>
@@ -72,8 +72,8 @@ export function DriverDashboard() {
           <div className="card">
             <EmptyState
               icon={Truck}
-              title="No active deliveries"
-              description="You currently have no assigned packages. Enjoy your break!"
+              title="No active tasks"
+              description="You currently have no assigned packages or collections. Enjoy your break!"
             />
           </div>
         ) : (
@@ -82,6 +82,11 @@ export function DriverDashboard() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <TrackingBadge value={currentStop.trackingNumber} />
+                  {currentStop.isPickup && (
+                    <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
+                      Pickup
+                    </span>
+                  )}
                   <StatusPill status={currentStop.status} />
                   <span className="text-xs text-gray-400">· Stop #1</span>
                 </div>

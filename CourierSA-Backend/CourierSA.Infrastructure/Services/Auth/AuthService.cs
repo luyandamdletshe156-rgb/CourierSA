@@ -362,7 +362,7 @@ public class AuthService : IAuthService
     { UserRole.Dispatcher, UserRole.WarehouseStaff, UserRole.Driver };
 
     public async Task<User> CreateStaffUserAsync(
-     CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default)
+      CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default)
     {
         if (!AllowedStaffRoles.Contains(dto.Role))
             throw new BadRequestException("Only Dispatcher, WarehouseStaff, or Driver accounts can be created this way.");
@@ -395,27 +395,44 @@ public class AuthService : IAuthService
             UpdatedAt = DateTime.UtcNow
         };
 
-        await _uow.Users.AddAsync(user, ct);
-        await _uow.SaveChangesAsync(ct);
-
-        if (dto.Role == UserRole.Driver)
+        await _uow.BeginTransactionAsync(ct);
+        try
         {
-            var driverProfile = new DriverProfile
-            {
-                Id = Guid.NewGuid(),
-                UserId = user.Id,
-                LicenseNumber = dto.LicenseNumber!.Trim(),
-                LicenseExpiry = dto.LicenseExpiry!.Value,
-                Status = DriverStatus.OffDuty, // starts off-duty until they log in and are scheduled
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await _uow.Query<DriverProfile>().AddAsync(driverProfile, ct); // adjust to however your UoW exposes generic Add — see note below
+            await _uow.Users.AddAsync(user, ct);
             await _uow.SaveChangesAsync(ct);
+
+            if (dto.Role == UserRole.Driver)
+            {
+                var driverProfile = new DriverProfile
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = user.Id,
+                    LicenseNumber = dto.LicenseNumber!.Trim(),
+                    LicenseExpiry = dto.LicenseExpiry!.Value,
+                    Status = DriverStatus.OffDuty,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _uow.Query<DriverProfile>().AddAsync(driverProfile, ct);
+                await _uow.SaveChangesAsync(ct);
+            }
+
+            await _uow.CommitTransactionAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            Console.WriteLine($"[STAFF_CREATE] Failed creating {dto.Role} account for {dto.Email}: {ex}");
+            throw new BadRequestException(
+                $"Could not create the {dto.Role} account. No account was created — please try again.");
         }
 
-        var subject = "Your CourierSA staff account";
-        var content = $"""
+        // Email send stays OUTSIDE the transaction — a failed email shouldn't roll back a valid account.
+        // If this throws, the account still exists correctly; just log it rather than losing the whole operation.
+        try
+        {
+            var subject = "Your CourierSA staff account";
+            var content = $"""
 <h2 style="margin:0 0 16px 0; color:#0B1B33; font-size:20px;">Welcome to CourierSA</h2>
 <p style="margin:0 0 12px 0;">Hi {user.FirstName},</p>
 <p style="margin:0 0 16px 0;">An administrator has created a CourierSA account for you as a <strong>{dto.Role}</strong>.</p>
@@ -429,8 +446,14 @@ public class AuthService : IAuthService
 </table>
 <p style="margin:0; font-size:13px; color:#9CA3AF;">Please sign in and change your password immediately — you'll be prompted automatically on first login.</p>
 """;
-        var htmlBody = EmailTemplateBuilder.Build(subject, content);
-        await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
+            var htmlBody = EmailTemplateBuilder.Build(subject, content);
+            await _emailService.SendAsync(user.Email, subject, htmlBody, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[STAFF_CREATE] Account created for {user.Email} but email failed to send: {ex}");
+            // Don't throw — the account is valid, just tell the caller the email may not have gone out.
+        }
 
         await _audit.LogAsync("STAFF_CREATED", "User", user.Id, null, new { dto.Role }, createdByAdminId, null, ct);
 

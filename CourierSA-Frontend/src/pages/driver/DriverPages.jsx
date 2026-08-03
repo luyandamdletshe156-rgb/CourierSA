@@ -21,7 +21,7 @@ export function DriverDeliveries() {
 
   const deliveries = data?.data ?? []
 
-  // Active Tab State: 'active' | 'delivered' | 'failed'
+  // Active Tab State: 'active' | 'completed' | 'failed'
   const [activeTab, setActiveTab]           = useState('active')
 
   // Modal States
@@ -63,13 +63,13 @@ export function DriverDeliveries() {
   const completed = deliveries.filter(d => d.status === 'Delivered')
   const failed    = deliveries.filter(d => d.status === 'Failed')
 
-  const currentList = activeTab === 'active' ? active : activeTab === 'delivered' ? completed : failed
+  const currentList = activeTab === 'active' ? active : activeTab === 'completed' ? completed : failed
 
   return (
     <AppShell title="My Deliveries">
       <div className="page-header">
         <div>
-          <h1 className="page-title">My Deliveries</h1>
+          <h1 className="page-title">My Tasks</h1>
           <p className="page-subtitle">{active.length} active · {completed.length} completed today</p>
         </div>
       </div>
@@ -84,10 +84,10 @@ export function DriverDeliveries() {
         </button>
 
         <button
-          onClick={() => setActiveTab('delivered')}
-          className={`text-left transition-all ${activeTab === 'delivered' ? 'ring-2 ring-emerald-500 rounded-xl' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setActiveTab('completed')}
+          className={`text-left transition-all ${activeTab === 'completed' ? 'ring-2 ring-emerald-500 rounded-xl' : 'opacity-80 hover:opacity-100'}`}
         >
-          <StatCard label="Delivered" value={completed.length} icon={CheckCircle} color="bg-emerald-500" />
+          <StatCard label="Completed" value={completed.length} icon={CheckCircle} color="bg-emerald-500" />
         </button>
 
         <button
@@ -111,14 +111,14 @@ export function DriverDeliveries() {
           Active ({active.length})
         </button>
         <button
-          onClick={() => setActiveTab('delivered')}
+          onClick={() => setActiveTab('completed')}
           className={`py-2 px-4 font-medium text-sm border-b-2 ${
-            activeTab === 'delivered'
+            activeTab === 'completed'
               ? 'border-emerald-500 text-emerald-600 font-semibold'
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Delivered ({completed.length})
+          Completed ({completed.length})
         </button>
         <button
           onClick={() => setActiveTab('failed')}
@@ -138,12 +138,12 @@ export function DriverDeliveries() {
       ) : currentList.length === 0 ? (
         <div className="card">
           <EmptyState
-            icon={activeTab === 'active' ? Truck : activeTab === 'delivered' ? CheckCircle : XCircle}
-            title={`No ${activeTab} deliveries`}
+            icon={activeTab === 'active' ? Truck : activeTab === 'completed' ? CheckCircle : XCircle}
+            title={`No ${activeTab} tasks`}
             description={
               activeTab === 'active'
-                ? "Your dispatcher will assign parcels to you shortly."
-                : `Parcels marked as ${activeTab} will appear here.`
+                ? "Your dispatcher will assign tasks to you shortly."
+                : `Tasks marked as ${activeTab} will appear here.`
             }
           />
         </div>
@@ -161,6 +161,11 @@ export function DriverDeliveries() {
                     >
                       <TrackingBadge value={d.trackingNumber} />
                     </button>
+                    {d.isPickup && (
+                      <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
+                        Pickup
+                      </span>
+                    )}
                     <StatusPill status={d.status} />
                     <button
                       onClick={() => setDetailModal(d)}
@@ -215,7 +220,7 @@ export function DriverDeliveries() {
                         onClick={() => setDeliveredModal(d)}
                       >
                         <CheckCircle size={13} />
-                        Delivered
+                        {d.isPickup ? 'Collected' : 'Delivered'}
                       </button>
                       <button
                         className="btn-danger btn-sm"
@@ -243,11 +248,11 @@ export function DriverDeliveries() {
         </div>
       )}
 
-      {/* PARCEL DETAILS MODAL (Kept original ui/Modal layout for info display) */}
+      {/* PARCEL DETAILS MODAL */}
       <Modal
         open={!!detailModal}
         onClose={() => setDetailModal(null)}
-        title="Delivery Details"
+        title={detailModal?.isPickup ? "Pickup Details" : "Delivery Details"}
         size="md"
       >
         {detailModal && (
@@ -267,7 +272,7 @@ export function DriverDeliveries() {
 
             <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-[#D8E4F5]">
               <div>
-                <p className="text-xs text-gray-500 font-semibold uppercase">Recipient</p>
+                <p className="text-xs text-gray-500 font-semibold uppercase">Contact</p>
                 <p className="font-medium text-gray-800 mt-0.5">{detailModal.recipientName}</p>
                 {detailModal.recipientPhone && (
                   <a href={`tel:${detailModal.recipientPhone}`} className="text-xs text-brand-500 hover:underline flex items-center gap-1 mt-1 font-medium">
@@ -277,13 +282,13 @@ export function DriverDeliveries() {
               </div>
 
               <div>
-                <p className="text-xs text-gray-500 font-semibold uppercase">Destination City</p>
+                <p className="text-xs text-gray-500 font-semibold uppercase">{detailModal.isPickup ? 'Pickup City' : 'Destination City'}</p>
                 <p className="font-medium text-gray-800 mt-0.5">{detailModal.city}</p>
               </div>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full Delivery Address</p>
+              <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full {detailModal.isPickup ? 'Pickup' : 'Delivery'} Address</p>
               <p className="bg-gray-50 p-2.5 rounded border border-[#D8E4F5] text-gray-800 font-medium flex items-start gap-2">
                 <MapPin size={16} className="text-brand-500 mt-0.5 flex-shrink-0" />
                 <span>{detailModal.deliveryAddress}, {detailModal.city}</span>
@@ -315,14 +320,14 @@ export function DriverDeliveries() {
         )}
       </Modal>
 
-      {/* RE-DESIGNED CONFIRM DELIVERY MODAL */}
+      {/* RE-DESIGNED CONFIRM COMPLETION MODAL */}
       {deliveredModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
             
             <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#D8E4F5]">
               <h3 className="text-xl font-bold text-[#172554] tracking-tight">
-                Confirm delivery
+                Confirm {deliveredModal.isPickup ? 'pickup' : 'delivery'}
               </h3>
               <button 
                 onClick={() => setDeliveredModal(null)}
@@ -334,9 +339,9 @@ export function DriverDeliveries() {
 
             <div className="p-6 pt-5">
               <div className="mb-6 p-4 bg-[#F6FAFF] border border-[#D8E4F5] rounded-xl flex flex-wrap gap-2 items-center">
-                <span className="text-sm text-[#64748B]">Confirming delivery of</span>
+                <span className="text-sm text-[#64748B]">Confirming {deliveredModal.isPickup ? 'collection' : 'delivery'} of</span>
                 <span className="tracking-number">{deliveredModal.trackingNumber}</span>
-                <span className="text-sm text-[#64748B]">to</span>
+                <span className="text-sm text-[#64748B]">{deliveredModal.isPickup ? 'from' : 'to'}</span>
                 <strong className="text-[#172554] font-bold">{deliveredModal.recipientName}</strong>.
               </div>
 
@@ -372,7 +377,7 @@ export function DriverDeliveries() {
                 onClick={() => deliveredMutation.mutate({ id: deliveredModal.id })}
               >
                 <CheckCircle size={16} />
-                {deliveredMutation.isPending ? 'Confirming...' : 'Confirm delivered'}
+                {deliveredMutation.isPending ? 'Confirming...' : (deliveredModal.isPickup ? 'Confirm collected' : 'Confirm delivered')}
               </button>
             </div>
 
@@ -380,7 +385,7 @@ export function DriverDeliveries() {
         </div>
       )}
 
-      {/* RE-DESIGNED REPORT FAILED DELIVERY MODAL */}
+      {/* RE-DESIGNED REPORT FAILED MODAL */}
       {failedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
@@ -390,7 +395,7 @@ export function DriverDeliveries() {
                 <span className="w-8 h-8 rounded-full bg-[#EF4444]/10 text-[#EF4444] flex items-center justify-center">
                   <AlertCircle className="w-5 h-5" />
                 </span>
-                Report failed delivery
+                Report failed {failedModal.isPickup ? 'pickup' : 'delivery'}
               </h3>
               <button 
                 onClick={() => setFailedModal(null)}
@@ -415,11 +420,11 @@ export function DriverDeliveries() {
                     value={failReason}
                     onChange={e => setFailReason(e.target.value)}
                   >
-                    <option value="RecipientAbsent">Recipient absent</option>
+                    <option value="RecipientAbsent">{failedModal.isPickup ? 'Sender absent' : 'Recipient absent'}</option>
                     <option value="AddressNotFound">Address not found</option>
                     <option value="AccessDenied">Access denied</option>
-                    <option value="ParcelDamaged">Parcel damaged</option>
-                    <option value="RefusedDelivery">Recipient refused delivery</option>
+                    <option value="ParcelDamaged">{failedModal.isPickup ? 'Parcel not ready/damaged' : 'Parcel damaged'}</option>
+                    <option value="RefusedDelivery">{failedModal.isPickup ? 'Sender refused to hand over' : 'Recipient refused delivery'}</option>
                     <option value="Other">Other</option>
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-[#94A3B8]">
@@ -433,7 +438,7 @@ export function DriverDeliveries() {
                 <textarea 
                   id="failed-notes"
                   className="input min-h-[100px] resize-none"
-                  placeholder="Additional details about why the delivery failed..."
+                  placeholder={`Additional details about why the ${failedModal.isPickup ? 'pickup' : 'delivery'} failed...`}
                   value={failNotes}
                   onChange={e => setFailNotes(e.target.value)}
                 ></textarea>

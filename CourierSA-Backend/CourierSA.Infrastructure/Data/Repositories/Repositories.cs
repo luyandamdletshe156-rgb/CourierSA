@@ -77,42 +77,51 @@ public class UnitOfWork : IUnitOfWork
     public UnitOfWork(ApplicationDbContext context)
     {
         _context = context;
-        Parcels              = new ParcelRepository(context);
-        Users                = new UserRepository(context);
-        Deliveries           = new DeliveryRepository(context);
-        TrackingEvents       = new Repository<TrackingEvent>(context);
-        Quotes               = new Repository<Quote>(context);
-        Vehicles             = new Repository<Vehicle>(context);
-        VehicleInspections   = new Repository<VehicleInspection>(context);
-        WalletTransactions   = new Repository<WalletTransaction>(context);
-        Invoices             = new InvoiceRepository(context);
-        InsuranceClaims      = new Repository<InsuranceClaim>(context);
-        Notifications        = new Repository<Notification>(context);
-        AuditLogs            = new AuditLogRepository(context);
-        BulkUploadHistories  = new BulkUploadHistoryRepository(context);
+        Parcels = new ParcelRepository(context);
+        Users = new UserRepository(context);
+        Deliveries = new DeliveryRepository(context);
+        TrackingEvents = new Repository<TrackingEvent>(context);
+        Quotes = new Repository<Quote>(context);
+        Vehicles = new Repository<Vehicle>(context);
+        VehicleInspections = new Repository<VehicleInspection>(context);
+        WalletTransactions = new Repository<WalletTransaction>(context);
+        Invoices = new InvoiceRepository(context);
+        InsuranceClaims = new Repository<InsuranceClaim>(context);
+        Notifications = new Repository<Notification>(context);
+        AuditLogs = new AuditLogRepository(context);
+        BulkUploadHistories = new BulkUploadHistoryRepository(context);
     }
 
-    public IParcelRepository              Parcels              { get; }
-    public IUserRepository                Users                { get; }
-    public IDeliveryRepository            Deliveries           { get; }
-    public IRepository<TrackingEvent>     TrackingEvents       { get; }
-    public IRepository<Quote>             Quotes               { get; }
-    public IRepository<Vehicle>           Vehicles             { get; }
-    public IRepository<VehicleInspection> VehicleInspections   { get; }
-    public IRepository<WalletTransaction> WalletTransactions   { get; }
-    public IInvoiceRepository             Invoices             { get; }
-    public IRepository<InsuranceClaim>    InsuranceClaims      { get; }
-    public IRepository<Notification>      Notifications        { get; }
-    public IAuditLogRepository            AuditLogs            { get; }
-    public IBulkUploadHistoryRepository   BulkUploadHistories  { get; }
+    public IParcelRepository Parcels { get; }
+    public IUserRepository Users { get; }
+    public IDeliveryRepository Deliveries { get; }
+    public IRepository<TrackingEvent> TrackingEvents { get; }
+    public IRepository<Quote> Quotes { get; }
+    public IRepository<Vehicle> Vehicles { get; }
+    public IRepository<VehicleInspection> VehicleInspections { get; }
+    public IRepository<WalletTransaction> WalletTransactions { get; }
+    public IInvoiceRepository Invoices { get; }
+    public IRepository<InsuranceClaim> InsuranceClaims { get; }
+    public IRepository<Notification> Notifications { get; }
+    public IAuditLogRepository AuditLogs { get; }
+    public IBulkUploadHistoryRepository BulkUploadHistories { get; }
 
     /// <summary>Generic repository accessor — used by services that need entities
     /// not exposed as dedicated properties (e.g. CustomerProfile, DriverProfile).</summary>
     public IRepository<T> Query<T>() where T : BaseEntity
         => new Repository<T>(_context);
 
+    /// <summary>
+    /// Wraps SaveChanges in the DbContext's execution strategy so that EnableRetryOnFailure
+    /// (configured for Azure MySQL) retries the whole operation atomically, rather than
+    /// potentially re-issuing a command that already succeeded — which was surfacing as
+    /// false DbUpdateConcurrencyExceptions ("expected 1 row, affected 0 rows").
+    /// </summary>
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
-        => await _context.SaveChangesAsync(ct);
+    {
+        var strategy = _context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () => await _context.SaveChangesAsync(ct));
+    }
 
     public async Task BeginTransactionAsync(CancellationToken ct = default)
         => await _context.Database.BeginTransactionAsync(ct);

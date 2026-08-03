@@ -15,14 +15,14 @@ export function DriverRoute() {
   const activeStops = deliveries.filter(d => d.status !== 'Delivered' && d.status !== 'Failed')
 
   return (
-    <AppShell title="Delivery Route">
+    <AppShell title="Active Route">
       <div className="page-header mb-4">
         <div>
           <h1 className="page-title flex items-center gap-2">
             <RouteIcon size={24} className="text-brand-500" />
             Optimized Route Sequence
           </h1>
-          <p className="page-subtitle">{activeStops.length} delivery stops remaining</p>
+          <p className="page-subtitle">{activeStops.length} active stops remaining</p>
         </div>
       </div>
 
@@ -33,7 +33,7 @@ export function DriverRoute() {
           <EmptyState
             icon={CheckCircle2}
             title="Route completed!"
-            description="You have completed all delivery stops on your route."
+            description="You have completed all stops on your route."
           />
         </div>
       ) : (
@@ -51,6 +51,11 @@ export function DriverRoute() {
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <TrackingBadge value={stop.trackingNumber} />
+                      {stop.isPickup && (
+                        <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
+                          Pickup
+                        </span>
+                      )}
                       <StatusPill status={stop.status} />
                     </div>
 

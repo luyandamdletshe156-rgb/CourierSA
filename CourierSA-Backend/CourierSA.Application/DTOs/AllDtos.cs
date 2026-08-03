@@ -197,11 +197,11 @@ public record DeliveryDto(
     string City,
     string? SpecialInstructions,
     bool IsFragile,
-    DateTime? DispatchedAt,
-    string? DriverName = null,
-    string? DriverPhone = null
+    DateTime? DispatchedAt,    // Changed to DateTime? to fix the CS1503 errors
+    bool IsPickup,             // The new flag we added for the frontend
+    string? DriverName = null, // Restored to fix the CS0117 errors
+    string? DriverPhone = null // Restored to fix the CS0117 errors
 );
-
 public record BulkUploadResultDto(
     int      TotalRows,
     int      Successful,

@@ -43,9 +43,9 @@ public class ParcelService : IParcelService
     CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>()
-    .Query()
-    .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
-    ?? throw new NotFoundException("Customer profile not found.");
+            .Query()
+            .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
+            ?? throw new NotFoundException("Customer profile not found.");
 
         // 1. Fetch or recalculate the quote
         Quote? quote = null;
@@ -53,7 +53,6 @@ public class ParcelService : IParcelService
 
         if (dto.QuoteId.HasValue)
         {
-            // A) Use the existing quote provided by the frontend
             quote = await _uow.Quotes.GetByIdAsync(dto.QuoteId.Value, ct);
 
             if (quote is null || quote.Status != QuoteStatus.Pending)
@@ -65,8 +64,6 @@ public class ParcelService : IParcelService
         }
         else
         {
-            // B) FALLBACK: Recalculate on the fly if the frontend didn't pass a QuoteId.
-            // Using positional record instantiation as defined in your DTOs
             var quoteRequest = new QuoteRequestDto(
                 dto.PickupAddress.Province,
                 dto.DeliveryAddress.Province,
@@ -81,11 +78,9 @@ public class ParcelService : IParcelService
                 )
             );
 
-            // By passing customer.UserId, QuoteService will automatically save it to the DB
             var calculatedQuote = await _quoteService.CalculateAsync(quoteRequest, customer.UserId, ct);
             finalQuoteAmount = calculatedQuote.TotalAmountZAR;
 
-            // Fetch the newly generated quote so we can mark it as Accepted below
             if (calculatedQuote.QuoteId.HasValue)
             {
                 quote = await _uow.Quotes.GetByIdAsync(calculatedQuote.QuoteId.Value, ct);
@@ -124,14 +119,12 @@ public class ParcelService : IParcelService
             InsuranceRequired = dto.InsuranceRequired,
             PickupAddressId = pickup.Id,
             DeliveryAddressId = delivery.Id,
-            QuoteAmountZAR = finalQuoteAmount, // <--- Using the guaranteed valid amount
+            QuoteAmountZAR = finalQuoteAmount,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        // Generate barcode
         parcel.BarcodeImagePath = await _barcodeService.GenerateAsync(trackingNumber, ct);
-
         await _uow.Parcels.AddAsync(parcel, ct);
 
         // 4. Mark quote as used
@@ -155,13 +148,11 @@ public class ParcelService : IParcelService
                 parcel.IsPaid = true;
                 parcel.PaidAt = DateTime.UtcNow;
                 break;
-
             case PaymentMethod.Card:
             case PaymentMethod.EFT:
                 parcel.IsPaid = true;
                 parcel.PaidAt = DateTime.UtcNow;
                 break;
-
             case PaymentMethod.CashOnCollection:
                 parcel.IsPaid = false;
                 break;
@@ -169,16 +160,15 @@ public class ParcelService : IParcelService
 
         // 6. Save & Notify
         AddTrackingEvent(parcel, TrackingEventType.Booked, "Parcel booking confirmed", pickup.City);
-
         await _uow.SaveChangesAsync(ct);
 
         await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
-        await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id,
-            null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
+        await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
 
         return await GetDetailAsync(parcel.Id, ct)
                ?? throw new InvalidOperationException("Failed to retrieve parcel after booking.");
     }
+
     // ── Approve ───────────────────────────────────────────────────────────────
     public async Task ApproveAsync(
         Guid parcelId, Guid staffId, CancellationToken ct = default)
@@ -189,8 +179,7 @@ public class ParcelService : IParcelService
         parcel.Status = ParcelStatus.Approved;
         parcel.UpdatedAt = DateTime.UtcNow;
 
-        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Approved,
-      "Booking approved by dispatcher");
+        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Approved, "Booking approved by dispatcher");
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
 
@@ -204,12 +193,10 @@ public class ParcelService : IParcelService
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.PendingApproval);
 
-        var old = new { parcel.Status };
         parcel.Status = ParcelStatus.Cancelled;
         parcel.UpdatedAt = DateTime.UtcNow;
 
-        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Cancelled,
-    $"Booking rejected: {reason}");
+        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Cancelled, $"Booking rejected: {reason}");
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
     }
@@ -224,17 +211,14 @@ public class ParcelService : IParcelService
 
         parcel.Status = ParcelStatus.InWarehouse;
         parcel.UpdatedAt = DateTime.UtcNow;
-        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ReceivedAtWarehouse,
-            "Parcel received at warehouse", warehouseLocation);
+        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ReceivedAtWarehouse, "Parcel received at warehouse", warehouseLocation);
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
-
         await _uow.SaveChangesAsync(ct);
 
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", warehouseLocation, ct);
     }
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
-
     public async Task DispatchAsync(
         Guid parcelId, Guid driverId,
         Guid dispatcherId, CancellationToken ct = default)
@@ -249,13 +233,15 @@ public class ParcelService : IParcelService
 
         if (parcel.Customer is null)
             throw new InvalidOperationException(
-                $"Parcel {parcel.TrackingNumber} has no linked customer profile — data integrity issue.");
+                $"Parcel {parcel.TrackingNumber} has no linked customer profile.");
 
         var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct)
             ?? throw new NotFoundException("Driver not found.");
 
-        if (driver.Status != DriverStatus.Available)
-            throw new BadRequestException("Driver is not currently available.");
+        if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
+            throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
+
+        var isPickup = parcel.Status == ParcelStatus.Approved;
 
         var delivery = new Delivery
         {
@@ -268,20 +254,26 @@ public class ParcelService : IParcelService
             UpdatedAt = DateTime.UtcNow
         };
 
-        parcel.Status = ParcelStatus.OutForDelivery;
+        if (!isPickup)
+        {
+            parcel.Status = ParcelStatus.OutForDelivery;
+        }
+
         parcel.UpdatedAt = DateTime.UtcNow;
+
         driver.Status = DriverStatus.OnDelivery;
+        _uow.Query<DriverProfile>().Update(driver); // Ensure status change is tracked
 
         await _uow.Deliveries.AddAsync(delivery, ct);
 
-        // Add the new tracking event directly to the repository to prevent EF Core 
-        // from attempting to update pre-existing tracking events in parcel.TrackingEvents
         var trackingEvent = new TrackingEvent
         {
             Id = Guid.NewGuid(),
             ParcelId = parcel.Id,
             EventType = TrackingEventType.OutForDelivery,
-            Description = $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()}",
+            Description = isPickup
+                ? $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()} for pickup"
+                : $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()} for delivery",
             OccurredAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -296,31 +288,35 @@ public class ParcelService : IParcelService
         {
             var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
             var failedEntitiesStr = string.Join(", ", failedTypes);
-
-            Console.WriteLine($"[CONCURRENCY] SaveChanges 0-rows-affected on: {failedEntitiesStr} " +
-                              $"(parcelId={parcelId}, driverId={driverId})");
-
             throw new BadRequestException(
                 $"The {failedEntitiesStr} was updated by another process. Please refresh and try again.");
         }
 
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId,
-            null, new { Status = "OutForDelivery", driverId }, dispatcherId, null, ct);
+            null, new { Status = parcel.Status.ToString(), driverId }, dispatcherId, null, ct);
 
-        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "OutForDelivery", ct: ct);
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
     }
+
     // ── Mark Delivered ────────────────────────────────────────────────────────
     public async Task MarkDeliveredAsync(
-        Guid deliveryId, ProofOfDeliveryDto pod,
-        Guid driverId, CancellationToken ct = default)
+     Guid deliveryId, ProofOfDeliveryDto pod,
+     Guid driverUserId, CancellationToken ct = default)
     {
+        var driverProfile = await _uow.Query<DriverProfile>()
+            .FirstOrDefaultAsync(d => d.UserId == driverUserId, ct)
+            ?? throw new NotFoundException("Driver profile not found.");
+
         var delivery = await _uow.Deliveries.GetByIdAsync(deliveryId, ct)
             ?? throw new NotFoundException("Delivery not found.");
 
-        if (delivery.DriverId != driverId)
+        if (delivery.DriverId != driverProfile.Id)
             throw new ForbiddenException("You are not assigned to this delivery.");
 
-        var parcel = await GetOrThrowAsync(delivery.ParcelId, ct);
+        var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct)
+            ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
+
+        var isPickup = parcel.Status == ParcelStatus.Approved;
 
         delivery.Status = DeliveryStatus.Delivered;
         delivery.DeliveredAt = DateTime.UtcNow;
@@ -329,71 +325,169 @@ public class ParcelService : IParcelService
         delivery.AttemptNotes = pod.Notes;
         delivery.UpdatedAt = DateTime.UtcNow;
 
-        parcel.Status = ParcelStatus.Delivered;
+        if (!isPickup)
+        {
+            parcel.Status = ParcelStatus.Delivered;
+        }
         parcel.UpdatedAt = DateTime.UtcNow;
 
-        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
-        if (driver is not null) driver.Status = DriverStatus.Available;
+        var hasOtherActiveDeliveries = await _uow.Deliveries
+            .Query()
+            .AnyAsync(d => d.DriverId == driverProfile.Id &&
+                           d.Id != delivery.Id &&
+                           (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress),
+                      ct);
 
-        AddTrackingEvent(parcel, TrackingEventType.Delivered,
-            "Parcel delivered successfully");
+        if (!hasOtherActiveDeliveries)
+        {
+            driverProfile.Status = DriverStatus.Available;
+            _uow.Query<DriverProfile>().Update(driverProfile);
+        }
 
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.Delivered,
+            Description = isPickup
+                ? "Parcel collected from sender and dropped off at warehouse. Awaiting check-in."
+                : "Parcel delivered successfully",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
 
-        await _notificationService.SendDeliveredAsync(
-            parcel.Customer!.UserId, parcel.TrackingNumber, ct);
+        if (!isPickup)
+        {
+            try
+            {
+                await _notificationService.SendDeliveredAsync(
+                    parcel.Customer!.UserId, parcel.TrackingNumber, ct);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NOTIFY] Delivered notification failed: {ex.Message}");
+            }
+        }
 
-        await _audit.LogAsync("PARCEL_DELIVERED", "Parcel", parcel.Id,
-            null, new { Status = "Delivered" }, driverId, null, ct);
+        try
+        {
+            await _audit.LogAsync(isPickup ? "PICKUP_COMPLETED" : "PARCEL_DELIVERED", "Parcel", parcel.Id,
+                null, new { Status = parcel.Status.ToString() }, driverUserId, null, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AUDIT] Log failed for {parcel.TrackingNumber}: {ex.Message}");
+        }
 
-        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Delivered", ct: ct);
+        try
+        {
+            await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}");
+        }
     }
 
     // ── Mark Failed ───────────────────────────────────────────────────────────
     public async Task MarkFailedAsync(
-        Guid deliveryId, FailedDeliveryDto dto,
-        Guid driverId, CancellationToken ct = default)
+    Guid deliveryId, FailedDeliveryDto dto,
+    Guid driverUserId, CancellationToken ct = default)
     {
+        var driverProfile = await _uow.Query<DriverProfile>()
+            .FirstOrDefaultAsync(d => d.UserId == driverUserId, ct)
+            ?? throw new NotFoundException("Driver profile not found.");
+
         var delivery = await _uow.Deliveries.GetByIdAsync(deliveryId, ct)
             ?? throw new NotFoundException("Delivery not found.");
 
-        if (delivery.DriverId != driverId)
+        if (delivery.DriverId != driverProfile.Id)
             throw new ForbiddenException("You are not assigned to this delivery.");
 
-        var parcel = await GetOrThrowAsync(delivery.ParcelId, ct);
+        var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct)
+            ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
+
+        // Determine which leg of the journey failed
+        var isPickup = parcel.Status == ParcelStatus.Approved;
 
         delivery.Status = DeliveryStatus.Failed;
         delivery.FailureReason = dto.Reason;
         delivery.AttemptNotes = dto.Notes;
         delivery.UpdatedAt = DateTime.UtcNow;
 
-        parcel.Status = ParcelStatus.FailedDelivery;
+        if (!isPickup)
+        {
+            parcel.Status = ParcelStatus.FailedDelivery;
+        }
+
         parcel.UpdatedAt = DateTime.UtcNow;
 
-        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
-        if (driver is not null) driver.Status = DriverStatus.Available;
+        var hasOtherActiveDeliveries = await _uow.Deliveries
+            .Query()
+            .AnyAsync(d => d.DriverId == driverProfile.Id &&
+                           d.Id != delivery.Id &&
+                           (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress),
+                      ct);
 
-        AddTrackingEvent(parcel, TrackingEventType.DeliveryFailed,
-            $"Delivery failed: {dto.Reason}");
+        if (!hasOtherActiveDeliveries)
+        {
+            driverProfile.Status = DriverStatus.Available;
+            _uow.Query<DriverProfile>().Update(driverProfile);
+        }
+
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.DeliveryFailed,
+            Description = isPickup ? $"Pickup failed: {dto.Reason}" : $"Delivery failed: {dto.Reason}",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
         await _uow.SaveChangesAsync(ct);
 
-        await _notificationService.SendFailedDeliveryAsync(
-            parcel.Customer!.UserId, parcel.TrackingNumber, dto.Reason.ToString(), ct);
+        try
+        {
+            await _notificationService.SendFailedDeliveryAsync(
+                parcel.Customer!.UserId, parcel.TrackingNumber, dto.Reason.ToString(), ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[NOTIFY] Failed-delivery notification failed: {ex.Message}");
+        }
 
-        await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId,
-            null, new { dto.Reason, dto.Notes }, driverId, null, ct);
+        try
+        {
+            await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId,
+                null, new { dto.Reason, dto.Notes }, driverUserId, null, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AUDIT] Log failed for {parcel.TrackingNumber}: {ex.Message}");
+        }
 
-        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "FailedDelivery", ct: ct);
+        try
+        {
+            await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber,
+                isPickup ? "Approved" : "FailedDelivery", ct: ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}");
+        }
     }
 
     // ── Public Tracking (no auth required) ───────────────────────────────────
     public async Task<TrackingResultDto?> TrackAsync(
         string trackingNumber, CancellationToken ct = default)
     {
-        var parcel = await _uow.Parcels
-            .GetByTrackingNumberAsync(trackingNumber, ct);
-
+        var parcel = await _uow.Parcels.GetByTrackingNumberAsync(trackingNumber, ct);
         if (parcel is null) return null;
 
         return new TrackingResultDto(
@@ -405,12 +499,7 @@ public class ParcelService : IParcelService
             Events: parcel.TrackingEvents
                 .OrderByDescending(e => e.OccurredAt)
                 .Select(e => new TrackingEventDto(
-                    e.EventType.ToString(),
-                    e.Location,
-                    e.Description,
-                    e.OccurredAt,
-                    e.Latitude,
-                    e.Longitude))
+                    e.EventType.ToString(), e.Location, e.Description, e.OccurredAt, e.Latitude, e.Longitude))
                 .ToList()
         );
     }
@@ -422,18 +511,17 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetByTrackingNumberAsync(trackingNumber, ct);
         if (parcel is null) return null;
 
-        var requestingUser = await _uow.Users.GetByIdAsync(requestingUserId, ct);
-        var isStaff = requestingUser?.Role is UserRole.Dispatcher or UserRole.Administrator;
-
-        if (!isStaff && parcel.Customer?.UserId != requestingUserId)
-            return null; // 404, not 403 — don't confirm the parcel exists to a non-owner
-
         var full = await _uow.Parcels.GetWithFullDetailsAsync(parcel.Id, ct);
         if (full is null) return null;
 
+        var requestingUser = await _uow.Users.GetByIdAsync(requestingUserId, ct);
+        var isStaff = requestingUser?.Role is UserRole.Dispatcher or UserRole.Administrator;
+
+        if (!isStaff && full.Customer?.UserId != requestingUserId)
+            return null;
+
         var detail = MapToDetail(full);
 
-        // Enrich with driver contact, if a delivery is active
         DeliveryDto? enrichedDelivery = detail.ActiveDelivery;
         if (full.ActiveDelivery is not null)
         {
@@ -452,7 +540,6 @@ public class ParcelService : IParcelService
             }
         }
 
-        // Insurance claim status, if one exists for this parcel
         var claim = await _uow.Query<InsuranceClaim>()
             .Query()
             .Where(c => c.ParcelId == full.Id)
@@ -485,10 +572,8 @@ public class ParcelService : IParcelService
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
             ?? throw new NotFoundException("Customer profile not found.");
 
-        var parcels = await _uow.Parcels
-            .GetByCustomerAsync(customer.Id, filter.Page, filter.PageSize, ct);
-        var count = await _uow.Parcels
-            .CountAsync(p => p.CustomerId == customer.Id, ct);
+        var parcels = await _uow.Parcels.GetByCustomerAsync(customer.Id, filter.Page, filter.PageSize, ct);
+        var count = await _uow.Parcels.CountAsync(p => p.CustomerId == customer.Id, ct);
 
         return new PagedResult<ParcelSummaryDto>(
             Items: parcels.Select(MapToSummary).ToList(),
@@ -497,7 +582,8 @@ public class ParcelService : IParcelService
             PageSize: filter.PageSize
         );
     }
-    // ── Paged Queue (Dispatcher/Admin — not scoped to a customer) ──────────────
+
+    // ── Paged Queue (Dispatcher/Admin) ─────────────────────────────────────────
     public async Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(
      ParcelFilterDto filter, CancellationToken ct = default)
     {
@@ -564,6 +650,7 @@ public class ParcelService : IParcelService
         parcel.TrackingEvents.Add(trackingEvent);
         return trackingEvent;
     }
+
     private async Task DebitWalletAsync(
         CustomerProfile customer, Parcel parcel, CancellationToken ct)
     {
@@ -607,37 +694,44 @@ public class ParcelService : IParcelService
         p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
         p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate);
 
-    private static ParcelDetailDto MapToDetail(Parcel p) => new(
-    p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
-    p.WeightKg, p.Dimensions, p.DeclaredValueZAR, p.Description,
-    p.SpecialInstructions, p.IsFragile, p.RequiresSignature, p.InsuranceRequired,
-    p.QuoteAmountZAR, p.BarcodeImagePath, p.CreatedAt, p.EstimatedDeliveryDate,
-    MapAddress(p.PickupAddress), MapAddress(p.DeliveryAddress),
-    p.TrackingEvents.OrderByDescending(t => t.OccurredAt)
-        .Select(t => new TrackingEventDto(
-            t.EventType.ToString(), t.Location, t.Description,
-            t.OccurredAt, t.Latitude, t.Longitude))
-        .ToList(),
-    p.ActiveDelivery is null ? null : new DeliveryDto(
-        p.ActiveDelivery.Id,
-        p.Id,
-        p.TrackingNumber,
-        p.ActiveDelivery.Status.ToString(),
-        p.DeliveryAddress.RecipientName,
-        p.DeliveryAddress.RecipientPhone,
-        p.DeliveryAddress.StreetAddress,
-        p.DeliveryAddress.City,
-        p.DeliveryAddress.SpecialInstructions,
-        p.IsFragile,
-        p.ActiveDelivery.DispatchedAt
-    ));
+    private static ParcelDetailDto MapToDetail(Parcel p)
+    {
+        bool isPickup = p.Status == ParcelStatus.Approved;
+        var targetAddress = isPickup ? p.PickupAddress : p.DeliveryAddress;
+
+        return new(
+            p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
+            p.WeightKg, p.Dimensions, p.DeclaredValueZAR, p.Description,
+            p.SpecialInstructions, p.IsFragile, p.RequiresSignature, p.InsuranceRequired,
+            p.QuoteAmountZAR, p.BarcodeImagePath, p.CreatedAt, p.EstimatedDeliveryDate,
+            MapAddress(p.PickupAddress), MapAddress(p.DeliveryAddress),
+            p.TrackingEvents.OrderByDescending(t => t.OccurredAt)
+                .Select(t => new TrackingEventDto(
+                    t.EventType.ToString(), t.Location, t.Description,
+                    t.OccurredAt, t.Latitude, t.Longitude))
+                .ToList(),
+            p.ActiveDelivery is null ? null : new DeliveryDto(
+                p.ActiveDelivery.Id,
+                p.Id,
+                p.TrackingNumber,
+                p.ActiveDelivery.Status.ToString(),
+                targetAddress?.RecipientName ?? "—",
+                targetAddress?.RecipientPhone ?? "—",
+                $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '),
+                targetAddress?.City ?? "—",
+                p.SpecialInstructions,
+                p.IsFragile,
+                p.ActiveDelivery.DispatchedAt,
+                isPickup // <--- Added IsPickup mapping
+            ));
+    }
 
     private static ParcelAddressDto? MapAddress(ParcelAddress? addr) => addr is null ? null : new(
         addr.RecipientName, addr.RecipientPhone, addr.RecipientEmail,
         addr.StreetAddress, addr.Suburb, addr.City, addr.Province.ToString(), addr.PostalCode
     );
 
-    // ── Driver deliveries ─────────────────────────────────────────────────────
+    // ── Driver deliveries (Fixes map routing for pickups vs deliveries) ──────
     public async Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(
         Guid driverId, CancellationToken ct = default)
     {
@@ -646,21 +740,35 @@ public class ParcelService : IParcelService
             ?? throw new NotFoundException("Driver profile not found.");
 
         var deliveries = await _uow.Deliveries
-            .GetDriverActiveDeliveriesAsync(profile.Id, ct);
+            .Query()
+            .AsNoTracking()
+            .Where(d => d.DriverId == profile.Id &&
+                        (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress))
+            .Include(d => d.Parcel)
+                .ThenInclude(p => p!.DeliveryAddress)
+            .Include(d => d.Parcel)
+                .ThenInclude(p => p!.PickupAddress)
+            .ToListAsync(ct);
 
-        return deliveries.Select(d => new DeliveryDto(
-            Id: d.Id,
-            ParcelId: d.ParcelId,
-            TrackingNumber: d.Parcel?.TrackingNumber ?? "—",
-            Status: d.Status.ToString(),
-            RecipientName: d.Parcel?.DeliveryAddress?.RecipientName ?? "—",
-            RecipientPhone: d.Parcel?.DeliveryAddress?.RecipientPhone ?? "—",
-            DeliveryAddress: $"{d.Parcel?.DeliveryAddress?.StreetAddress}, {d.Parcel?.DeliveryAddress?.Suburb}".Trim(',', ' '),
-            City: d.Parcel?.DeliveryAddress?.City ?? "—",
-            SpecialInstructions: d.Parcel?.SpecialInstructions,
-            IsFragile: d.Parcel?.IsFragile ?? false,
-            DispatchedAt: d.DispatchedAt
-        ));
+        return deliveries.Select(d => {
+            var isPickup = d.Parcel?.Status == ParcelStatus.Approved;
+            var targetAddress = isPickup ? d.Parcel?.PickupAddress : d.Parcel?.DeliveryAddress;
+
+            return new DeliveryDto(
+                Id: d.Id,
+                ParcelId: d.ParcelId,
+                TrackingNumber: d.Parcel?.TrackingNumber ?? "—",
+                Status: d.Status.ToString(),
+                RecipientName: targetAddress?.RecipientName ?? "—",
+                RecipientPhone: targetAddress?.RecipientPhone ?? "—",
+                DeliveryAddress: $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '),
+                City: targetAddress?.City ?? "—",
+                SpecialInstructions: d.Parcel?.SpecialInstructions,
+                IsFragile: d.Parcel?.IsFragile ?? false,
+                DispatchedAt: d.DispatchedAt,
+                IsPickup: isPickup // <--- Added IsPickup mapping
+            );
+        });
     }
 
     // ── Update driver GPS location ────────────────────────────────────────────
@@ -670,7 +778,7 @@ public class ParcelService : IParcelService
         var profile = await _uow.Query<DriverProfile>()
             .FirstOrDefaultAsync(d => d.UserId == driverId, ct);
 
-        if (profile is null) return;   // silent — GPS pings should never crash the app
+        if (profile is null) return;
 
         profile.CurrentLatitude = lat;
         profile.CurrentLongitude = lng;
@@ -678,6 +786,4 @@ public class ParcelService : IParcelService
 
         await _uow.SaveChangesAsync(ct);
     }
-
-
 }
