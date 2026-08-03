@@ -359,9 +359,10 @@ export function WarehouseInventoryPage() {
   const parcels = data?.data?.items  ?? []
   const total   = data?.data?.totalCount ?? 0
 
+  // UPDATED: 'Approved' changed to 'AwaitingCheckIn' to match the backend enum
   const STATUS_FILTERS = [
     { value: 'InWarehouse',     label: 'In warehouse'     },
-    { value: 'Approved',        label: 'Awaiting check-in'},
+    { value: 'AwaitingCheckIn', label: 'Awaiting check-in'}, 
     { value: 'OutForDelivery',  label: 'Out for delivery' },
   ]
 

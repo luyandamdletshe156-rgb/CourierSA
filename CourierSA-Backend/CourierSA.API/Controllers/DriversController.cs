@@ -81,6 +81,12 @@ public class DriversController : CourierSABaseController
         {
             var activeDelivery = d.Deliveries.FirstOrDefault();
 
+            // FIX: Self-healing fallback calculation. 
+            // If the driver record in DB is stuck on OnDelivery but has no active tasks, report as Available.
+            var computedStatus = (d.Status == DriverStatus.OnDelivery && activeDelivery == null)
+                ? DriverStatus.Available.ToString()
+                : d.Status.ToString();
+
             // Determine if the active task is a pickup or final delivery
             bool isPickup = activeDelivery?.Parcel?.Status == ParcelStatus.Approved;
             var targetAddress = isPickup ? activeDelivery?.Parcel?.PickupAddress : activeDelivery?.Parcel?.DeliveryAddress;
@@ -92,7 +98,7 @@ public class DriversController : CourierSABaseController
                 firstName = d.User?.FirstName ?? "—",
                 lastName = d.User?.LastName ?? "—",
                 phone = d.User?.PhoneNumber,
-                status = d.Status.ToString(),
+                status = computedStatus, // <--- Uses calculated status
                 latitude = d.CurrentLatitude,
                 longitude = d.CurrentLongitude,
                 lastUpdatedAt = d.UpdatedAt,
@@ -124,15 +130,20 @@ public class DriversController : CourierSABaseController
     {
         var available = await _db.DriverProfiles
             .AsNoTracking()
-            .Where(d => d.Status == DriverStatus.Available)
             .Include(d => d.User)
+            // Self-healing filter: Include drivers explicitly marked Available,
+            // OR drivers marked OnDelivery in DB who have 0 active deliveries left.
+            .Where(d => d.Status == DriverStatus.Available ||
+                       (d.Status == DriverStatus.OnDelivery &&
+                        !d.Deliveries.Any(del => del.Status != DeliveryStatus.Delivered &&
+                                                 del.Status != DeliveryStatus.Failed)))
             .Select(d => new
             {
                 driverId = d.Id,
                 firstName = d.User!.FirstName,
                 lastName = d.User.LastName,
                 phone = d.User.PhoneNumber,
-                status = d.Status.ToString(),
+                status = DriverStatus.Available.ToString(),
             })
             .ToListAsync(ct);
 

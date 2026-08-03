@@ -123,10 +123,14 @@ export const bulkUploadApi = {
   template:      ()        => `${API_BASE}/bulk-upload/template`,  // direct URL for window.open
 }
 
+// ── ENRICHED DELIVERY API ─────────────────────────────────────────────────────
 export const deliveryApi = {
-  myDeliveries: ()  => api.get('/deliveries/my'),
-  markDelivered:(id, dto) => api.put(`/deliveries/${id}/delivered`, dto),
-  markFailed:   (id, dto) => api.put(`/deliveries/${id}/failed`, dto),
+  myDeliveries:  ()          => api.get('/deliveries/my'),
+  summary:       ()          => api.get('/deliveries/summary'),          // Added for Driver Dashboard
+  history:       params      => api.get('/deliveries/history', { params }),// Added for Driver History
+  failed:        ()          => api.get('/deliveries/failed'),           // Added for Dispatcher Failed list
+  markDelivered: (id, dto)   => api.put(`/deliveries/${id}/delivered`, dto),
+  markFailed:    (id, dto)   => api.put(`/deliveries/${id}/failed`, dto),
   updateLocation:(id, lat, lng) =>
                     api.put(`/deliveries/${id}/location`, { latitude: lat, longitude: lng }),
 }
@@ -161,7 +165,6 @@ export const driverApi = {
     api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
 }
 
-// ── Add dispatcherApi ────────────────────────────────────────────────────────
 export const dispatcherApi = {
   vehicles:       ()       => api.get('/dispatcher/vehicles'),
   reassignDriver: (id, driverId) => api.put(`/dispatcher/vehicles/${id}/reassign`, { driverId }),

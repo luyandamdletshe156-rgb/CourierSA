@@ -6,12 +6,13 @@ using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using ZXing;
 
 namespace CourierSA.Infrastructure.Services;
 
 /// <summary>
 /// Orchestrates the full parcel lifecycle:
-/// Draft → Pending → Approved → InWarehouse → InTransit → Delivered (or Failed)
+/// Draft → Pending → Approved → AwaitingCheckIn → InWarehouse → InTransit → Delivered (or Failed)
 /// </summary>
 public class ParcelService : IParcelService
 {
@@ -207,7 +208,10 @@ public class ParcelService : IParcelService
         Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
-        EnsureStatus(parcel, ParcelStatus.Approved);
+
+        // FIX: The warehouse checks in parcels that have been dropped off 
+        // by the driver, meaning they are AwaitingCheckIn.
+        EnsureStatus(parcel, ParcelStatus.AwaitingCheckIn);
 
         parcel.Status = ParcelStatus.InWarehouse;
         parcel.UpdatedAt = DateTime.UtcNow;
@@ -261,8 +265,10 @@ public class ParcelService : IParcelService
 
         parcel.UpdatedAt = DateTime.UtcNow;
 
+        // FIX: Update driver status using EF Tracking instead of ExecuteUpdateAsync
+        // which was causing the Map synchronization lock-up
         driver.Status = DriverStatus.OnDelivery;
-        _uow.Query<DriverProfile>().Update(driver); // Ensure status change is tracked
+        driver.UpdatedAt = DateTime.UtcNow;
 
         await _uow.Deliveries.AddAsync(delivery, ct);
 
@@ -329,6 +335,12 @@ public class ParcelService : IParcelService
         {
             parcel.Status = ParcelStatus.Delivered;
         }
+        else
+        {
+            // FIX: Transition collected parcel to awaiting check-in queue for warehouse
+            parcel.Status = ParcelStatus.AwaitingCheckIn;
+        }
+
         parcel.UpdatedAt = DateTime.UtcNow;
 
         var hasOtherActiveDeliveries = await _uow.Deliveries
@@ -340,8 +352,9 @@ public class ParcelService : IParcelService
 
         if (!hasOtherActiveDeliveries)
         {
+            // FIX: Removed EF raw SQL execution logic
             driverProfile.Status = DriverStatus.Available;
-            _uow.Query<DriverProfile>().Update(driverProfile);
+            driverProfile.UpdatedAt = DateTime.UtcNow;
         }
 
         var trackingEvent = new TrackingEvent
@@ -357,6 +370,8 @@ public class ParcelService : IParcelService
             UpdatedAt = DateTime.UtcNow
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+        // EF Core will now properly persist the driver status alongside the parcel/delivery update
         await _uow.SaveChangesAsync(ct);
 
         if (!isPickup)
@@ -434,8 +449,9 @@ public class ParcelService : IParcelService
 
         if (!hasOtherActiveDeliveries)
         {
+            // FIX: Removed EF raw SQL execution logic
             driverProfile.Status = DriverStatus.Available;
-            _uow.Query<DriverProfile>().Update(driverProfile);
+            driverProfile.UpdatedAt = DateTime.UtcNow;
         }
 
         var trackingEvent = new TrackingEvent
@@ -783,6 +799,21 @@ public class ParcelService : IParcelService
         profile.CurrentLatitude = lat;
         profile.CurrentLongitude = lng;
         profile.UpdatedAt = DateTime.UtcNow;
+
+        // --- Self-healing state mechanism ---
+        // If the DB thinks they are on delivery, verify they actually have active tasks
+        if (profile.Status == DriverStatus.OnDelivery)
+        {
+            var hasActiveDeliveries = await _uow.Deliveries.Query()
+                .AnyAsync(d => d.DriverId == profile.Id &&
+                              (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
+
+            if (!hasActiveDeliveries)
+            {
+                profile.Status = DriverStatus.Available;
+            }
+        }
+        // -------------------------------------------
 
         await _uow.SaveChangesAsync(ct);
     }

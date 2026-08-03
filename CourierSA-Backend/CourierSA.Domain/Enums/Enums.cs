@@ -30,6 +30,7 @@ public enum ParcelStatus
     PendingApproval,
     Approved,
     InWarehouse,
+    AwaitingCheckIn,
     OutForDelivery,
     Delivered,
     FailedDelivery,

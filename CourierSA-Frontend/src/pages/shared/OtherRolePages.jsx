@@ -23,10 +23,10 @@ export function WarehouseDashboard() {
   const [checkInModal, setCheckInModal] = useState(null)
   const [location, setLocation]         = useState('')
 
-  // 1. Parcels awaiting check-in (Status: Approved)
+  // 1. UPDATED: Query parcels with status 'AwaitingCheckIn' instead of 'Approved'
   const { data, isLoading } = useQuery({
-    queryKey: ['parcels-approved-wh'],
-    queryFn:  () => parcelApi.list({ status: 'Approved', pageSize: 50 }),
+    queryKey: ['parcels-awaiting-wh'],
+    queryFn:  () => parcelApi.list({ status: 'AwaitingCheckIn', pageSize: 50 }),
     refetchInterval: 30000,
   })
 
@@ -37,14 +37,14 @@ export function WarehouseDashboard() {
     refetchInterval: 30000,
   })
 
-  const approved = data?.data?.items ?? []
-  const awaitingCount = data?.data?.totalCount ?? approved.length
+  const awaiting = data?.data?.items ?? []
+  const awaitingCount = data?.data?.totalCount ?? awaiting.length
   const inWarehouseCount = inWhData?.data?.totalCount ?? '—'
 
   const checkInMutation = useMutation({
     mutationFn: ({ id }) => parcelApi.checkIn(id, location),
     onSuccess:  () => {
-      qc.invalidateQueries({ queryKey: ['parcels-approved-wh'] })
+      qc.invalidateQueries({ queryKey: ['parcels-awaiting-wh'] })
       qc.invalidateQueries({ queryKey: ['parcels-in-warehouse-count'] })
       qc.invalidateQueries({ queryKey: ['warehouse-inventory'] })
       setCheckInModal(null)
@@ -75,7 +75,7 @@ export function WarehouseDashboard() {
           <h2 className="text-sm font-bold text-[#172554]">Parcels awaiting check-in</h2>
         </div>
 
-        {isLoading ? <PageLoader /> : approved.length === 0 ? (
+        {isLoading ? <PageLoader /> : awaiting.length === 0 ? (
           <EmptyState icon={CheckCircle} title="All clear" description="No parcels waiting to be checked in." />
         ) : (
           <div className="table-container">
@@ -91,7 +91,7 @@ export function WarehouseDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {approved.map(p => (
+                {awaiting.map(p => (
                   <tr key={p.id}>
                     <td><TrackingBadge value={p.trackingNumber} /></td>
                     <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
