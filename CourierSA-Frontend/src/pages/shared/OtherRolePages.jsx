@@ -23,17 +23,17 @@ export function WarehouseDashboard() {
   const [checkInModal, setCheckInModal] = useState(null)
   const [location, setLocation]         = useState('')
 
-  // 1. UPDATED: Query parcels with status 'AwaitingCheckIn' instead of 'Approved'
+  // 1. FIX: Changed parcelApi.list to parcelApi.queue
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-awaiting-wh'],
-    queryFn:  () => parcelApi.list({ status: 'AwaitingCheckIn', pageSize: 50 }),
+    queryFn:  () => parcelApi.queue({ status: 'AwaitingCheckIn', pageSize: 50 }),
     refetchInterval: 30000,
   })
 
-  // 2. Real-time count of parcels currently stored in the warehouse
+  // 2. FIX: Changed parcelApi.list to parcelApi.queue
   const { data: inWhData } = useQuery({
     queryKey: ['parcels-in-warehouse-count'],
-    queryFn:  () => parcelApi.list({ status: 'InWarehouse', pageSize: 1 }),
+    queryFn:  () => parcelApi.queue({ status: 'InWarehouse', pageSize: 1 }),
     refetchInterval: 30000,
   })
 

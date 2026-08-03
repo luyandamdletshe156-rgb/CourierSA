@@ -226,8 +226,9 @@ public class ParcelsController : CourierSABaseController
     }
 
     /// <summary>GET /api/parcels/queue – Dispatcher/Admin: unscoped parcel queue (not customer-scoped)</summary>
+    /// <summary>GET /api/parcels/queue – Unscoped parcel queue for staff</summary>
     [HttpGet("queue")]
-    [Authorize(Policy = "DispatcherOrAdmin")]
+    [Authorize(Roles = "Dispatcher, WarehouseStaff, Administrator")]
     public async Task<IActionResult> GetQueue(
         [FromQuery] ParcelFilterDto filter, CancellationToken ct)
     {
@@ -297,6 +298,14 @@ public class DeliveriesController : CourierSABaseController
     /// GET /api/deliveries/history?page=1&pageSize=15
     /// Driver's completed and failed deliveries — for the History page.
     /// </summary>
+    /// <summary>
+    /// GET /api/deliveries/history?page=1&pageSize=15
+    /// Driver's completed and failed deliveries — for the History page.
+    /// </summary>
+    /// <summary>
+    /// GET /api/deliveries/history?page=1&pageSize=15
+    /// Driver's completed and failed deliveries — for the History page.
+    /// </summary>
     [HttpGet("history")]
     [Authorize(Policy = "DriverOnly")]
     public async Task<IActionResult> GetMyHistory(
@@ -335,8 +344,13 @@ public class DeliveriesController : CourierSABaseController
                 d.UpdatedAt,
                 trackingNumber = d.Parcel != null ? d.Parcel.TrackingNumber : "—",
 
-                // If it failed and the parcel is STILL 'Approved', we know it was a pickup failure.
-                isPickup = d.Parcel != null && d.Parcel.Status == ParcelStatus.Approved,
+                // FIX: Subquery _uow.Deliveries to verify if d is the 1st delivery leg for this parcel
+                isPickup = d.Parcel != null &&
+                           _uow.Deliveries.Query()
+                               .Where(del => del.ParcelId == d.ParcelId)
+                               .OrderBy(del => del.CreatedAt)
+                               .Select(del => del.Id)
+                               .FirstOrDefault() == d.Id,
 
                 recipientName = d.Parcel!.DeliveryAddress != null
                     ? d.Parcel.DeliveryAddress.RecipientName : "—",
@@ -356,7 +370,6 @@ public class DeliveriesController : CourierSABaseController
 
         return Ok(new { items, totalCount = total, page, pageSize });
     }
-
     /// <summary>GET /api/deliveries/failed – Dispatcher: all failed deliveries</summary>
     [HttpGet("failed")]
     [Authorize(Policy = "DispatcherOrAdmin")]
