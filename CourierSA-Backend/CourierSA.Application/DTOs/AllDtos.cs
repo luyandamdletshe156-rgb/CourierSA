@@ -169,8 +169,7 @@ public record PagedResult<T>(
 );
 
 public record RejectParcelDto(string Reason);
-public record CheckInDto(string WarehouseLocation);
-public record DispatchParcelDto(Guid DriverId);
+public record CheckInDto(Guid SortingBinId); public record DispatchParcelDto(Guid DriverId);
 public record ReturnParcelDto(string? Notes);
 
 public record ProofOfDeliveryDto(
@@ -405,5 +404,37 @@ namespace CourierSA.Application.DTOs.Vehicles
     public record LastInspectionDto(
         string Result,
         DateTime CreatedAt
+    );
+
+   
+    public record CreateInspectionDto(
+        Guid VehicleId,
+        InspectionType Type,
+        InspectionResult Result,
+        int? OdometerKm,
+        string? Notes,
+        string? PhotoPaths
+    );
+
+
+
+
+}
+
+namespace CourierSA.Application.DTOs.Sorting
+{
+    public record SortingBinDto(
+        Guid Id,
+        string BinCode,
+        string Zone,
+        int Capacity,
+        int CurrentCount
+    );
+
+    public record SortingSuggestionDto(
+        Guid ParcelId,
+        string? ParcelZone,
+        Guid? SuggestedBinId,
+        List<SortingBinDto> Bins
     );
 }

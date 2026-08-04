@@ -1,5 +1,6 @@
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
+using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
@@ -97,6 +98,22 @@ public class ParcelService : IParcelService
         await _uow.Query<ParcelAddress>().AddAsync(pickup, ct);
         await _uow.Query<ParcelAddress>().AddAsync(delivery, ct);
 
+        // 2b. Determine sorting zone from delivery postal code
+        var deliveryPostalCode = int.TryParse(delivery.PostalCode, out var pc) ? pc : (int?)null;
+
+        SortingZone? zone = null;
+        if (deliveryPostalCode.HasValue)
+        {
+            var zoneRule = await _uow.Query<PostalCodeZoneRule>()
+                .Query()
+                .FirstOrDefaultAsync(r =>
+                    deliveryPostalCode.Value >= r.PostalCodeFrom &&
+                    deliveryPostalCode.Value <= r.PostalCodeTo, ct);
+
+            zone = zoneRule?.Zone;
+        }
+
+
         // 3. Create the Parcel
         var parcel = new Parcel
         {
@@ -121,6 +138,7 @@ public class ParcelService : IParcelService
             PickupAddressId = pickup.Id,
             DeliveryAddressId = delivery.Id,
             QuoteAmountZAR = finalQuoteAmount,
+            Zone = zone,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -203,23 +221,109 @@ public class ParcelService : IParcelService
     }
 
     // ── Check In at Warehouse ─────────────────────────────────────────────────
+    // ── Check In at Warehouse ─────────────────────────────────────────────────
     public async Task CheckInAsync(
-        Guid parcelId, string warehouseLocation,
+        Guid parcelId, Guid sortingBinId,
         Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
-
-        // FIX: The warehouse checks in parcels that have been dropped off 
-        // by the driver, meaning they are AwaitingCheckIn.
         EnsureStatus(parcel, ParcelStatus.AwaitingCheckIn);
+
+        var bin = await _uow.Query<SortingBin>().GetByIdAsync(sortingBinId, ct)
+            ?? throw new NotFoundException("Sorting bin not found.");
+
+        if (!bin.IsActive)
+            throw new BadRequestException("This sorting bin is inactive and cannot be used.");
+
+        var assignment = await _uow.Query<ParcelSortingAssignment>()
+            .Query()
+            .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id, ct);
+
+        if (assignment is null)
+        {
+            assignment = new ParcelSortingAssignment
+            {
+                Id = Guid.NewGuid(),
+                ParcelId = parcel.Id,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.Query<ParcelSortingAssignment>().AddAsync(assignment, ct);
+        }
+
+        assignment.ConfirmedBinId = bin.Id;
+        assignment.ConfirmedAt = DateTime.UtcNow;
+        assignment.ConfirmedByStaffId = staffId;
+        assignment.UpdatedAt = DateTime.UtcNow;
+
+        bin.CurrentCount += 1;
+        bin.UpdatedAt = DateTime.UtcNow;
 
         parcel.Status = ParcelStatus.InWarehouse;
         parcel.UpdatedAt = DateTime.UtcNow;
-        var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ReceivedAtWarehouse, "Parcel received at warehouse", warehouseLocation);
+
+        var trackingEvent = AddTrackingEvent(
+            parcel, TrackingEventType.ReceivedAtWarehouse,
+            "Parcel received at warehouse", bin.BinCode);
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
         await _uow.SaveChangesAsync(ct);
 
-        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", warehouseLocation, ct);
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", bin.BinCode, ct);
+    }
+
+    // ── Get or Create Sorting Suggestion (for check-in modal) ──────────────────
+    public async Task<SortingSuggestionDto> GetSortingSuggestionAsync(
+        Guid parcelId, CancellationToken ct = default)
+    {
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+
+        var assignment = await _uow.Query<ParcelSortingAssignment>()
+            .Query()
+            .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id, ct);
+
+        if (assignment is null)
+        {
+            SortingBin? bestBin = null;
+
+            if (parcel.Zone.HasValue)
+            {
+                bestBin = await _uow.Query<SortingBin>()
+                    .Query()
+                    .Where(b => b.IsActive &&
+                                b.Zone == parcel.Zone.Value &&
+                                b.CurrentCount < b.Capacity)
+                    .OrderBy(b => b.CurrentCount)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            assignment = new ParcelSortingAssignment
+            {
+                Id = Guid.NewGuid(),
+                ParcelId = parcel.Id,
+                SuggestedBinId = bestBin?.Id,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.Query<ParcelSortingAssignment>().AddAsync(assignment, ct);
+            await _uow.SaveChangesAsync(ct);
+        }
+
+        var allBins = await _uow.Query<SortingBin>()
+            .Query()
+            .AsNoTracking()
+            .Where(b => b.IsActive)
+            .OrderBy(b => b.Zone).ThenBy(b => b.BinCode)
+            .Select(b => new SortingBinDto(
+                b.Id, b.BinCode, b.Zone.ToString(), b.Capacity, b.CurrentCount))
+            .ToListAsync(ct);
+
+        return new SortingSuggestionDto(
+            ParcelId: parcel.Id,
+            ParcelZone: parcel.Zone?.ToString(),
+            SuggestedBinId: assignment.SuggestedBinId,
+            Bins: allBins
+        );
     }
 
     // ── Dispatch ──────────────────────────────────────────────────────────────

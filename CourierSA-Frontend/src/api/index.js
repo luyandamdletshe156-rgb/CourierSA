@@ -73,8 +73,9 @@ export const parcelApi = {
   book:       dto    => api.post('/parcels', dto),
   approve:    id     => api.put(`/parcels/${id}/approve`),
   reject:     (id, reason) => api.put(`/parcels/${id}/reject`, { reason }),
-  checkIn:    (id, warehouseLocation) =>
-                         api.put(`/parcels/${id}/checkin`, { warehouseLocation }),
+  checkIn:          (id, sortingBinId) =>
+                         api.put(`/parcels/${id}/checkin`, { sortingBinId }),
+  sortingSuggestion:(id) => api.get(`/parcels/${id}/sorting-suggestion`),
   dispatch:   (id, driverId) =>
                          api.put(`/parcels/${id}/dispatch`, { driverId }),
   bulkUpload: file   => {

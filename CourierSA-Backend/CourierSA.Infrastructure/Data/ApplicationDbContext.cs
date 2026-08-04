@@ -33,6 +33,10 @@ public class ApplicationDbContext : DbContext
     // ── Claims & Corrections ───────────────────────────────────────────────────
     public DbSet<InsuranceClaim>           InsuranceClaims          { get; set; }
     public DbSet<AddressCorrectionRequest> AddressCorrectionRequests { get; set; }
+    // ── Sorting & Warehouse Zones ──────────────────────────────────────────────
+    public DbSet<PostalCodeZoneRule> PostalCodeZoneRules { get; set; }
+    public DbSet<SortingBin> SortingBins { get; set; }
+    public DbSet<ParcelSortingAssignment> ParcelSortingAssignments { get; set; }
 
     // ── Platform ───────────────────────────────────────────────────────────────
 
@@ -46,6 +50,25 @@ public class ApplicationDbContext : DbContext
 
         // Apply all IEntityTypeConfiguration<T> from this assembly
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
+        // Explicit config: ParcelSortingAssignment has two FKs into SortingBin
+        modelBuilder.Entity<ParcelSortingAssignment>()
+            .HasOne(a => a.SuggestedBin)
+            .WithMany()
+            .HasForeignKey(a => a.SuggestedBinId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<ParcelSortingAssignment>()
+            .HasOne(a => a.ConfirmedBin)
+            .WithMany(b => b.Assignments)
+            .HasForeignKey(a => a.ConfirmedBinId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<ParcelSortingAssignment>()
+            .HasOne(a => a.Parcel)
+            .WithMany()
+            .HasForeignKey(a => a.ParcelId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Global query filters – soft delete
         modelBuilder.Entity<User>().HasQueryFilter(e => !e.IsDeleted);

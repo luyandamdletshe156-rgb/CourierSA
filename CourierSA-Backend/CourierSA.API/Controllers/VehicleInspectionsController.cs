@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CourierSA.API.Middleware;
 using CourierSA.Domain.Exceptions;
+using CourierSA.Application.DTOs.Vehicles;
 
 namespace CourierSA.API.Controllers;
 
@@ -159,51 +160,3 @@ public class VehicleInspectionsController : CourierSABaseController
     }
 }
 
-// ── DTO ───────────────────────────────────────────────────────────────────────
-public record CreateInspectionDto(
-    Guid             VehicleId,
-    InspectionType   Type,
-    InspectionResult Result,
-    int?             OdometerKm,
-    string?          Notes,
-    string?          PhotoPaths
-);
-
-// ══════════════════════════════════════════════════════════════════════════════
-// VEHICLES LIST — extends the existing AdminController
-// Mounted at /api/admin/vehicles (GET)
-// Feeds the vehicle dropdown in NewInspectionModal on the frontend.
-// ══════════════════════════════════════════════════════════════════════════════
-[Route("api/admin")]
-[Authorize(Policy = "AdminOnly")]
-public class VehiclesAdminController : CourierSABaseController
-{
-    private readonly ApplicationDbContext _db;
-
-    public VehiclesAdminController(ApplicationDbContext db) => _db = db;
-
-    /// <summary>GET /api/admin/vehicles</summary>
-    [HttpGet("vehicles")]
-    public async Task<IActionResult> GetVehicles(CancellationToken ct)
-    {
-        var vehicles = await _db.Vehicles
-            .AsNoTracking()
-            .Where(v => !v.IsDeleted)
-            .OrderBy(v => v.RegistrationNumber)
-            .Select(v => new
-            {
-                v.Id,
-                v.RegistrationNumber,
-                v.Make,
-                v.Model,
-                v.Year,
-                v.VehicleType,
-                v.Status,
-                v.PayloadCapacityKg,
-                v.AssignedDriverId,
-            })
-            .ToListAsync(ct);
-
-        return Ok(vehicles);
-    }
-}

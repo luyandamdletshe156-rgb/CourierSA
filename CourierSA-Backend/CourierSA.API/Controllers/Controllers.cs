@@ -7,6 +7,7 @@ using CourierSA.API.Middleware;
 using CourierSA.Domain.Exceptions;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.DTOs.Parcels;
+using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using CourierSA.Domain.Entities;
@@ -172,13 +173,23 @@ public class ParcelsController : CourierSABaseController
     }
 
     /// <summary>PUT /api/parcels/{id}/checkin – Warehouse staff checks in parcel</summary>
+    /// <summary>PUT /api/parcels/{id}/checkin – Warehouse staff checks in parcel</summary>
     [HttpPut("{id:guid}/checkin")]
     [Authorize(Policy = "WarehouseOrAdmin")]
     public async Task<IActionResult> CheckIn(
         Guid id, [FromBody] CheckInDto dto, CancellationToken ct)
     {
-        await _parcelService.CheckInAsync(id, dto.WarehouseLocation, CurrentUserId, ct);
+        await _parcelService.CheckInAsync(id, dto.SortingBinId, CurrentUserId, ct);
         return NoContent("Parcel checked in to warehouse");
+    }
+
+    /// <summary>GET /api/parcels/{id}/sorting-suggestion – Suggested bin + all active bins for check-in modal</summary>
+    [HttpGet("{id:guid}/sorting-suggestion")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> GetSortingSuggestion(Guid id, CancellationToken ct)
+    {
+        var result = await _parcelService.GetSortingSuggestionAsync(id, ct);
+        return Ok(result);
     }
 
     /// <summary>PUT /api/parcels/{id}/dispatch – Dispatcher assigns driver</summary>

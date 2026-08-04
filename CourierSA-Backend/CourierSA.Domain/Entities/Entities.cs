@@ -94,6 +94,7 @@ public class Parcel : BaseEntity
     public decimal?     QuoteAmountZAR      { get; set; }
     public string?      BarcodeImagePath    { get; set; }
     public DateTime?    EstimatedDeliveryDate { get; set; }
+    public SortingZone? Zone { get; set; }
 
     public CustomerProfile? Customer        { get; set; }
     public ParcelAddress?   PickupAddress   { get; set; }
@@ -281,6 +282,42 @@ public class AddressCorrectionRequest : BaseEntity
     public string?            Reason             { get; set; }
     public string?            ReviewNotes        { get; set; }
     public Guid?              ReviewedByUserId   { get; set; }
+}
+
+
+// ── Postal Code Zone Rule ─────────────────────────────────────────────────────
+public class PostalCodeZoneRule : BaseEntity
+{
+    public int PostalCodeFrom { get; set; }
+    public int PostalCodeTo { get; set; }
+    public SortingZone Zone { get; set; }
+    public string? Description { get; set; }
+}
+
+// ── Sorting Bin ────────────────────────────────────────────────────────────────
+public class SortingBin : BaseEntity
+{
+    public string BinCode { get; set; } = string.Empty;
+    public SortingZone Zone { get; set; }
+    public int Capacity { get; set; }
+    public int CurrentCount { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    public ICollection<ParcelSortingAssignment> Assignments { get; set; } = [];
+}
+
+// ── Parcel Sorting Assignment ──────────────────────────────────────────────────
+public class ParcelSortingAssignment : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public Guid? SuggestedBinId { get; set; }
+    public Guid? ConfirmedBinId { get; set; }
+    public DateTime? ConfirmedAt { get; set; }
+    public Guid? ConfirmedByStaffId { get; set; }
+
+    public Parcel? Parcel { get; set; }
+    public SortingBin? SuggestedBin { get; set; }
+    public SortingBin? ConfirmedBin { get; set; }
 }
 
 // ── Notification ──────────────────────────────────────────────────────────────

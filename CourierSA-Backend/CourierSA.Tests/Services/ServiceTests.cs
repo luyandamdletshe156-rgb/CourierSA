@@ -298,7 +298,7 @@ public class ParcelServiceStateMachineTests
         var (svc, db) = BuildSut();
         var (parcel, _) = await SeedParcelAsync(db, ParcelStatus.Approved);
 
-        await svc.CheckInAsync(parcel.Id, "Bay A3", Guid.NewGuid());
+        await svc.CheckInAsync(parcel.Id, Guid.NewGuid(), Guid.NewGuid());
 
         var updated = await db.Parcels.FindAsync(parcel.Id);
         updated!.Status.Should().Be(ParcelStatus.InWarehouse);

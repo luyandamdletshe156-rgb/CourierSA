@@ -4,6 +4,7 @@ using CourierSA.Application.DTOs.Quotes;
 using CourierSA.Domain.Entities;
 using System.Security.Claims;
 using CourierSA.Application.DTOs.Bulk;
+using CourierSA.Application.DTOs.Sorting;
 
 namespace CourierSA.Application.Interfaces.Services;
 
@@ -41,7 +42,8 @@ public interface IParcelService
     Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default);
     Task ApproveAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task RejectAsync(Guid parcelId, string reason, Guid staffId, CancellationToken ct = default);
-    Task CheckInAsync(Guid parcelId, string warehouseLocation, Guid staffId, CancellationToken ct = default);
+    Task CheckInAsync(Guid parcelId, Guid sortingBinId, Guid staffId, CancellationToken ct = default);
+    Task<SortingSuggestionDto> GetSortingSuggestionAsync(Guid parcelId, CancellationToken ct = default);
     Task DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
     Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverId, CancellationToken ct = default);
     Task MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);

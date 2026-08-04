@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import {
@@ -21,16 +21,14 @@ import { Link } from 'react-router-dom'
 export function WarehouseDashboard() {
   const qc = useQueryClient()
   const [checkInModal, setCheckInModal] = useState(null)
-  const [location, setLocation]         = useState('')
+  const [selectedBinId, setSelectedBinId] = useState('')
 
-  // 1. FIX: Changed parcelApi.list to parcelApi.queue
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-awaiting-wh'],
     queryFn:  () => parcelApi.queue({ status: 'AwaitingCheckIn', pageSize: 50 }),
     refetchInterval: 30000,
   })
 
-  // 2. FIX: Changed parcelApi.list to parcelApi.queue
   const { data: inWhData } = useQuery({
     queryKey: ['parcels-in-warehouse-count'],
     queryFn:  () => parcelApi.queue({ status: 'InWarehouse', pageSize: 1 }),
@@ -41,16 +39,42 @@ export function WarehouseDashboard() {
   const awaitingCount = data?.data?.totalCount ?? awaiting.length
   const inWarehouseCount = inWhData?.data?.totalCount ?? '—'
 
+  // Fetch bin suggestion + full bin list whenever the modal opens for a parcel
+  const { data: suggestionData, isLoading: suggestionLoading } = useQuery({
+    queryKey: ['sorting-suggestion', checkInModal?.id],
+    queryFn:  () => parcelApi.sortingSuggestion(checkInModal.id),
+    enabled:  !!checkInModal,
+  })
+
+  const suggestion = suggestionData?.data
+  const bins = suggestion?.bins ?? []
+  const parcelZone = suggestion?.parcelZone
+
+  // Pre-select the suggested bin once the suggestion loads
+  useEffect(() => {
+    if (suggestion?.suggestedBinId) {
+      setSelectedBinId(suggestion.suggestedBinId)
+    }
+  }, [suggestion?.suggestedBinId])
+
+  const selectedBin = bins.find(b => b.id === selectedBinId)
+  const zoneMismatch = selectedBin && parcelZone && selectedBin.zone !== parcelZone
+
   const checkInMutation = useMutation({
-    mutationFn: ({ id }) => parcelApi.checkIn(id, location),
+    mutationFn: ({ id }) => parcelApi.checkIn(id, selectedBinId),
     onSuccess:  () => {
       qc.invalidateQueries({ queryKey: ['parcels-awaiting-wh'] })
       qc.invalidateQueries({ queryKey: ['parcels-in-warehouse-count'] })
       qc.invalidateQueries({ queryKey: ['warehouse-inventory'] })
       setCheckInModal(null)
-      setLocation('')
+      setSelectedBinId('')
     },
   })
+
+  const closeModal = () => {
+    setCheckInModal(null)
+    setSelectedBinId('')
+  }
 
   return (
     <AppShell title="Warehouse">
@@ -118,23 +142,55 @@ export function WarehouseDashboard() {
         )}
       </div>
 
-      <Modal open={!!checkInModal} onClose={() => setCheckInModal(null)} title="Check in parcel" size="sm">
-        <p className="text-sm text-[#64748B] mb-5 flex items-center gap-2">
+      <Modal open={!!checkInModal} onClose={closeModal} title="Check in parcel" size="sm">
+        <p className="text-sm text-[#64748B] mb-2 flex items-center gap-2">
           Checking in <TrackingBadge value={checkInModal?.trackingNumber} />
         </p>
-        <label className="label">Warehouse location / bay</label>
-        <input
-          className="input"
-          placeholder="e.g. Bay A3, Shelf 12"
-          value={location}
-          onChange={e => setLocation(e.target.value)}
-        />
-        {checkInMutation.error && <Alert type="error" message={checkInMutation.error.message} className="mt-4" />}
+
+        {parcelZone && (
+          <p className="text-xs text-[#64748B] mb-4">
+            Parcel zone:{' '}
+            <span className="font-semibold text-[#0A3D91]">{parcelZone}</span>
+          </p>
+        )}
+
+        <label className="label">Warehouse bin</label>
+
+        {suggestionLoading ? (
+          <p className="text-xs text-[#94A3B8] py-2">Loading available bins…</p>
+        ) : (
+          <select
+            className="input"
+            value={selectedBinId}
+            onChange={e => setSelectedBinId(e.target.value)}
+          >
+            <option value="">Select a bin…</option>
+            {bins.map(bin => (
+              <option key={bin.id} value={bin.id}>
+                {bin.binCode} — {bin.zone} ({bin.currentCount}/{bin.capacity})
+                {bin.id === suggestion?.suggestedBinId ? ' — Recommended' : ''}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {zoneMismatch && (
+          <Alert
+            type="warning"
+            message={`This bin is in the ${selectedBin.zone} zone, but the parcel is ${parcelZone}. You can still proceed, but double-check this is intentional.`}
+            className="mt-4"
+          />
+        )}
+
+        {checkInMutation.error && (
+          <Alert type="error" message={checkInMutation.error.message} className="mt-4" />
+        )}
+
         <div className="flex justify-end gap-3 mt-6">
-          <button className="btn-secondary" onClick={() => setCheckInModal(null)}>Cancel</button>
+          <button className="btn-secondary" onClick={closeModal}>Cancel</button>
           <button
             className="btn-primary"
-            disabled={!location.trim() || checkInMutation.isPending}
+            disabled={!selectedBinId || checkInMutation.isPending}
             onClick={() => checkInMutation.mutate({ id: checkInModal.id })}
           >
             <CheckCircle size={16} /> Confirm check-in
@@ -144,7 +200,6 @@ export function WarehouseDashboard() {
     </AppShell>
   )
 }
-
 // ════════════════════════════════════════════════════════════════════════════
 // ADMINISTRATOR
 // ════════════════════════════════════════════════════════════════════════════

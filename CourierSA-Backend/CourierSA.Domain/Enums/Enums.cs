@@ -60,6 +60,14 @@ public enum SaProvince
     FreeState
 }
 
+public enum SortingZone
+{
+    Local,
+    Metro,
+    Regional,
+    National
+}
+
 public enum TrackingEventType
 {
     Booked,
