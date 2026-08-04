@@ -352,10 +352,9 @@ export function WarehouseInventoryPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['warehouse-inventory', page, statusFilter],
-    queryFn:  () => api.get('/parcels', { params: { page, pageSize, status: statusFilter } }),
+    queryFn:  () => api.get('/parcels/queue', { params: { page, pageSize, status: statusFilter } }),
     keepPreviousData: true,
   })
-
   const parcels = data?.data?.items  ?? []
   const total   = data?.data?.totalCount ?? 0
 
