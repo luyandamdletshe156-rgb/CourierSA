@@ -365,6 +365,24 @@ public class ParcelService : IParcelService
         if (!isPickup)
         {
             parcel.Status = ParcelStatus.OutForDelivery;
+
+            // Release the parcel from its warehouse bin — it's leaving the building
+            var assignment = await _uow.Query<ParcelSortingAssignment>()
+                .Query()
+                .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
+
+            if (assignment?.ConfirmedBinId is not null)
+            {
+                var bin = await _uow.Query<SortingBin>().GetByIdAsync(assignment.ConfirmedBinId.Value, ct);
+                if (bin is not null && bin.CurrentCount > 0)
+                {
+                    bin.CurrentCount -= 1;
+                    bin.UpdatedAt = DateTime.UtcNow;
+                }
+
+                assignment.ReleasedAt = DateTime.UtcNow;
+                assignment.UpdatedAt = DateTime.UtcNow;
+            }
         }
 
         parcel.UpdatedAt = DateTime.UtcNow;

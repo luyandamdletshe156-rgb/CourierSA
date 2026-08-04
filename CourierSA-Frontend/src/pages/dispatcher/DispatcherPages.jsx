@@ -238,14 +238,21 @@ export function DispatcherDashboard() {
 }
 
 // ── Dispatch Queue ─────────────────────────────────────────────────────────────
+// ── Dispatch Queue ─────────────────────────────────────────────────────────────
 export function DispatchQueue() {
   const qc = useQueryClient()
+  const [statusFilter, setStatusFilter] = useState('Approved')
   const [dispatchModal, setDispatchModal]   = useState(null)
   const [selectedDriver, setSelectedDriver] = useState('')
 
+  const STATUS_FILTERS = [
+    { value: 'Approved',   label: 'Ready for pickup'   },
+    { value: 'InWarehouse',label: 'Ready for delivery' },
+  ]
+
   const { data, isLoading } = useQuery({
-    queryKey: ['parcels-approved'],
-    queryFn:  () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
+    queryKey: ['parcels-dispatch-queue', statusFilter],
+    queryFn:  () => parcelApi.queue({ status: statusFilter, pageSize: 50 }),
     refetchInterval: 30000,
   })
 
@@ -255,13 +262,13 @@ export function DispatchQueue() {
     staleTime: 30000,
   })
 
-  const approved         = data?.data?.items  ?? []
+  const queueItems       = data?.data?.items  ?? []
   const availableDrivers = driversData?.data   ?? []
 
   const dispatchMutation = useMutation({
     mutationFn: ({ id, driverId }) => parcelApi.dispatch(id, driverId),
     onSuccess:  () => {
-      qc.invalidateQueries({ queryKey: ['parcels-approved'] })
+      qc.invalidateQueries({ queryKey: ['parcels-dispatch-queue'] })
       qc.invalidateQueries({ queryKey: ['available-drivers'] })
       setDispatchModal(null)
       setSelectedDriver('')
@@ -274,7 +281,7 @@ export function DispatchQueue() {
         <div>
           <h1 className="page-title">Dispatch Queue</h1>
           <p className="page-subtitle">
-            Assign approved parcels to available drivers
+            Assign parcels to available drivers
             {availableDrivers.length > 0 && (
               <span className="ml-2 text-emerald-600 font-medium">
                 · {availableDrivers.length} driver{availableDrivers.length !== 1 ? 's' : ''} available
@@ -284,12 +291,32 @@ export function DispatchQueue() {
         </div>
       </div>
 
+      {/* Status filter tabs */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {STATUS_FILTERS.map(f => (
+          <button
+            key={f.value}
+            onClick={() => setStatusFilter(f.value)}
+            className={clsx(
+              'px-5 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all',
+              statusFilter === f.value
+                ? 'bg-brand-500 text-white border-brand-500 shadow-md'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300 hover:text-gray-800'
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       <div className="card">
-        {isLoading ? <PageLoader /> : approved.length === 0 ? (
+        {isLoading ? <PageLoader /> : queueItems.length === 0 ? (
           <EmptyState
             icon={Package}
             title="No parcels ready to dispatch"
-            description="Approved parcels waiting for driver assignment will appear here."
+            description={statusFilter === 'Approved'
+              ? 'Approved parcels waiting for pickup will appear here.'
+              : 'Parcels checked in to the warehouse, ready for delivery, will appear here.'}
           />
         ) : (
           <div className="table-container">
@@ -300,12 +327,12 @@ export function DispatchQueue() {
                   <th>Service</th>
                   <th>Destination</th>
                   <th>Weight</th>
-                  <th>Approved</th>
+                  <th>Updated</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {approved.map(p => (
+                {queueItems.map(p => (
                   <tr key={p.id}>
                     <td><TrackingBadge value={p.trackingNumber} /></td>
                     <td className="capitalize text-xs text-gray-600">{p.serviceType}</td>

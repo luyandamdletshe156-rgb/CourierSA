@@ -314,6 +314,7 @@ public class ParcelSortingAssignment : BaseEntity
     public Guid? ConfirmedBinId { get; set; }
     public DateTime? ConfirmedAt { get; set; }
     public Guid? ConfirmedByStaffId { get; set; }
+    public DateTime? ReleasedAt { get; set; }
 
     public Parcel? Parcel { get; set; }
     public SortingBin? SuggestedBin { get; set; }
