@@ -149,15 +149,14 @@ public class ParcelRepository : Repository<Parcel>, IParcelRepository
             .FirstOrDefaultAsync(p => p.TrackingNumber == trackingNumber, ct);
 
     public async Task<Parcel?> GetWithFullDetailsAsync(
-        Guid id, CancellationToken ct = default)
-        => await _dbSet
-            .Include(p => p.Customer).ThenInclude(c => c!.User)
-            .Include(p => p.PickupAddress)
-            .Include(p => p.DeliveryAddress)
-            .Include(p => p.TrackingEvents.OrderByDescending(t => t.OccurredAt))
-            .Include(p => p.ActiveDelivery).ThenInclude(d => d!.Driver).ThenInclude(dr => dr!.User)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
+         Guid id, CancellationToken ct = default)
+         => await _dbSet
+             .Include(p => p.Customer).ThenInclude(c => c!.User)
+             .Include(p => p.PickupAddress)
+             .Include(p => p.DeliveryAddress)
+             .Include(p => p.TrackingEvents.OrderByDescending(t => t.OccurredAt))
+             .Include(p => p.Deliveries).ThenInclude(d => d.Driver).ThenInclude(dr => dr!.User)
+             .FirstOrDefaultAsync(p => p.Id == id, ct);
     public async Task<IEnumerable<Parcel>> GetByCustomerAsync(
         Guid customerId, int page, int pageSize, CancellationToken ct = default)
         => await _dbSet

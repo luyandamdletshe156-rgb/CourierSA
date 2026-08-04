@@ -238,12 +238,12 @@ export function DispatcherDashboard() {
 }
 
 // ── Dispatch Queue ─────────────────────────────────────────────────────────────
-// ── Dispatch Queue ─────────────────────────────────────────────────────────────
 export function DispatchQueue() {
   const qc = useQueryClient()
   const [statusFilter, setStatusFilter] = useState('Approved')
   const [dispatchModal, setDispatchModal]   = useState(null)
   const [selectedDriver, setSelectedDriver] = useState('')
+  const [scanConfirm, setScanConfirm]       = useState('')
 
   const STATUS_FILTERS = [
     { value: 'Approved',   label: 'Ready for pickup'   },
@@ -272,8 +272,19 @@ export function DispatchQueue() {
       qc.invalidateQueries({ queryKey: ['available-drivers'] })
       setDispatchModal(null)
       setSelectedDriver('')
+      setScanConfirm('')
     },
   })
+
+  const closeDispatchModal = () => {
+    setDispatchModal(null)
+    setSelectedDriver('')
+    setScanConfirm('')
+  }
+
+  const isDeliveryLeg  = statusFilter === 'InWarehouse'
+  const scanMismatch   = scanConfirm && scanConfirm !== dispatchModal?.trackingNumber
+  const scanConfirmed  = scanConfirm && scanConfirm === dispatchModal?.trackingNumber
 
   return (
     <AppShell title="Dispatch Queue">
@@ -361,13 +372,35 @@ export function DispatchQueue() {
 
       <Modal
         open={!!dispatchModal}
-        onClose={() => { setDispatchModal(null); setSelectedDriver('') }}
+        onClose={closeDispatchModal}
         title="Assign driver"
         size="sm"
       >
         <p className="text-sm text-gray-600 mb-4">
           Dispatching <TrackingBadge value={dispatchModal?.trackingNumber} />
         </p>
+
+        {isDeliveryLeg && (
+          <>
+            <label className="label">Confirm tracking number</label>
+            <input
+              type="text"
+              className="input font-mono mb-4"
+              placeholder="Scan or type tracking number…"
+              value={scanConfirm}
+              onChange={e => setScanConfirm(e.target.value.toUpperCase())}
+              autoFocus
+            />
+            {scanMismatch && (
+              <p className="text-xs text-red-500 -mt-3 mb-4">Does not match this parcel.</p>
+            )}
+            {scanConfirmed && (
+              <p className="text-xs text-emerald-600 -mt-3 mb-4 flex items-center gap-1">
+                <CheckCircle size={12} /> Parcel confirmed
+              </p>
+            )}
+          </>
+        )}
 
         {availableDrivers.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
@@ -410,12 +443,16 @@ export function DispatchQueue() {
           <Alert message={dispatchMutation.error.message} className="mb-3" />
         )}
         <div className="flex justify-end gap-2">
-          <button className="btn-secondary" onClick={() => { setDispatchModal(null); setSelectedDriver('') }}>
+          <button className="btn-secondary" onClick={closeDispatchModal}>
             Cancel
           </button>
           <button
             className="btn-primary"
-            disabled={!selectedDriver || dispatchMutation.isPending}
+            disabled={
+              !selectedDriver ||
+              (isDeliveryLeg && scanConfirm !== dispatchModal?.trackingNumber) ||
+              dispatchMutation.isPending
+            }
             onClick={() => dispatchMutation.mutate({ id: dispatchModal.id, driverId: selectedDriver })}
           >
             <Truck size={14} /> Dispatch

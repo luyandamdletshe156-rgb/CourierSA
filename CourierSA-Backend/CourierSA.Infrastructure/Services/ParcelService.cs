@@ -704,7 +704,7 @@ public class ParcelService : IParcelService
 
     // ── Paged List ────────────────────────────────────────────────────────────
     public async Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(
-    ParcelFilterDto filter, Guid customerId, CancellationToken ct = default)
+  ParcelFilterDto filter, Guid customerId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>()
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
@@ -714,7 +714,7 @@ public class ParcelService : IParcelService
         var count = await _uow.Parcels.CountAsync(p => p.CustomerId == customer.Id, ct);
 
         return new PagedResult<ParcelSummaryDto>(
-            Items: parcels.Select(MapToSummary).ToList(),
+            Items: parcels.Select(p => MapToSummary(p)).ToList(),   // ← changed
             TotalCount: count,
             Page: filter.Page,
             PageSize: filter.PageSize
@@ -746,12 +746,31 @@ public class ParcelService : IParcelService
         var pageSize = filter.PageSize <= 0 ? 20 : filter.PageSize;
 
         var parcels = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
+     .Skip((page - 1) * pageSize)
+     .Take(pageSize)
+     .ToListAsync(ct);
+
+        Dictionary<Guid, string> binCodesByParcelId = new();
+        if (string.Equals(filter.Status, "InWarehouse", StringComparison.OrdinalIgnoreCase) && parcels.Count > 0)
+        {
+            var parcelIds = parcels.Select(p => p.Id).ToList();
+
+            binCodesByParcelId = await _uow.Query<ParcelSortingAssignment>()
+                .Query()
+                .AsNoTracking()
+                .Where(a => parcelIds.Contains(a.ParcelId) &&
+                            a.ConfirmedBinId != null &&
+                            a.ReleasedAt == null)
+                .Join(_uow.Query<SortingBin>().Query().AsNoTracking(),
+                      a => a.ConfirmedBinId,
+                      b => b.Id,
+                      (a, b) => new { a.ParcelId, b.BinCode })
+                .ToDictionaryAsync(x => x.ParcelId, x => x.BinCode, ct);
+        }
 
         return new PagedResult<ParcelSummaryDto>(
-            Items: parcels.Select(MapToSummary).ToList(),
+            Items: parcels.Select(p => MapToSummary(
+                       p, binCodesByParcelId.GetValueOrDefault(p.Id))).ToList(),
             TotalCount: count,
             Page: page,
             PageSize: pageSize
@@ -827,11 +846,10 @@ public class ParcelService : IParcelService
         UpdatedAt = DateTime.UtcNow
     };
 
-    private static ParcelSummaryDto MapToSummary(Parcel p) => new(
-        p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
-        p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
-        p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate);
-
+    private static ParcelSummaryDto MapToSummary(Parcel p, string? binCode = null) => new(
+     p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
+     p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
+     p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate, binCode);
     private static ParcelDetailDto MapToDetail(Parcel p)
     {
         bool isPickup = p.Status == ParcelStatus.Approved;

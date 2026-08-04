@@ -172,10 +172,10 @@ public class ParcelConfiguration : IEntityTypeConfiguration<Parcel>
                .HasForeignKey(t => t.ParcelId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasOne(p => p.ActiveDelivery)
-               .WithOne(d => d.Parcel)
-               .HasForeignKey<Delivery>(d => d.ParcelId)
-               .OnDelete(DeleteBehavior.Restrict);
+        builder.HasMany(p => p.Deliveries)
+        .WithOne(d => d.Parcel)
+        .HasForeignKey(d => d.ParcelId)
+        .OnDelete(DeleteBehavior.Restrict);
     }
 }
 

@@ -22,6 +22,7 @@ export function WarehouseDashboard() {
   const qc = useQueryClient()
   const [checkInModal, setCheckInModal] = useState(null)
   const [selectedBinId, setSelectedBinId] = useState('')
+  const [scanConfirm, setScanConfirm] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-awaiting-wh'],
@@ -59,6 +60,8 @@ export function WarehouseDashboard() {
 
   const selectedBin = bins.find(b => b.id === selectedBinId)
   const zoneMismatch = selectedBin && parcelZone && selectedBin.zone !== parcelZone
+  const scanMismatch = scanConfirm && scanConfirm !== checkInModal?.trackingNumber
+  const scanConfirmed = scanConfirm && scanConfirm === checkInModal?.trackingNumber
 
   const checkInMutation = useMutation({
     mutationFn: ({ id }) => parcelApi.checkIn(id, selectedBinId),
@@ -68,12 +71,14 @@ export function WarehouseDashboard() {
       qc.invalidateQueries({ queryKey: ['warehouse-inventory'] })
       setCheckInModal(null)
       setSelectedBinId('')
+      setScanConfirm('')
     },
   })
 
   const closeModal = () => {
     setCheckInModal(null)
     setSelectedBinId('')
+    setScanConfirm('')
   }
 
   return (
@@ -154,7 +159,25 @@ export function WarehouseDashboard() {
           </p>
         )}
 
-        <label className="label">Warehouse bin</label>
+        <label className="label">Confirm tracking number</label>
+        <input
+          type="text"
+          className="input font-mono"
+          placeholder="Scan or type tracking number…"
+          value={scanConfirm}
+          onChange={e => setScanConfirm(e.target.value.toUpperCase())}
+          autoFocus
+        />
+        {scanMismatch && (
+          <p className="text-xs text-[#EF4444] mt-1">Does not match this parcel.</p>
+        )}
+        {scanConfirmed && (
+          <p className="text-xs text-[#10B981] mt-1 flex items-center gap-1">
+            <CheckCircle size={12} /> Parcel confirmed
+          </p>
+        )}
+
+        <label className="label mt-4">Warehouse bin</label>
 
         {suggestionLoading ? (
           <p className="text-xs text-[#94A3B8] py-2">Loading available bins…</p>
@@ -190,7 +213,7 @@ export function WarehouseDashboard() {
           <button className="btn-secondary" onClick={closeModal}>Cancel</button>
           <button
             className="btn-primary"
-            disabled={!selectedBinId || checkInMutation.isPending}
+            disabled={!selectedBinId || scanConfirm !== checkInModal?.trackingNumber || checkInMutation.isPending}
             onClick={() => checkInMutation.mutate({ id: checkInModal.id })}
           >
             <CheckCircle size={16} /> Confirm check-in

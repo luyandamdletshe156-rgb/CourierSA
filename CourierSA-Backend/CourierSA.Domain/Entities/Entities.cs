@@ -1,4 +1,5 @@
 using CourierSA.Domain.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CourierSA.Domain.Entities;
 
@@ -99,7 +100,14 @@ public class Parcel : BaseEntity
     public CustomerProfile? Customer        { get; set; }
     public ParcelAddress?   PickupAddress   { get; set; }
     public ParcelAddress?   DeliveryAddress { get; set; }
-    public Delivery?        ActiveDelivery  { get; set; }
+    public ICollection<Delivery> Deliveries { get; set; } = [];
+
+    // Most recent delivery leg — replaces the old one-to-one ActiveDelivery.
+    // Not mapped to the DB; computed from Deliveries once loaded via .Include().
+    [NotMapped]
+    public Delivery? ActiveDelivery =>
+        Deliveries.OrderByDescending(d => d.CreatedAt).FirstOrDefault();
+
     public ICollection<TrackingEvent> TrackingEvents { get; set; } = [];
 
     public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;   // ← add

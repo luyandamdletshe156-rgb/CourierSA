@@ -96,7 +96,8 @@ public record ParcelSummaryDto(
     decimal  WeightKg,
     decimal? QuoteAmountZAR,
     DateTime CreatedAt,
-    DateTime? EstimatedDeliveryDate
+    DateTime? EstimatedDeliveryDate,
+    string? BinCode = null
 );
 
 public record ParcelAddressDto(

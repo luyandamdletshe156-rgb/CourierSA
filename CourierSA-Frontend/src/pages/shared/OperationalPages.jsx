@@ -9,7 +9,7 @@ import api from '@/api'
 import {
   ClipboardCheck, CheckCircle, AlertTriangle, XCircle,
   Truck, Plus, Package, BarChart3, TrendingUp, TrendingDown,
-  Users, Calendar
+  Users, Calendar, Archive
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -365,6 +365,28 @@ export function WarehouseInventoryPage() {
     { value: 'OutForDelivery',  label: 'Out for delivery' },
   ]
 
+  // Only the "In warehouse" tab has bin data — group parcels by bin there.
+  // Bin data comes back as p.binCode from the backend queue endpoint.
+  const isBinGroupable = statusFilter === 'InWarehouse'
+
+  const binGroups = isBinGroupable
+    ? parcels.reduce((groups, p) => {
+        const key = p.binCode || 'Unassigned'
+        if (!groups[key]) groups[key] = []
+        groups[key].push(p)
+        return groups
+      }, {})
+    : null
+
+  // Sort bin codes alphabetically, with "Unassigned" always pushed to the end
+  const sortedBinCodes = binGroups
+    ? Object.keys(binGroups).sort((a, b) => {
+        if (a === 'Unassigned') return 1
+        if (b === 'Unassigned') return -1
+        return a.localeCompare(b)
+      })
+    : []
+
   return (
     <AppShell title="Inventory">
       <div className="page-header">
@@ -392,47 +414,105 @@ export function WarehouseInventoryPage() {
         ))}
       </div>
 
-      <div className="card">
-        {isLoading ? <PageLoader /> : parcels.length === 0 ? (
+      {isLoading ? <PageLoader /> : parcels.length === 0 ? (
+        <div className="card">
           <EmptyState icon={Package} title="No parcels in this category" />
-        ) : (
-          <>
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Tracking #</th>
-                    <th>Service</th>
-                    <th>Destination</th>
-                    <th>Weight</th>
-                    <th>Fragile</th>
-                    <th>Status</th>
-                    <th>Booked</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parcels.map(p => (
-                    <tr key={p.id}>
-                      <td><TrackingBadge value={p.trackingNumber} /></td>
-                      <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
-                      <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
-                      <td className="text-xs text-[#64748B] font-mono">{p.weightKg} kg</td>
-                      <td>
-                        {p.isFragile
-                          ? <span className="text-xs font-bold text-[#F59E0B]">⚠ Fragile</span>
-                          : <span className="text-xs text-[#94A3B8]">—</span>}
-                      </td>
-                      <td><StatusPill status={p.status} /></td>
-                      <td className="text-xs text-[#94A3B8] font-mono">{formatDate(p.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        </div>
+      ) : isBinGroupable ? (
+        <>
+          {/* Grouped-by-bin view */}
+          <div className="space-y-5">
+            {sortedBinCodes.map(binCode => {
+              const binParcels = binGroups[binCode]
+              return (
+                <div key={binCode} className="card">
+                  <div className="card-header">
+                    <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
+                      <Archive size={15} className="text-[#0A3D91]" />
+                      {binCode === 'Unassigned' ? 'Unassigned' : `Bin ${binCode}`}
+                      <span className="text-xs font-normal text-[#94A3B8]">
+                        ({binParcels.length} parcel{binParcels.length !== 1 ? 's' : ''})
+                      </span>
+                    </h2>
+                  </div>
+                  <div className="table-container">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Tracking #</th>
+                          <th>Service</th>
+                          <th>Destination</th>
+                          <th>Weight</th>
+                          <th>Fragile</th>
+                          <th>Status</th>
+                          <th>Booked</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {binParcels.map(p => (
+                          <tr key={p.id}>
+                            <td><TrackingBadge value={p.trackingNumber} /></td>
+                            <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
+                            <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
+                            <td className="text-xs text-[#64748B] font-mono">{p.weightKg} kg</td>
+                            <td>
+                              {p.isFragile
+                                ? <span className="text-xs font-bold text-[#F59E0B]">⚠ Fragile</span>
+                                : <span className="text-xs text-[#94A3B8]">—</span>}
+                            </td>
+                            <td><StatusPill status={p.status} /></td>
+                            <td className="text-xs text-[#94A3B8] font-mono">{formatDate(p.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="card mt-5">
             <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} />
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      ) : (
+        <div className="card">
+          {/* Flat list view — Awaiting check-in / Out for delivery have no bin data */}
+          <div className="table-container">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Tracking #</th>
+                  <th>Service</th>
+                  <th>Destination</th>
+                  <th>Weight</th>
+                  <th>Fragile</th>
+                  <th>Status</th>
+                  <th>Booked</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parcels.map(p => (
+                  <tr key={p.id}>
+                    <td><TrackingBadge value={p.trackingNumber} /></td>
+                    <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
+                    <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
+                    <td className="text-xs text-[#64748B] font-mono">{p.weightKg} kg</td>
+                    <td>
+                      {p.isFragile
+                        ? <span className="text-xs font-bold text-[#F59E0B]">⚠ Fragile</span>
+                        : <span className="text-xs text-[#94A3B8]">—</span>}
+                    </td>
+                    <td><StatusPill status={p.status} /></td>
+                    <td className="text-xs text-[#94A3B8] font-mono">{formatDate(p.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} />
+        </div>
+      )}
     </AppShell>
   )
 }
