@@ -439,3 +439,23 @@ namespace CourierSA.Application.DTOs.Sorting
         List<SortingBinDto> Bins
     );
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// Add this at the bottom of your DTO file
+namespace CourierSA.Application.DTOs.Invoices
+{
+    public record InvoiceDashboardDto(
+        int TotalInvoices,
+        decimal AmountDue,
+        int OverdueCount,
+        List<InvoiceSummaryDto> Invoices
+    );
+
+    public record InvoiceSummaryDto(
+        Guid Id,
+        string InvoiceNumber,
+        DateTime CreatedAt,
+        DateTime DueDate,
+        decimal TotalAmount,
+        string Status
+    );
+}

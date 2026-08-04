@@ -30,7 +30,7 @@ public class AuthController : CourierSABaseController
         [FromBody] LoginDto dto, CancellationToken ct)
     {
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var result    = await _authService.LoginAsync(dto, ipAddress, ct);
+        var result = await _authService.LoginAsync(dto, ipAddress, ct);
         return Ok(result, "Login successful");
     }
 
@@ -41,7 +41,7 @@ public class AuthController : CourierSABaseController
         [FromBody] RegisterDto dto, CancellationToken ct)
     {
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var result    = await _authService.RegisterAsync(dto, ipAddress, ct);
+        var result = await _authService.RegisterAsync(dto, ipAddress, ct);
         return Created(result, "Registration successful");
     }
 
@@ -71,11 +71,11 @@ public class AuthController : CourierSABaseController
     {
         return Ok(new
         {
-            UserId    = CurrentUserId,
-            Role      = CurrentUserRole,
-            Email     = User.FindFirstValue(ClaimTypes.Email),
+            UserId = CurrentUserId,
+            Role = CurrentUserRole,
+            Email = User.FindFirstValue(ClaimTypes.Email),
             FirstName = User.FindFirstValue("firstName"),
-            LastName  = User.FindFirstValue("lastName")
+            LastName = User.FindFirstValue("lastName")
         });
     }
 
@@ -98,6 +98,7 @@ public class AuthController : CourierSABaseController
         await _authService.ResetPasswordAsync(dto, ct);
         return NoContent("Password reset successful. Please sign in with your new password.");
     }
+
     /// <summary>POST /api/auth/change-password</summary>
     [HttpPost("change-password")]
     [Authorize]
@@ -107,7 +108,6 @@ public class AuthController : CourierSABaseController
         await _authService.ChangePasswordAsync(CurrentUserId, dto, ct);
         return NoContent("Password changed successfully");
     }
-
 }
 
 // ── Parcels Controller ────────────────────────────────────────────────────────
@@ -123,13 +123,23 @@ public class ParcelsController : CourierSABaseController
         _parcelService = parcelService;
         _bulkCsvService = bulkCsvService;
     }
-    /// <summary>GET /api/parcels – Customer's own parcels (paged)</summary>
+
+    /// <summary>GET /api/parcels – Customer's own parcels, or full queue for Staff/Admin</summary>
     [HttpGet]
-    [HttpGet]
-    [Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
+    [Authorize(Roles = "Customer, BusinessClient, Dispatcher, WarehouseStaff, Administrator")]
     public async Task<IActionResult> GetMyParcels(
         [FromQuery] ParcelFilterDto filter, CancellationToken ct)
     {
+        // 🔴 FIX: If Admin or Staff, return all platform parcels
+        if (User.IsInRole("Administrator") ||
+            User.IsInRole("Dispatcher") ||
+            User.IsInRole("WarehouseStaff"))
+        {
+            var queueResult = await _parcelService.GetQueueAsync(filter, ct);
+            return Ok(queueResult);
+        }
+
+        // For regular customers, return only their own scoped parcels
         var result = await _parcelService.GetPagedAsync(filter, CurrentUserId, ct);
         return Ok(result);
     }
@@ -145,7 +155,7 @@ public class ParcelsController : CourierSABaseController
 
     /// <summary>POST /api/parcels – Book a new parcel</summary>
     [HttpPost]
-[Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
+    [Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
     public async Task<IActionResult> Book(
         [FromBody] CreateParcelDto dto, CancellationToken ct)
     {
@@ -172,7 +182,6 @@ public class ParcelsController : CourierSABaseController
         return NoContent("Parcel rejected");
     }
 
-    /// <summary>PUT /api/parcels/{id}/checkin – Warehouse staff checks in parcel</summary>
     /// <summary>PUT /api/parcels/{id}/checkin – Warehouse staff checks in parcel</summary>
     [HttpPut("{id:guid}/checkin")]
     [Authorize(Policy = "WarehouseOrAdmin")]
@@ -214,7 +223,6 @@ public class ParcelsController : CourierSABaseController
         if (parcel.Status != "FailedDelivery")
             throw new BadRequestException("Only parcels with status 'FailedDelivery' can be returned.");
 
-        // Reuse the RejectAsync flow — marks status Cancelled with a return note
         await _parcelService.RejectAsync(id, $"Return to sender: {dto.Notes ?? "No notes"}", CurrentUserId, ct);
         return NoContent("Return to sender initiated");
     }
@@ -236,7 +244,6 @@ public class ParcelsController : CourierSABaseController
         return Ok(result, $"Bulk upload complete: {result.Successful} succeeded, {result.Failed} failed.");
     }
 
-    /// <summary>GET /api/parcels/queue – Dispatcher/Admin: unscoped parcel queue (not customer-scoped)</summary>
     /// <summary>GET /api/parcels/queue – Unscoped parcel queue for staff</summary>
     [HttpGet("queue")]
     [Authorize(Roles = "Dispatcher, WarehouseStaff, Administrator")]
@@ -288,31 +295,23 @@ public class TrackingController : CourierSABaseController
 public class DeliveriesController : CourierSABaseController
 {
     private readonly IParcelService _parcelService;
-    private readonly IUnitOfWork    _uow;
+    private readonly IUnitOfWork _uow;
 
     public DeliveriesController(IParcelService parcelService, IUnitOfWork uow)
     {
         _parcelService = parcelService;
-        _uow           = uow;
+        _uow = uow;
     }
 
     /// <summary>GET /api/deliveries/my – Driver's active deliveries</summary>
     [HttpGet("my")]
-        [Authorize(Policy = "DriverOnly")]
+    [Authorize(Policy = "DriverOnly")]
     public async Task<IActionResult> GetMyDeliveries(CancellationToken ct)
     {
         var result = await _parcelService.GetDriverDeliveriesAsync(CurrentUserId, ct);
         return Ok(result);
     }
 
-    /// <summary>
-    /// GET /api/deliveries/history?page=1&pageSize=15
-    /// Driver's completed and failed deliveries — for the History page.
-    /// </summary>
-    /// <summary>
-    /// GET /api/deliveries/history?page=1&pageSize=15
-    /// Driver's completed and failed deliveries — for the History page.
-    /// </summary>
     /// <summary>
     /// GET /api/deliveries/history?page=1&pageSize=15
     /// Driver's completed and failed deliveries — for the History page.
@@ -355,7 +354,6 @@ public class DeliveriesController : CourierSABaseController
                 d.UpdatedAt,
                 trackingNumber = d.Parcel != null ? d.Parcel.TrackingNumber : "—",
 
-                // FIX: Subquery _uow.Deliveries to verify if d is the 1st delivery leg for this parcel
                 isPickup = d.Parcel != null &&
                            _uow.Deliveries.Query()
                                .Where(del => del.ParcelId == d.ParcelId)
@@ -381,6 +379,7 @@ public class DeliveriesController : CourierSABaseController
 
         return Ok(new { items, totalCount = total, page, pageSize });
     }
+
     /// <summary>GET /api/deliveries/failed – Dispatcher: all failed deliveries</summary>
     [HttpGet("failed")]
     [Authorize(Policy = "DispatcherOrAdmin")]
@@ -398,7 +397,6 @@ public class DeliveriesController : CourierSABaseController
             d.AttemptNotes,
             d.UpdatedAt,
 
-            // Expose the flag so the dispatcher UI knows if it's a failed collection or failed dropoff
             isPickup = d.Parcel != null && d.Parcel.Status == ParcelStatus.Approved,
 
             parcel = d.Parcel == null ? null : new
@@ -491,6 +489,3 @@ public class NotificationsController : CourierSABaseController
         return NoContent("All notifications marked as read");
     }
 }
-
-
-

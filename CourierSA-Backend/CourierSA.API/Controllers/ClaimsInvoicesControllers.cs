@@ -178,6 +178,9 @@ public record ReviewClaimDto(
 // GET /api/invoices/{id}/pdf – download PDF (served from storage)
 // POST /api/invoices/generate/{parcelId} – admin: generate invoice for a parcel
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// INVOICES CONTROLLER
+// ══════════════════════════════════════════════════════════════════════════════
 [Route("api/invoices")]
 [Authorize]
 public class InvoicesController : CourierSABaseController
@@ -187,7 +190,7 @@ public class InvoicesController : CourierSABaseController
 
     public InvoicesController(ApplicationDbContext db, IAuditService audit)
     {
-        _db    = db;
+        _db = db;
         _audit = audit;
     }
 
@@ -207,6 +210,7 @@ public class InvoicesController : CourierSABaseController
             .Where(i => i.CustomerId == customer.Id);
 
         var total = await query.CountAsync(ct);
+        var now = DateTime.UtcNow;
 
         var invoices = await query
             .OrderByDescending(i => i.CreatedAt)
@@ -216,7 +220,10 @@ public class InvoicesController : CourierSABaseController
             {
                 i.Id,
                 i.InvoiceNumber,
-                i.Status,
+                // Automatically flags as "Overdue" for React if past due date
+                status = (i.Status == InvoiceStatus.Issued && i.DueDate < now)
+                    ? "Overdue"
+                    : i.Status.ToString(),
                 i.SubtotalZAR,
                 i.VatZAR,
                 i.TotalZAR,
@@ -224,11 +231,24 @@ public class InvoicesController : CourierSABaseController
                 i.DueDate,
                 i.PaidAt,
                 i.CreatedAt,
-                hasPdf = i.PdfPath != null,
+                pdfPath = i.PdfPath, // Matches `inv.pdfPath` in React
+                lineItems = i.LineItems.Select(li => new
+                {
+                    li.Description,
+                    li.Quantity,
+                    li.UnitPrice,
+                    totalPrice = li.Quantity * li.UnitPrice
+                }).ToList() // Included so your Modal displays line items!
             })
             .ToListAsync(ct);
 
-        return Ok(new { items = invoices, totalCount = total, page, pageSize });
+        return Ok(new
+        {
+            items = invoices,
+            totalCount = total,
+            page,
+            pageSize
+        });
     }
 
     [HttpGet("{id:guid}")]
@@ -266,7 +286,6 @@ public class InvoicesController : CourierSABaseController
         if (invoice.PdfPath is null)
             throw new NotFoundException("PDF not yet generated for this invoice.");
 
-        // Serve the file from wwwroot/uploads
         var fullPath = Path.Combine(
             Directory.GetCurrentDirectory(), "wwwroot", invoice.PdfPath.TrimStart('/'));
 
@@ -279,8 +298,6 @@ public class InvoicesController : CourierSABaseController
 
     /// <summary>
     /// Admin: manually generate an invoice for a delivered parcel.
-    /// In a full implementation this would be triggered automatically when
-    /// a parcel is marked Delivered.
     /// </summary>
     [HttpPost("generate/{parcelId:guid}")]
     [Authorize(Policy = "AdminOnly")]
@@ -297,14 +314,12 @@ public class InvoicesController : CourierSABaseController
         if (parcel.Customer is null)
             throw new BadRequestException("Parcel has no customer profile.");
 
-        // Check one doesn't already exist
         var exists = await _db.Invoices
             .AnyAsync(i => i.LineItems.Any(li => li.Description.Contains(parcel.TrackingNumber)), ct);
         if (exists)
             throw new ConflictException("Invoice already exists for this parcel.");
 
-        // Generate invoice number: INV-YYYYMM-XXXX
-        var prefix  = $"INV-{DateTime.UtcNow:yyyyMM}-";
+        var prefix = $"INV-{DateTime.UtcNow:yyyyMM}-";
         var lastInv = await _db.Invoices
             .Where(i => i.InvoiceNumber.StartsWith(prefix))
             .OrderByDescending(i => i.InvoiceNumber)
@@ -315,33 +330,32 @@ public class InvoicesController : CourierSABaseController
             seq = prev + 1;
 
         var subtotal = parcel.QuoteAmountZAR ?? 0m;
-        // Subtract VAT that was already included in the quote total
         var netAmount = Math.Round(subtotal / 1.15m, 2);
         var vatAmount = subtotal - netAmount;
 
         var invoice = new Invoice
         {
-            Id            = Guid.NewGuid(),
-            CustomerId    = parcel.Customer.Id,
+            Id = Guid.NewGuid(),
+            CustomerId = parcel.Customer.Id,
             InvoiceNumber = $"{prefix}{seq:D4}",
-            Status        = InvoiceStatus.Issued,
-            SubtotalZAR   = netAmount,
-            VatZAR        = vatAmount,
-            TotalZAR      = subtotal,
+            Status = InvoiceStatus.Issued,
+            SubtotalZAR = netAmount,
+            VatZAR = vatAmount,
+            TotalZAR = subtotal,
             PaidAmountZAR = 0,
-            DueDate       = DateTime.UtcNow.AddDays(30),
-            CreatedAt     = DateTime.UtcNow,
-            UpdatedAt     = DateTime.UtcNow,
+            DueDate = DateTime.UtcNow.AddDays(30),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         };
 
         invoice.LineItems.Add(new InvoiceLineItem
         {
-            Id          = Guid.NewGuid(),
+            Id = Guid.NewGuid(),
             Description = $"Delivery service – {parcel.TrackingNumber}",
-            Quantity    = 1,
-            UnitPrice   = netAmount,
-            CreatedAt   = DateTime.UtcNow,
-            UpdatedAt   = DateTime.UtcNow,
+            Quantity = 1,
+            UnitPrice = netAmount,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         });
 
         _db.Invoices.Add(invoice);

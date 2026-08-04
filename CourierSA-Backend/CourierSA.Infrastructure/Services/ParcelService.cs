@@ -702,28 +702,66 @@ public class ParcelService : IParcelService
         return p is null ? null : MapToDetail(p);
     }
 
-    // ── Paged List ────────────────────────────────────────────────────────────
+    // ── Paged List (Customer-Scoped) ──────────────────────────────────────────
     public async Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(
-  ParcelFilterDto filter, Guid customerId, CancellationToken ct = default)
+        ParcelFilterDto filter, Guid customerId, CancellationToken ct = default)
     {
+        // 1. Fetch customer profile
         var customer = await _uow.Query<CustomerProfile>()
-            .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
-            ?? throw new NotFoundException("Customer profile not found.");
+            .Query()
+            .FirstOrDefaultAsync(c => c.UserId == customerId, ct);
 
-        var parcels = await _uow.Parcels.GetByCustomerAsync(customer.Id, filter.Page, filter.PageSize, ct);
-        var count = await _uow.Parcels.CountAsync(p => p.CustomerId == customer.Id, ct);
+        // 🔴 Fallback: If user is Admin/Staff (no CustomerProfile), return the full queue
+        if (customer is null)
+        {
+            return await GetQueueAsync(filter, ct);
+        }
+
+        // 2. Query parcels owned by this customer
+        var query = _uow.Query<Parcel>()
+            .Query()
+            .AsNoTracking()
+            .Include(p => p.DeliveryAddress)
+            .Where(p => p.CustomerId == customer.Id);
+
+        // 3. Apply status filter if provided
+        if (!string.IsNullOrWhiteSpace(filter.Status) &&
+            Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
+        {
+            query = query.Where(p => p.Status == statusEnum);
+        }
+
+        // 4. Apply search filter if provided
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var search = filter.Search.Trim().ToLower();
+            query = query.Where(p =>
+                p.TrackingNumber.ToLower().Contains(search) ||
+                (p.DeliveryAddress != null && p.DeliveryAddress.City.ToLower().Contains(search)));
+        }
+
+        var count = await query.CountAsync(ct);
+
+        var page = filter.Page <= 0 ? 1 : filter.Page;
+        var pageSize = filter.PageSize <= 0 ? 10 : filter.PageSize;
+
+        var parcels = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
 
         return new PagedResult<ParcelSummaryDto>(
-            Items: parcels.Select(p => MapToSummary(p)).ToList(),   // ← changed
+            Items: parcels.Select(p => MapToSummary(p)).ToList(),
             TotalCount: count,
-            Page: filter.Page,
-            PageSize: filter.PageSize
+            Page: page,
+            PageSize: pageSize
         );
     }
 
-    // ── Paged Queue (Dispatcher/Admin) ─────────────────────────────────────────
+    // ── Paged Queue (Dispatcher/Admin/Staff) ───────────────────────────────────
     public async Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(
-     ParcelFilterDto filter, CancellationToken ct = default)
+        ParcelFilterDto filter, CancellationToken ct = default)
     {
         var query = _uow.Query<Parcel>()
             .Query()
@@ -732,10 +770,20 @@ public class ParcelService : IParcelService
             .Include(p => p.PickupAddress)
             .AsQueryable();
 
+        // 1. Apply status filter if provided
         if (!string.IsNullOrWhiteSpace(filter.Status) &&
             Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
         {
             query = query.Where(p => p.Status == statusEnum);
+        }
+
+        // 2. Apply search filter if provided
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var search = filter.Search.Trim().ToLower();
+            query = query.Where(p =>
+                p.TrackingNumber.ToLower().Contains(search) ||
+                (p.DeliveryAddress != null && p.DeliveryAddress.City.ToLower().Contains(search)));
         }
 
         query = query.OrderByDescending(p => p.CreatedAt);
@@ -746,9 +794,9 @@ public class ParcelService : IParcelService
         var pageSize = filter.PageSize <= 0 ? 20 : filter.PageSize;
 
         var parcels = await query
-     .Skip((page - 1) * pageSize)
-     .Take(pageSize)
-     .ToListAsync(ct);
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
 
         Dictionary<Guid, string> binCodesByParcelId = new();
         if (string.Equals(filter.Status, "InWarehouse", StringComparison.OrdinalIgnoreCase) && parcels.Count > 0)

@@ -1,10 +1,11 @@
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.Bulk;
+using CourierSA.Application.DTOs.Invoices;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
+using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Domain.Entities;
 using System.Security.Claims;
-using CourierSA.Application.DTOs.Bulk;
-using CourierSA.Application.DTOs.Sorting;
 
 namespace CourierSA.Application.Interfaces.Services;
 
@@ -142,4 +143,8 @@ public interface ITrackingHubService
 
     Task NotifyDriverNewAssignmentAsync(
         Guid driverId, object deliveryDetails, CancellationToken ct = default);
+}
+public interface IInvoiceService
+{
+    Task<InvoiceDashboardDto> GetCustomerInvoiceDashboardAsync(Guid userId, CancellationToken ct = default);
 }
