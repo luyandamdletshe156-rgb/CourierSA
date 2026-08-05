@@ -27,6 +27,9 @@ import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/Dispatche
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
 import LiveMapPage from '@/pages/dispatcher/LiveMapPage'
 import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
+import { DispatcherHistoryPage } from '@/pages/dispatcher/DispatcherHistoryPage'
+import { MaintenanceSwapsPage } from '@/pages/dispatcher/MaintenanceSwapsPage'
+import { DispatcherTrackPage } from '@/pages/dispatcher/DispatcherTrackPage'
 
 // Driver
 import { DriverDashboard } from '@/pages/driver/DriverDashboard'
@@ -108,7 +111,10 @@ export default function App() {
                   <Route path="/dispatcher/dispatch" element={<DispatchQueue />} />
                   <Route path="/dispatcher/map" element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed" element={<FailedDeliveriesPage />} />
-                  <Route path="/dispatcher/reassign" element={<DispatcherReassignmentPage />} /> 
+                  <Route path="/dispatcher/reassign" element={<DispatcherReassignmentPage />} />
+                  <Route path="/dispatcher/swaps" element={<MaintenanceSwapsPage />} />
+                  <Route path="/dispatcher/history" element={<DispatcherHistoryPage />} />
+                  <Route path="/dispatcher/track" element={<DispatcherTrackPage />} />
                 </Route>
 
                 {/* Driver */}
@@ -123,7 +129,6 @@ export default function App() {
                 <Route element={<RequireRole roles={['WarehouseStaff', 'Administrator']} />}>
                   <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
                   <Route path="/warehouse/inventory" element={<WarehouseInventoryPage />} />
-                  {/* The new unified inspect/checkin/checkout page: */}
                   <Route path="/warehouse/inspections" element={<ParcelProcessingPage />} />
                   <Route path="/warehouse/track" element={<WarehouseTrackPage />} />
                 </Route>

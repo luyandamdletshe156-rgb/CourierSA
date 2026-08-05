@@ -7,7 +7,8 @@ import {
   LayoutDashboard, Package, Truck, Users, FileText,
   BarChart3, Settings, LogOut, Bell, Menu, X,
   ClipboardCheck, Warehouse, ShieldCheck, MapPin,
-  CreditCard, AlertTriangle, ChevronRight, Archive, Search
+  CreditCard, AlertTriangle, ChevronRight, Archive, Search,
+  History, RefreshCw
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -23,11 +24,14 @@ const NAV = {
     { label: 'Settings',    icon: Settings,        to: '/admin/settings'    },
   ],
   Dispatcher: [
-    { label: 'Dashboard',   icon: LayoutDashboard, to: '/dispatcher/dashboard' },
-    { label: 'Pending',     icon: ClipboardCheck,  to: '/dispatcher/pending'   },
-    { label: 'Dispatch',    icon: Truck,           to: '/dispatcher/dispatch'  },
-    { label: 'Live Map',    icon: MapPin,          to: '/dispatcher/map'       },
-    { label: 'Failed',      icon: AlertTriangle,   to: '/dispatcher/failed'    },
+    { label: 'Dashboard',         icon: LayoutDashboard, to: '/dispatcher/dashboard' },
+    { label: 'Pending',           icon: ClipboardCheck,  to: '/dispatcher/pending'   },
+    { label: 'Dispatch',          icon: Truck,           to: '/dispatcher/dispatch'  },
+    { label: 'Live Map',          icon: MapPin,          to: '/dispatcher/map'       },
+    { label: 'Failed',            icon: AlertTriangle,   to: '/dispatcher/failed'    },
+    { label: 'Maintenance Swaps', icon: RefreshCw,       to: '/dispatcher/swaps'     },
+    { label: 'History',           icon: History,         to: '/dispatcher/history'   },
+    { label: 'Track',             icon: Search,          to: '/dispatcher/track'     },
   ],
   WarehouseStaff: [
     { label: 'Dashboard',    icon: LayoutDashboard, to: '/warehouse/dashboard'  },
@@ -92,7 +96,6 @@ function Sidebar({ open, onClose }) {
 
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 z-20 bg-black/50 lg:hidden"
@@ -105,7 +108,6 @@ function Sidebar({ open, onClose }) {
         'transition-transform duration-200 ease-out lg:translate-x-0 lg:static lg:z-auto',
         open ? 'translate-x-0' : '-translate-x-full'
       )}>
-        {/* Logo */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-white/10">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
@@ -118,7 +120,6 @@ function Sidebar({ open, onClose }) {
           </button>
         </div>
 
-        {/* Role badge */}
         <div className="px-4 py-3 border-b border-white/10">
           <span className={clsx(
             'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full text-white',
@@ -129,7 +130,6 @@ function Sidebar({ open, onClose }) {
           </span>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-thin space-y-0.5">
           {navItems.map(({ label, icon: Icon, to }) => (
             <NavLink
@@ -146,9 +146,7 @@ function Sidebar({ open, onClose }) {
           ))}
         </nav>
 
-        {/* Bottom: user + logout */}
         <div className="border-t border-white/10 p-4 space-y-3">
-          {/* SignalR status */}
           <div className="flex items-center gap-2 px-1">
             <LiveDot active={connected} />
             <span className="text-xs text-gray-500">
@@ -179,15 +177,11 @@ function Sidebar({ open, onClose }) {
   )
 }
 
-// ── Top bar ───────────────────────────────────────────────────────────────────
 function TopBar({ onMenuClick, title }) {
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
-        <button
-          onClick={onMenuClick}
-          className="btn-ghost btn-sm lg:hidden"
-        >
+        <button onClick={onMenuClick} className="btn-ghost btn-sm lg:hidden">
           <Menu size={20} />
         </button>
         {title && (
@@ -205,7 +199,6 @@ function TopBar({ onMenuClick, title }) {
   )
 }
 
-// ── Shell layout ──────────────────────────────────────────────────────────────
 export default function AppShell({ children, title }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -214,10 +207,7 @@ export default function AppShell({ children, title }) {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopBar
-          onMenuClick={() => setSidebarOpen(true)}
-          title={title}
-        />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title={title} />
         <main className="flex-1 overflow-y-auto p-4 lg:p-6 animate-fade-in">
           {children}
         </main>
