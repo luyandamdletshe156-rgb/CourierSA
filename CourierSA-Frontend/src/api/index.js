@@ -175,3 +175,10 @@ export const dispatcherApi = {
   vehicles:       ()       => api.get('/dispatcher/vehicles'),
   reassignDriver: (id, driverId) => api.put(`/dispatcher/vehicles/${id}/reassign`, { driverId }),
 }
+
+// ➕ ADD THIS AT THE BOTTOM OF YOUR API FILE
+export const invoiceApi = {
+  list:        params => api.get('/invoices', { params }),
+  get:            id  => api.get(`/invoices/${id}`),
+  downloadPdf:    id  => api.get(`/invoices/${id}/pdf`, { responseType: 'blob' }),
+}

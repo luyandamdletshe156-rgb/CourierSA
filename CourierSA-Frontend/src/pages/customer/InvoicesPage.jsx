@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { PageLoader, EmptyState, Pagination } from '@/components/ui'
-import { FileText, Clock, AlertTriangle, Download, Eye, X, CheckCircle2 } from 'lucide-react'
+import { FileText, Clock, AlertTriangle, Download, Eye, X } from 'lucide-react'
 import { formatZAR, formatDate } from '@/utils'
-import { apiClient, parcelApi } from '@/api' // ✅ Correct project import pathation
+import { invoiceApi } from '@/api' // ✅ Correct project import
 import clsx from 'clsx'
 
 export default function InvoicesPage() {
@@ -12,17 +12,18 @@ export default function InvoicesPage() {
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const pageSize = 10
 
-  // Fetch invoices from /api/invoices
+  // Fetch invoices via invoiceApi module
   const { data, isLoading } = useQuery({
     queryKey: ['invoices', { page, pageSize }],
-    queryFn: () => apiClient.get(`/api/invoices?page=${page}&pageSize=${pageSize}`).then(res => res.data),
+    queryFn: () => invoiceApi.list({ page, pageSize }),
     keepPreviousData: true,
   })
 
-  const invoices     = data?.items ?? []
-  const totalCount   = data?.totalCount ?? 0
-  const amountDue    = data?.amountDue ?? 0
-  const overdueCount = data?.overdueCount ?? 0
+  // Handles both wrapped and unwrapped Axios interceptor payloads
+  const invoices     = data?.items ?? data?.data?.items ?? []
+  const totalCount   = data?.totalCount ?? data?.data?.totalCount ?? 0
+  const amountDue    = data?.amountDue ?? data?.data?.amountDue ?? 0
+  const overdueCount = data?.overdueCount ?? data?.data?.overdueCount ?? 0
 
   return (
     <AppShell title="Invoices">
@@ -39,7 +40,6 @@ export default function InvoicesPage() {
         <>
           {/* Top 3 Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Stat 1: Total Invoices */}
             <div className="card flex items-center p-5 gap-4">
               <div className="w-12 h-12 rounded-xl bg-[#0A3D91] flex items-center justify-center text-white shadow-md">
                 <FileText size={20} />
@@ -50,7 +50,6 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Stat 2: Amount Due */}
             <div className="card flex items-center p-5 gap-4">
               <div className="w-12 h-12 rounded-xl bg-[#F59E0B] flex items-center justify-center text-white shadow-md">
                 <Clock size={20} />
@@ -61,7 +60,6 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Stat 3: Overdue Count */}
             <div className="card flex items-center p-5 gap-4">
               <div className="w-12 h-12 rounded-xl bg-[#EF4444] flex items-center justify-center text-white shadow-md">
                 <AlertTriangle size={20} />
@@ -73,7 +71,7 @@ export default function InvoicesPage() {
             </div>
           </div>
 
-          {/* Main Invoices Table Card */}
+          {/* Invoices Table Card */}
           <div className="card">
             <div className="card-header border-b border-[#D8E4F5] pb-4 mb-0">
               <h2 className="text-sm font-semibold text-[#172554]">All invoices</h2>
@@ -102,9 +100,7 @@ export default function InvoicesPage() {
                     <tbody>
                       {invoices.map((inv) => (
                         <tr key={inv.id} className="border-b border-[#D8E4F5] last:border-0 hover:bg-[#F6FAFF]/50 transition-colors">
-                          <td className="p-4 font-mono text-sm font-bold text-[#0A3D91]">
-                            {inv.invoiceNumber}
-                          </td>
+                          <td className="p-4 font-mono text-sm font-bold text-[#0A3D91]">{inv.invoiceNumber}</td>
                           <td className="p-4 text-sm text-[#64748B]">{formatDate(inv.createdAt)}</td>
                           <td className="p-4 text-sm text-[#64748B]">{formatDate(inv.dueDate)}</td>
                           <td className="p-4 text-sm font-bold font-mono text-[#172554]">{formatZAR(inv.totalZAR)}</td>
@@ -120,16 +116,13 @@ export default function InvoicesPage() {
                             </span>
                           </td>
                           <td className="p-4 text-right space-x-2">
-                            {/* View Detail Modal Trigger */}
                             <button 
                               onClick={() => setSelectedInvoice(inv)}
                               className="p-1.5 text-[#64748B] hover:text-[#0A3D91] hover:bg-[#F6FAFF] rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold" 
-                              title="View Breakdown"
+                              title="View Details"
                             >
                               <Eye size={16} /> View
                             </button>
-
-                            {/* Download PDF Button */}
                             {inv.pdfPath && (
                               <a 
                                 href={`/api/invoices/${inv.id}/pdf`} 
@@ -191,7 +184,6 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Line Items Section */}
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748B] mb-2">Line Items</h4>
             <div className="space-y-2 mb-4 bg-[#F6FAFF] p-3 rounded-xl border border-[#D8E4F5] max-h-40 overflow-y-auto">
               {selectedInvoice.lineItems && selectedInvoice.lineItems.length > 0 ? (
@@ -206,7 +198,6 @@ export default function InvoicesPage() {
               )}
             </div>
 
-            {/* Totals Breakdown */}
             <div className="space-y-1.5 text-right text-xs border-t border-[#D8E4F5] pt-3">
               <div className="text-[#64748B]">Subtotal: <span className="font-mono font-semibold text-[#172554]">{formatZAR(selectedInvoice.subtotalZAR)}</span></div>
               <div className="text-[#64748B]">VAT (15%): <span className="font-mono font-semibold text-[#172554]">{formatZAR(selectedInvoice.vatZAR)}</span></div>
