@@ -197,8 +197,8 @@ public class InvoicesController : CourierSABaseController
     [HttpGet]
     [Authorize(Policy = "CustomerOrBiz")]
     public async Task<IActionResult> GetMyInvoices(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
-        CancellationToken ct = default)
+         [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
+         CancellationToken ct = default)
     {
         var customer = await _db.CustomerProfiles
             .AsNoTracking()
@@ -212,6 +212,21 @@ public class InvoicesController : CourierSABaseController
         var total = await query.CountAsync(ct);
         var now = DateTime.UtcNow;
 
+        // ➕ 1. Calculate Aggregate Stats for the UI Stat Cards
+        var allInvoices = await query.Select(i => new {
+            i.TotalZAR,
+            i.PaidAmountZAR,
+            i.Status,
+            i.DueDate
+        }).ToListAsync(ct);
+
+        var amountDue = allInvoices
+            .Where(i => (i.Status == InvoiceStatus.Issued || i.Status == InvoiceStatus.Issued) && i.PaidAmountZAR < i.TotalZAR)
+            .Sum(i => i.TotalZAR - i.PaidAmountZAR);
+
+        var overdueCount = allInvoices
+            .Count(i => (i.Status == InvoiceStatus.Issued || i.Status == InvoiceStatus.Issued) && i.DueDate < now && i.PaidAmountZAR < i.TotalZAR);
+        // 2. Fetch Paged Table Items
         var invoices = await query
             .OrderByDescending(i => i.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -220,7 +235,6 @@ public class InvoicesController : CourierSABaseController
             {
                 i.Id,
                 i.InvoiceNumber,
-                // Automatically flags as "Overdue" for React if past due date
                 status = (i.Status == InvoiceStatus.Issued && i.DueDate < now)
                     ? "Overdue"
                     : i.Status.ToString(),
@@ -231,14 +245,14 @@ public class InvoicesController : CourierSABaseController
                 i.DueDate,
                 i.PaidAt,
                 i.CreatedAt,
-                pdfPath = i.PdfPath, // Matches `inv.pdfPath` in React
+                pdfPath = i.PdfPath,
                 lineItems = i.LineItems.Select(li => new
                 {
                     li.Description,
                     li.Quantity,
                     li.UnitPrice,
                     totalPrice = li.Quantity * li.UnitPrice
-                }).ToList() // Included so your Modal displays line items!
+                }).ToList()
             })
             .ToListAsync(ct);
 
@@ -246,6 +260,8 @@ public class InvoicesController : CourierSABaseController
         {
             items = invoices,
             totalCount = total,
+            amountDue = amountDue,       // ➕ Included for Stat Card 2
+            overdueCount = overdueCount, // ➕ Included for Stat Card 3
             page,
             pageSize
         });

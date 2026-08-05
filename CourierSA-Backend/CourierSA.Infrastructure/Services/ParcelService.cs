@@ -43,12 +43,28 @@ public class ParcelService : IParcelService
 
     // ── Book ──────────────────────────────────────────────────────────────────
     public async Task<ParcelDetailDto> BookAsync(
-    CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
+     CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>()
             .Query()
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
             ?? throw new NotFoundException("Customer profile not found.");
+
+        // 🚨 1. ENFORCE RISK ASSESSMENT (Security)
+        // Ensure malicious API calls can't bypass mandatory insurance rules
+        bool isHighRisk = dto.IsFragile || (dto.DeclaredValueZAR >= 2000);
+        if (isHighRisk && !dto.InsuranceRequired)
+        {
+            throw new BadRequestException("Security Check Failed: Insurance is legally mandatory for fragile or high-value (≥ R2000) parcels.");
+        }
+
+        // 🚨 2. ENFORCE EMERGENCY ESCALATION
+        // Upgrades the tier to SameDay for pricing and logistics
+        var finalServiceType = dto.ServiceType;
+        if (dto.IsEmergency)
+        {
+            finalServiceType = ServiceType.SameDay;
+        }
 
         // 1. Fetch or recalculate the quote
         Quote? quote = null;
@@ -71,7 +87,7 @@ public class ParcelService : IParcelService
                 dto.PickupAddress.Province,
                 dto.DeliveryAddress.Province,
                 dto.WeightKg,
-                dto.ServiceType,
+                finalServiceType, // <-- Uses potentially escalated service type
                 dto.DeclaredValueZAR,
                 dto.InsuranceRequired,
                 dto.Dimensions is null ? null : new DimensionsDto(
@@ -114,7 +130,6 @@ public class ParcelService : IParcelService
             zone = zoneRule?.Zone;
         }
 
-
         // 3. Create the Parcel
         var parcel = new Parcel
         {
@@ -122,7 +137,7 @@ public class ParcelService : IParcelService
             TrackingNumber = trackingNumber,
             CustomerId = customer.Id,
             Status = ParcelStatus.PendingApproval,
-            ServiceType = dto.ServiceType,
+            ServiceType = finalServiceType, // <-- Escalated service type
             WeightKg = dto.WeightKg,
             Dimensions = dto.Dimensions is null ? null : new ParcelDimensions
             {
@@ -136,6 +151,11 @@ public class ParcelService : IParcelService
             IsFragile = dto.IsFragile,
             RequiresSignature = dto.RequiresSignature,
             InsuranceRequired = dto.InsuranceRequired,
+
+            // ➕ Map new fields to DB
+            IsEmergency = dto.IsEmergency,
+            ScheduledPickupDate = dto.ScheduledPickupDate,
+
             PickupAddressId = pickup.Id,
             DeliveryAddressId = delivery.Id,
             QuoteAmountZAR = finalQuoteAmount,
@@ -178,8 +198,38 @@ public class ParcelService : IParcelService
                 break;
         }
 
+        // 5. ➕ AUTO-GENERATE INVOICE (Fixed: Uses InvoiceStatus.Issued)
+        decimal vatZar = Math.Round(finalQuoteAmount - (finalQuoteAmount / 1.15m), 2);
+        decimal subtotalZar = finalQuoteAmount - vatZar;
+
+        var invoice = new Invoice
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = customer.Id,
+            InvoiceNumber = $"INV-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
+            Status = parcel.IsPaid ? InvoiceStatus.Paid : InvoiceStatus.Issued, // 👈 FIXED HERE
+            SubtotalZAR = subtotalZar,
+            VatZAR = vatZar,
+            TotalZAR = finalQuoteAmount,
+            PaidAmountZAR = parcel.IsPaid ? finalQuoteAmount : 0,
+            DueDate = parcel.IsPaid ? DateTime.UtcNow : DateTime.UtcNow.AddDays(7),
+            PaidAt = parcel.IsPaid ? DateTime.UtcNow : null,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _uow.Query<Invoice>().AddAsync(invoice, ct);
+
         // 6. Save & Notify
         AddTrackingEvent(parcel, TrackingEventType.Booked, "Parcel booking confirmed", pickup.City);
+
+        // ➕ Append separate Emergency Alert tracking history
+        if (parcel.IsEmergency)
+        {
+            AddTrackingEvent(parcel, TrackingEventType.ExceptionRaised,
+                "EMERGENCY ESCALATION: Parcel prioritized for Same-Day dispatch");
+        }
+
         await _uow.SaveChangesAsync(ct);
 
         await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
@@ -221,7 +271,6 @@ public class ParcelService : IParcelService
         await _uow.SaveChangesAsync(ct);
     }
 
-    
     // ── Check In at Warehouse ─────────────────────────────────────────────────
     public async Task CheckInAsync(
         Guid parcelId, Guid sortingBinId,
@@ -230,7 +279,6 @@ public class ParcelService : IParcelService
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.AwaitingCheckIn);
 
-        // 🚨 NEW: Force Check-In Inspection
         var hasInspection = await _uow.Query<ParcelInspection>()
             .Query()
             .AnyAsync(i => i.ParcelId == parcel.Id && i.Stage == ParcelInspectionStage.CheckIn, ct);
@@ -239,15 +287,12 @@ public class ParcelService : IParcelService
         {
             throw new BadRequestException("A check-in inspection must be logged before checking in this parcel.");
         }
-        // ------------------------------------------------
 
         var bin = await _uow.Query<SortingBin>().GetByIdAsync(sortingBinId, ct)
             ?? throw new NotFoundException("Sorting bin not found.");
 
         if (!bin.IsActive)
             throw new BadRequestException("This sorting bin is inactive and cannot be used.");
-
-       
 
         var assignment = await _uow.Query<ParcelSortingAssignment>()
             .Query()
@@ -286,15 +331,12 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", bin.BinCode, ct);
     }
 
-
-    // ── Checkout ──────────────────────────────────────────────────────────────
     // ── Checkout ──────────────────────────────────────────────────────────────
     public async Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.InWarehouse);
 
-        // 🚨 ENFORCEMENT RULE: Must have a Checkout inspection logged
         var hasInspection = await _uow.Query<ParcelInspection>()
             .Query()
             .AnyAsync(i => i.ParcelId == parcel.Id && i.Stage == ParcelInspectionStage.Checkout, ct);
@@ -303,7 +345,6 @@ public class ParcelService : IParcelService
         {
             throw new BadRequestException("A checkout inspection must be logged before releasing this parcel for dispatch.");
         }
-        // -----------------------------------------------------------------
 
         parcel.Status = ParcelStatus.CheckedOut;
         parcel.UpdatedAt = DateTime.UtcNow;
@@ -346,7 +387,6 @@ public class ParcelService : IParcelService
         await _uow.Query<ParcelInspection>().AddAsync(inspection, ct);
         await _uow.SaveChangesAsync(ct);
 
-        // Non-blocking: Damaged/Rejected never stops checkout, but does flag + notify + claim
         if (dto.Result != ParcelInspectionResult.Pass)
         {
             var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ExceptionRaised,
@@ -419,7 +459,6 @@ public class ParcelService : IParcelService
         ));
     }
 
-
     // ── Get or Create Sorting Suggestion (for check-in modal) ──────────────────
     public async Task<SortingSuggestionDto> GetSortingSuggestionAsync(
         Guid parcelId, CancellationToken ct = default)
@@ -473,6 +512,7 @@ public class ParcelService : IParcelService
             Bins: allBins
         );
     }
+
     // ── Dispatch ──────────────────────────────────────────────────────────────
     public async Task DispatchAsync(
         Guid parcelId, Guid driverId,
@@ -481,7 +521,6 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct)
             ?? throw new NotFoundException($"Parcel {parcelId} not found.");
 
-        // CHANGED: InWarehouse → CheckedOut. Approved (pickup leg) untouched.
         if (parcel.Status != ParcelStatus.CheckedOut &&
             parcel.Status != ParcelStatus.Approved)
             throw new BadRequestException(
@@ -514,7 +553,6 @@ public class ParcelService : IParcelService
         {
             parcel.Status = ParcelStatus.OutForDelivery;
 
-            // Release the parcel from its warehouse bin — it's leaving the building
             var assignment = await _uow.Query<ParcelSortingAssignment>()
                 .Query()
                 .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
@@ -534,9 +572,6 @@ public class ParcelService : IParcelService
         }
 
         parcel.UpdatedAt = DateTime.UtcNow;
-
-        // FIX: Update driver status using EF Tracking instead of ExecuteUpdateAsync
-        // which was causing the Map synchronization lock-up
         driver.Status = DriverStatus.OnDelivery;
         driver.UpdatedAt = DateTime.UtcNow;
 
@@ -574,7 +609,6 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
     }
 
-
     // ── Dispatch Route (multi-parcel, single zone) ──────────────────────────────
     public async Task<RouteSummaryDto> DispatchRouteAsync(
         CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
@@ -593,7 +627,6 @@ public class ParcelService : IParcelService
 
         foreach (var p in parcels)
         {
-            // CHANGED: InWarehouse → CheckedOut, matching DispatchAsync's delivery-leg gate
             if (p.Status != ParcelStatus.CheckedOut)
                 throw new BadRequestException(
                     $"Parcel {p.TrackingNumber} is not CheckedOut (status: {p.Status}).");
@@ -643,7 +676,6 @@ public class ParcelService : IParcelService
             parcel.Status = ParcelStatus.OutForDelivery;
             parcel.UpdatedAt = DateTime.UtcNow;
 
-            // Release the parcel's warehouse bin — identical to DispatchAsync's non-pickup branch
             var assignment = await _uow.Query<ParcelSortingAssignment>()
                 .Query()
                 .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
@@ -739,7 +771,6 @@ public class ParcelService : IParcelService
         }
         else
         {
-            // FIX: Transition collected parcel to awaiting check-in queue for warehouse
             parcel.Status = ParcelStatus.AwaitingCheckIn;
         }
 
@@ -754,7 +785,6 @@ public class ParcelService : IParcelService
 
         if (!hasOtherActiveDeliveries)
         {
-            // FIX: Removed EF raw SQL execution logic
             driverProfile.Status = DriverStatus.Available;
             driverProfile.UpdatedAt = DateTime.UtcNow;
         }
@@ -774,8 +804,6 @@ public class ParcelService : IParcelService
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
         await CheckRouteCompletionAsync(delivery.RouteId, ct);
-
-        // EF Core will now properly persist the driver status alongside the parcel/delivery update
         await _uow.SaveChangesAsync(ct);
 
         if (!isPickup)
@@ -829,7 +857,6 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct)
             ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
 
-        // Determine which leg of the journey failed
         var isPickup = parcel.Status == ParcelStatus.Approved;
 
         delivery.Status = DeliveryStatus.Failed;
@@ -853,7 +880,6 @@ public class ParcelService : IParcelService
 
         if (!hasOtherActiveDeliveries)
         {
-            // FIX: Removed EF raw SQL execution logic
             driverProfile.Status = DriverStatus.Available;
             driverProfile.UpdatedAt = DateTime.UtcNow;
         }
@@ -871,7 +897,6 @@ public class ParcelService : IParcelService
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
         await CheckRouteCompletionAsync(delivery.RouteId, ct);
-
         await _uow.SaveChangesAsync(ct);
 
         try
@@ -992,32 +1017,27 @@ public class ParcelService : IParcelService
     public async Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(
         ParcelFilterDto filter, Guid customerId, CancellationToken ct = default)
     {
-        // 1. Fetch customer profile
         var customer = await _uow.Query<CustomerProfile>()
             .Query()
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct);
 
-        // 🔴 Fallback: If user is Admin/Staff (no CustomerProfile), return the full queue
         if (customer is null)
         {
             return await GetQueueAsync(filter, ct);
         }
 
-        // 2. Query parcels owned by this customer
         var query = _uow.Query<Parcel>()
             .Query()
             .AsNoTracking()
             .Include(p => p.DeliveryAddress)
             .Where(p => p.CustomerId == customer.Id);
 
-        // 3. Apply status filter if provided
         if (!string.IsNullOrWhiteSpace(filter.Status) &&
             Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
         {
             query = query.Where(p => p.Status == statusEnum);
         }
 
-        // 4. Apply search filter if provided
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var search = filter.Search.Trim().ToLower();
@@ -1027,7 +1047,6 @@ public class ParcelService : IParcelService
         }
 
         var count = await query.CountAsync(ct);
-
         var page = filter.Page <= 0 ? 1 : filter.Page;
         var pageSize = filter.PageSize <= 0 ? 10 : filter.PageSize;
 
@@ -1056,14 +1075,12 @@ public class ParcelService : IParcelService
             .Include(p => p.PickupAddress)
             .AsQueryable();
 
-        // 1. Apply status filter if provided
         if (!string.IsNullOrWhiteSpace(filter.Status) &&
             Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
         {
             query = query.Where(p => p.Status == statusEnum);
         }
 
-        // 2. Apply search filter if provided
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var search = filter.Search.Trim().ToLower();
@@ -1075,7 +1092,6 @@ public class ParcelService : IParcelService
         query = query.OrderByDescending(p => p.CreatedAt);
 
         var count = await query.CountAsync(ct);
-
         var page = filter.Page <= 0 ? 1 : filter.Page;
         var pageSize = filter.PageSize <= 0 ? 20 : filter.PageSize;
 
@@ -1182,19 +1198,13 @@ public class ParcelService : IParcelService
         UpdatedAt = DateTime.UtcNow
     };
 
-
-
-
-
     private static ParcelSummaryDto MapToSummary(Parcel p, string? binCode = null) => new(
       p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
       p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
       p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate,
-      binCode, p.Zone?.ToString());   // ← added p.Zone?.ToString()
+      binCode, p.Zone?.ToString());
 
-
-
-
+    // ➕ Add the mapping properties into the ParcelDetailDto output
     private static ParcelDetailDto MapToDetail(Parcel p)
     {
         bool isPickup = p.Status == ParcelStatus.Approved;
@@ -1204,6 +1214,10 @@ public class ParcelService : IParcelService
             p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
             p.WeightKg, p.Dimensions, p.DeclaredValueZAR, p.Description,
             p.SpecialInstructions, p.IsFragile, p.RequiresSignature, p.InsuranceRequired,
+
+            p.IsEmergency,          // <-- NEW MAP
+            p.ScheduledPickupDate,  // <-- NEW MAP
+
             p.QuoteAmountZAR, p.BarcodeImagePath, p.CreatedAt, p.EstimatedDeliveryDate,
             MapAddress(p.PickupAddress), MapAddress(p.DeliveryAddress),
             p.TrackingEvents.OrderByDescending(t => t.OccurredAt)
@@ -1223,7 +1237,7 @@ public class ParcelService : IParcelService
                 p.SpecialInstructions,
                 p.IsFragile,
                 p.ActiveDelivery.DispatchedAt,
-                isPickup // <--- Added IsPickup mapping
+                isPickup
             ));
     }
 
@@ -1286,8 +1300,6 @@ public class ParcelService : IParcelService
         profile.CurrentLongitude = lng;
         profile.UpdatedAt = DateTime.UtcNow;
 
-        // --- Self-healing state mechanism ---
-        // If the DB thinks they are on delivery, verify they actually have active tasks
         if (profile.Status == DriverStatus.OnDelivery)
         {
             var hasActiveDeliveries = await _uow.Deliveries.Query()
@@ -1299,8 +1311,6 @@ public class ParcelService : IParcelService
                 profile.Status = DriverStatus.Available;
             }
         }
-        // -------------------------------------------
-
         await _uow.SaveChangesAsync(ct);
     }
 

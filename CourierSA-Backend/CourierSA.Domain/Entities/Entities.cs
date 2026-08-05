@@ -88,6 +88,8 @@ public class Parcel : BaseEntity
     public string?      Description         { get; set; }
     public string?      SpecialInstructions { get; set; }
     public bool         IsFragile           { get; set; }
+    public bool IsEmergency { get; set; }
+    public DateTime? ScheduledPickupDate { get; set; }
     public bool         RequiresSignature   { get; set; }
     public bool         InsuranceRequired   { get; set; }
     public Guid         PickupAddressId     { get; set; }

@@ -64,6 +64,8 @@ namespace CourierSA.Application.DTOs.Parcels
         Guid? QuoteId,
         PaymentMethod PaymentMethod,   // ← was: bool PayFromWallet
         string? ClientReference = null,
+         bool IsEmergency = false,
+        DateTime? ScheduledPickupDate = null,
          string? CardToken = null
     );
 
@@ -145,6 +147,8 @@ public record ParcelDetailDto(
     bool IsFragile,
     bool RequiresSignature,
     bool InsuranceRequired,
+    bool IsEmergency,
+        DateTime? ScheduledPickupDate,
     decimal? QuoteAmountZAR,
     string? BarcodeImagePath,
     DateTime CreatedAt,
