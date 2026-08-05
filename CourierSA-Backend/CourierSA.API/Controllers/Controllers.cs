@@ -8,6 +8,7 @@ using CourierSA.Domain.Exceptions;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.DTOs.Routing;
 using CourierSA.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using CourierSA.Domain.Entities;
@@ -201,6 +202,38 @@ public class ParcelsController : CourierSABaseController
         return Ok(result);
     }
 
+
+    /// <summary>PUT /api/parcels/{id}/checkout – Warehouse staff checks parcel out, ready for dispatch</summary>
+    [HttpPut("{id:guid}/checkout")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> Checkout(Guid id, CancellationToken ct)
+    {
+        await _parcelService.CheckoutAsync(id, CurrentUserId, ct);
+        return NoContent("Parcel checked out — ready for dispatch");
+    }
+
+    /// <summary>POST /api/parcels/{id}/inspections – Log a check-in or checkout condition inspection</summary>
+    [HttpPost("{id:guid}/inspections")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> LogInspection(
+        Guid id, [FromBody] LogParcelInspectionDto dto, CancellationToken ct)
+    {
+        var result = await _parcelService.LogInspectionAsync(id, dto, CurrentUserId, ct);
+        return Created(result, $"{dto.Stage} inspection logged: {dto.Result}");
+    }
+
+    /// <summary>GET /api/parcels/inspections – All parcel inspections (Inspections page)</summary>
+    [HttpGet("inspections")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> GetInspections(CancellationToken ct)
+    {
+        var result = await _parcelService.GetInspectionsAsync(ct);
+        return Ok(result);
+    }
+
+
+
+
     /// <summary>PUT /api/parcels/{id}/dispatch – Dispatcher assigns driver</summary>
     [HttpPut("{id:guid}/dispatch")]
     [Authorize(Policy = "DispatcherOrAdmin")]
@@ -253,6 +286,19 @@ public class ParcelsController : CourierSABaseController
         var result = await _parcelService.GetQueueAsync(filter, ct);
         return Ok(result);
     }
+
+
+    /// <summary>POST /api/parcels/dispatch-route – Dispatcher assigns multiple same-zone parcels to one driver</summary>
+    [HttpPost("dispatch-route")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> DispatchRoute(
+        [FromBody] CreateRouteDto dto, CancellationToken ct)
+    {
+        var result = await _parcelService.DispatchRouteAsync(dto, CurrentUserId, ct);
+        return Created(result, $"Route dispatched with {result.Stops.Count} stop(s).");
+    }
+
+
 }
 
 // ── Tracking Controller (public) ──────────────────────────────────────────────

@@ -253,6 +253,28 @@ public class NotificationService : INotificationService
         await _uow.Notifications.AddAsync(notification, ct);
         await _uow.SaveChangesAsync(ct);
     }
+
+    public async Task SendParcelDamagedAsync(
+    Guid userId, string trackingNumber, string stage, CancellationToken ct = default)
+    {
+        await PersistAsync(userId, NotificationType.SystemAlert,
+            "Parcel Condition Flagged",
+            $"Your parcel {trackingNumber} was flagged during {stage} inspection. We're reviewing it and will be in touch.",
+            ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Condition Flagged",
+            $"during {stage.ToLower()} inspection, our warehouse team flagged a condition issue with your parcel. If you have insurance on this shipment, a claim has been opened automatically — visit the Support Hub for details.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorWarning,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
+    }
+
 }
 
 // ── Barcode Service (ZXing.Net) ───────────────────────────────────────────────

@@ -109,6 +109,7 @@ public class Parcel : BaseEntity
         Deliveries.OrderByDescending(d => d.CreatedAt).FirstOrDefault();
 
     public ICollection<TrackingEvent> TrackingEvents { get; set; } = [];
+    public ICollection<ParcelInspection> Inspections { get; set; } = [];   // NEW
 
     public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;   // ← add
     public bool IsPaid { get; set; }                                     // ← add
@@ -169,6 +170,9 @@ public class Delivery : BaseEntity
 
     public Parcel?       Parcel { get; set; }
     public DriverProfile? Driver { get; set; }
+
+    public Guid? RouteId { get; set; }
+    public DeliveryRoute? Route { get; set; }
 }
 
 // ── Quote ─────────────────────────────────────────────────────────────────────
@@ -358,4 +362,37 @@ public class AuditLog : BaseEntity
     public string? UserAgent  { get; set; }
 
     public User? User { get; set; }
+}
+
+public class DeliveryRoute : BaseEntity
+{
+    public Guid DriverId { get; set; }
+    public SortingZone Zone { get; set; }
+    public RouteStatus Status { get; set; } = RouteStatus.Planned;
+    public DateTime? DispatchedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+
+    public DriverProfile? Driver { get; set; }
+    public ICollection<Delivery> Deliveries { get; set; } = [];
+}
+
+// ── Parcel Inspection ─────────────────────────────────────────────────────────
+public class ParcelInspection : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public ParcelInspectionStage Stage { get; set; }
+    public ParcelInspectionResult Result { get; set; } = ParcelInspectionResult.Pass;
+    public Guid StaffId { get; set; }   // User.Id — no nav, mirrors ParcelSortingAssignment.ConfirmedByStaffId
+
+    // Exterior-only checklist — never opens sealed parcels
+    public bool PackagingIntact { get; set; }
+    public bool NoMoistureDamage { get; set; }
+    public bool WeightMatchesDeclared { get; set; }
+    public bool? FragileHandlingOk { get; set; }   // null = not fragile, N/A
+    public bool SealIntact { get; set; }
+
+    public string? Notes { get; set; }
+    public string? PhotoPaths { get; set; }
+
+    public Parcel? Parcel { get; set; }
 }

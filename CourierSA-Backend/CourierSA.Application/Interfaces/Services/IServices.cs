@@ -4,6 +4,8 @@ using CourierSA.Application.DTOs.Invoices;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
 using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.DTOs.Routing;
+
 using CourierSA.Domain.Entities;
 using System.Security.Claims;
 
@@ -55,6 +57,10 @@ public interface IParcelService
     Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(ParcelFilterDto filter, Guid customerId, CancellationToken ct = default);
     Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
     Task UpdateDriverLocationAsync(Guid driverId, decimal lat, decimal lng, CancellationToken ct = default);
+    Task<RouteSummaryDto> DispatchRouteAsync(CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default);
+    Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
+    Task<ParcelInspectionDto> LogInspectionAsync(Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default);
+    Task<IEnumerable<ParcelInspectionDto>> GetInspectionsAsync(CancellationToken ct = default);
 }
 
 
@@ -94,6 +100,7 @@ public interface INotificationService
     Task<IEnumerable<Notification>> GetUnreadAsync(Guid userId, CancellationToken ct = default);
     Task MarkReadAsync(Guid notificationId, CancellationToken ct = default);
     Task MarkAllReadAsync(Guid userId, CancellationToken ct = default);
+    Task SendParcelDamagedAsync(Guid userId, string trackingNumber, string stage, CancellationToken ct = default);
 }
 
 // ── Audit ─────────────────────────────────────────────────────────────────────

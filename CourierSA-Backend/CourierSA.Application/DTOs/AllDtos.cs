@@ -79,6 +79,26 @@ namespace CourierSA.Application.DTOs.Parcels
     string?    Country,
     string?    SpecialInstructions
 );
+
+
+    public record LogParcelInspectionDto(
+    ParcelInspectionStage Stage,
+    bool PackagingIntact,
+    bool NoMoistureDamage,
+    bool WeightMatchesDeclared,
+    bool? FragileHandlingOk,
+    bool SealIntact,
+    ParcelInspectionResult Result,
+    string? Notes
+);
+
+    public record ParcelInspectionDto(
+        Guid Id, Guid ParcelId, string TrackingNumber,
+        string Stage, string Result,
+        bool PackagingIntact, bool NoMoistureDamage, bool WeightMatchesDeclared,
+        bool? FragileHandlingOk, bool SealIntact,
+        string? Notes, DateTime CreatedAt
+    );
 }
 public record ParcelDimensionsDto(
     decimal LengthCm,
@@ -97,7 +117,8 @@ public record ParcelSummaryDto(
     decimal? QuoteAmountZAR,
     DateTime CreatedAt,
     DateTime? EstimatedDeliveryDate,
-    string? BinCode = null
+   string? BinCode = null,
+    string? Zone = null
 );
 
 public record ParcelAddressDto(
@@ -200,7 +221,8 @@ public record DeliveryDto(
     DateTime? DispatchedAt,    // Changed to DateTime? to fix the CS1503 errors
     bool IsPickup,             // The new flag we added for the frontend
     string? DriverName = null, // Restored to fix the CS0117 errors
-    string? DriverPhone = null // Restored to fix the CS0117 errors
+    string? DriverPhone = null, // Restored to fix the CS0117 errors
+    Guid? RouteId = null
 );
 public record BulkUploadResultDto(
     int      TotalRows,
@@ -457,5 +479,28 @@ namespace CourierSA.Application.DTOs.Invoices
         DateTime DueDate,
         decimal TotalAmount,
         string Status
+    );
+}
+
+namespace CourierSA.Application.DTOs.Routing
+{
+    public record CreateRouteDto(List<Guid> ParcelIds, Guid DriverId);
+
+    public record RouteStopDto(
+        Guid DeliveryId,
+        Guid ParcelId,
+        string TrackingNumber,
+        string Status,
+        string RecipientName,
+        string DeliveryAddress,
+        string City
+    );
+
+    public record RouteSummaryDto(
+        Guid RouteId,
+        string Zone,
+        string Status,
+        DateTime? DispatchedAt,
+        List<RouteStopDto> Stops
     );
 }

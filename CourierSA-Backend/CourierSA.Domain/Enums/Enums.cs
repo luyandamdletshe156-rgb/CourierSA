@@ -26,16 +26,17 @@ public enum AccountType
 
 public enum ParcelStatus
 {
-    Draft,
-    PendingApproval,
-    Approved,
-    InWarehouse,
-    AwaitingCheckIn,
-    OutForDelivery,
-    Delivered,
-    FailedDelivery,
-    Cancelled,
-    Returned
+    Draft = 0,
+    PendingApproval = 1,
+    Approved = 2,
+    InWarehouse = 3,
+    AwaitingCheckIn = 4,
+    OutForDelivery = 5,
+    Delivered = 6,
+    FailedDelivery = 7,
+    Cancelled = 8,
+    Returned = 9,
+    CheckedOut = 10   // NEW — checked in, inspected, ready for dispatcher
 }
 
 public enum ServiceType
@@ -70,21 +71,11 @@ public enum SortingZone
 
 public enum TrackingEventType
 {
-    Booked,
-    Approved,
-    Rejected,
-    ReceivedAtWarehouse,
-    OutForDelivery,
-    DeliveryAttempted,
-    Delivered,
-    DeliveryFailed,
-    ReturnInitiated,
-    Returned,
-    Cancelled,
-    AddressCorrected,
-    ExceptionRaised
+    Booked, Approved, Rejected, ReceivedAtWarehouse, OutForDelivery,
+    DeliveryAttempted, Delivered, DeliveryFailed, ReturnInitiated,
+    Returned, Cancelled, AddressCorrected, ExceptionRaised,
+    CheckedOut   // NEW
 }
-
 public enum DeliveryStatus
 {
     Assigned,
@@ -141,6 +132,19 @@ public enum InspectionResult
     Pass,
     PassWithMinorIssues,
     Fail
+}
+
+public enum ParcelInspectionStage
+{
+    CheckIn,   // parcel arrives at warehouse — "as received" baseline
+    Checkout   // parcel about to leave warehouse — compared against CheckIn
+}
+
+public enum ParcelInspectionResult
+{
+    Pass,
+    Damaged,
+    Rejected   // e.g. broken seal / tamper evidence
 }
 
 public enum QuoteStatus
@@ -223,4 +227,11 @@ public enum PaymentMethod
     Card,
     EFT,
     CashOnCollection
+}
+
+public enum RouteStatus
+{
+    Planned,
+    InProgress,
+    Completed
 }

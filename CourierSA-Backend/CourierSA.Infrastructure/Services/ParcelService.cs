@@ -1,6 +1,7 @@
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
 using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.DTOs.Routing;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
@@ -272,6 +273,128 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", bin.BinCode, ct);
     }
 
+
+    // ── Checkout ──────────────────────────────────────────────────────────────
+    public async Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default)
+    {
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+        EnsureStatus(parcel, ParcelStatus.InWarehouse);
+
+        parcel.Status = ParcelStatus.CheckedOut;
+        parcel.UpdatedAt = DateTime.UtcNow;
+
+        var trackingEvent = AddTrackingEvent(
+            parcel, TrackingEventType.CheckedOut, "Parcel checked out — ready for dispatch");
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("PARCEL_CHECKED_OUT", "Parcel", parcelId,
+            null, new { parcel.Status }, staffId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "CheckedOut", ct: ct);
+    }
+
+    // ── Log Inspection (CheckIn or Checkout stage) ───────────────────────────────
+    public async Task<ParcelInspectionDto> LogInspectionAsync(
+        Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default)
+    {
+        var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct)
+            ?? throw new NotFoundException($"Parcel {parcelId} not found.");
+
+        var inspection = new ParcelInspection
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            Stage = dto.Stage,
+            Result = dto.Result,
+            StaffId = staffId,
+            PackagingIntact = dto.PackagingIntact,
+            NoMoistureDamage = dto.NoMoistureDamage,
+            WeightMatchesDeclared = dto.WeightMatchesDeclared,
+            FragileHandlingOk = dto.FragileHandlingOk,
+            SealIntact = dto.SealIntact,
+            Notes = dto.Notes,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.Query<ParcelInspection>().AddAsync(inspection, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        // Non-blocking: Damaged/Rejected never stops checkout, but does flag + notify + claim
+        if (dto.Result != ParcelInspectionResult.Pass)
+        {
+            var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.ExceptionRaised,
+                $"{dto.Stage} inspection flagged: {dto.Result}" +
+                (string.IsNullOrWhiteSpace(dto.Notes) ? "" : $" — {dto.Notes}"));
+            await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+            await _uow.SaveChangesAsync(ct);
+
+            if (parcel.Customer is not null)
+            {
+                try
+                {
+                    await _notificationService.SendParcelDamagedAsync(
+                        parcel.Customer.UserId, parcel.TrackingNumber, dto.Stage.ToString(), ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[NOTIFY] Damaged notification failed: {ex.Message}");
+                }
+            }
+
+            if (parcel.InsuranceRequired && dto.Result == ParcelInspectionResult.Damaged)
+            {
+                var claim = new InsuranceClaim
+                {
+                    Id = Guid.NewGuid(),
+                    ParcelId = parcel.Id,
+                    CustomerId = parcel.CustomerId,
+                    ClaimNumber = $"CLM-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
+                    Type = ClaimType.Damage,
+                    Status = ClaimStatus.Submitted,
+                    ClaimedAmountZAR = parcel.DeclaredValueZAR ?? 0,
+                    Description = $"Auto-logged from {dto.Stage} inspection." +
+                                  (string.IsNullOrWhiteSpace(dto.Notes) ? "" : $" {dto.Notes}"),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _uow.Query<InsuranceClaim>().AddAsync(claim, ct);
+                await _uow.SaveChangesAsync(ct);
+            }
+        }
+
+        await _audit.LogAsync("PARCEL_INSPECTED", "Parcel", parcel.Id,
+            null, new { dto.Stage, dto.Result }, staffId, null, ct);
+
+        return new ParcelInspectionDto(
+            inspection.Id, parcel.Id, parcel.TrackingNumber,
+            inspection.Stage.ToString(), inspection.Result.ToString(),
+            inspection.PackagingIntact, inspection.NoMoistureDamage, inspection.WeightMatchesDeclared,
+            inspection.FragileHandlingOk, inspection.SealIntact, inspection.Notes, inspection.CreatedAt
+        );
+    }
+
+    // ── List Inspections (for the Inspections page) ──────────────────────────────
+    public async Task<IEnumerable<ParcelInspectionDto>> GetInspectionsAsync(CancellationToken ct = default)
+    {
+        var inspections = await _uow.Query<ParcelInspection>()
+            .Query()
+            .AsNoTracking()
+            .Include(i => i.Parcel)
+            .OrderByDescending(i => i.CreatedAt)
+            .Take(200)
+            .ToListAsync(ct);
+
+        return inspections.Select(i => new ParcelInspectionDto(
+            i.Id, i.ParcelId, i.Parcel?.TrackingNumber ?? "—",
+            i.Stage.ToString(), i.Result.ToString(),
+            i.PackagingIntact, i.NoMoistureDamage, i.WeightMatchesDeclared,
+            i.FragileHandlingOk, i.SealIntact, i.Notes, i.CreatedAt
+        ));
+    }
+
+
     // ── Get or Create Sorting Suggestion (for check-in modal) ──────────────────
     public async Task<SortingSuggestionDto> GetSortingSuggestionAsync(
         Guid parcelId, CancellationToken ct = default)
@@ -325,7 +448,6 @@ public class ParcelService : IParcelService
             Bins: allBins
         );
     }
-
     // ── Dispatch ──────────────────────────────────────────────────────────────
     public async Task DispatchAsync(
         Guid parcelId, Guid driverId,
@@ -334,7 +456,8 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct)
             ?? throw new NotFoundException($"Parcel {parcelId} not found.");
 
-        if (parcel.Status != ParcelStatus.InWarehouse &&
+        // CHANGED: InWarehouse → CheckedOut. Approved (pickup leg) untouched.
+        if (parcel.Status != ParcelStatus.CheckedOut &&
             parcel.Status != ParcelStatus.Approved)
             throw new BadRequestException(
                 $"Cannot dispatch parcel in status '{parcel.Status}'.");
@@ -426,6 +549,138 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
     }
 
+
+    // ── Dispatch Route (multi-parcel, single zone) ──────────────────────────────
+    public async Task<RouteSummaryDto> DispatchRouteAsync(
+        CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
+    {
+        if (dto.ParcelIds is null || dto.ParcelIds.Count == 0)
+            throw new BadRequestException("At least one parcel must be selected.");
+
+        var parcels = await _uow.Query<Parcel>()
+            .Query()
+            .Include(p => p.DeliveryAddress)
+            .Where(p => dto.ParcelIds.Contains(p.Id))
+            .ToListAsync(ct);
+
+        if (parcels.Count != dto.ParcelIds.Count)
+            throw new NotFoundException("One or more parcels not found.");
+
+        foreach (var p in parcels)
+        {
+            // CHANGED: InWarehouse → CheckedOut, matching DispatchAsync's delivery-leg gate
+            if (p.Status != ParcelStatus.CheckedOut)
+                throw new BadRequestException(
+                    $"Parcel {p.TrackingNumber} is not CheckedOut (status: {p.Status}).");
+        }
+
+        var zones = parcels.Select(p => p.Zone).Distinct().ToList();
+        if (zones.Count != 1 || zones[0] is null)
+            throw new BadRequestException("All parcels in a route must share the same zone.");
+
+        var zone = zones[0]!.Value;
+
+        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(dto.DriverId, ct)
+            ?? throw new NotFoundException("Driver not found.");
+
+        if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
+            throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
+
+        var route = new DeliveryRoute
+        {
+            Id = Guid.NewGuid(),
+            DriverId = driver.Id,
+            Zone = zone,
+            Status = RouteStatus.InProgress,
+            DispatchedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.Query<DeliveryRoute>().AddAsync(route, ct);
+
+        var stops = new List<RouteStopDto>();
+
+        foreach (var parcel in parcels)
+        {
+            var delivery = new Delivery
+            {
+                Id = Guid.NewGuid(),
+                ParcelId = parcel.Id,
+                DriverId = driver.Id,
+                RouteId = route.Id,
+                Status = DeliveryStatus.Assigned,
+                DispatchedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.Deliveries.AddAsync(delivery, ct);
+
+            parcel.Status = ParcelStatus.OutForDelivery;
+            parcel.UpdatedAt = DateTime.UtcNow;
+
+            // Release the parcel's warehouse bin — identical to DispatchAsync's non-pickup branch
+            var assignment = await _uow.Query<ParcelSortingAssignment>()
+                .Query()
+                .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
+
+            if (assignment?.ConfirmedBinId is not null)
+            {
+                var bin = await _uow.Query<SortingBin>().GetByIdAsync(assignment.ConfirmedBinId.Value, ct);
+                if (bin is not null && bin.CurrentCount > 0)
+                {
+                    bin.CurrentCount -= 1;
+                    bin.UpdatedAt = DateTime.UtcNow;
+                }
+                assignment.ReleasedAt = DateTime.UtcNow;
+                assignment.UpdatedAt = DateTime.UtcNow;
+            }
+
+            var trackingEvent = new TrackingEvent
+            {
+                Id = Guid.NewGuid(),
+                ParcelId = parcel.Id,
+                EventType = TrackingEventType.OutForDelivery,
+                Description = $"Dispatched to driver {driver.User?.FullName ?? driver.Id.ToString()} " +
+                              $"as part of a {parcels.Count}-stop {zone} zone route",
+                OccurredAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+            stops.Add(new RouteStopDto(
+                delivery.Id, parcel.Id, parcel.TrackingNumber, delivery.Status.ToString(),
+                parcel.DeliveryAddress?.RecipientName ?? "—",
+                $"{parcel.DeliveryAddress?.StreetAddress}, {parcel.DeliveryAddress?.Suburb}".Trim(',', ' '),
+                parcel.DeliveryAddress?.City ?? "—"
+            ));
+        }
+
+        driver.Status = DriverStatus.OnDelivery;
+        driver.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
+            throw new BadRequestException(
+                $"The {string.Join(", ", failedTypes)} was updated by another process. Please refresh and try again.");
+        }
+
+        await _audit.LogAsync("ROUTE_DISPATCHED", "DeliveryRoute", route.Id,
+            null, new { ParcelCount = parcels.Count, Zone = zone.ToString(), DriverId = driver.Id },
+            dispatcherId, null, ct);
+
+        foreach (var parcel in parcels)
+        {
+            await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "OutForDelivery", ct: ct);
+        }
+
+        return new RouteSummaryDto(route.Id, zone.ToString(), route.Status.ToString(), route.DispatchedAt, stops);
+    }
     // ── Mark Delivered ────────────────────────────────────────────────────────
     public async Task MarkDeliveredAsync(
      Guid deliveryId, ProofOfDeliveryDto pod,
@@ -492,6 +747,8 @@ public class ParcelService : IParcelService
             UpdatedAt = DateTime.UtcNow
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+        await CheckRouteCompletionAsync(delivery.RouteId, ct);
 
         // EF Core will now properly persist the driver status alongside the parcel/delivery update
         await _uow.SaveChangesAsync(ct);
@@ -588,6 +845,8 @@ public class ParcelService : IParcelService
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
+        await CheckRouteCompletionAsync(delivery.RouteId, ct);
+
         await _uow.SaveChangesAsync(ct);
 
         try
@@ -653,7 +912,9 @@ public class ParcelService : IParcelService
         if (full is null) return null;
 
         var requestingUser = await _uow.Users.GetByIdAsync(requestingUserId, ct);
-        var isStaff = requestingUser?.Role is UserRole.Dispatcher or UserRole.Administrator;
+        var isStaff = requestingUser?.Role is UserRole.Dispatcher
+    or UserRole.Administrator
+    or UserRole.WarehouseStaff;
 
         if (!isStaff && full.Customer?.UserId != requestingUserId)
             return null;
@@ -799,7 +1060,9 @@ public class ParcelService : IParcelService
             .ToListAsync(ct);
 
         Dictionary<Guid, string> binCodesByParcelId = new();
-        if (string.Equals(filter.Status, "InWarehouse", StringComparison.OrdinalIgnoreCase) && parcels.Count > 0)
+        if ((string.Equals(filter.Status, "InWarehouse", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(filter.Status, "CheckedOut", StringComparison.OrdinalIgnoreCase))
+            && parcels.Count > 0)
         {
             var parcelIds = parcels.Select(p => p.Id).ToList();
 
@@ -894,10 +1157,19 @@ public class ParcelService : IParcelService
         UpdatedAt = DateTime.UtcNow
     };
 
+
+
+
+
     private static ParcelSummaryDto MapToSummary(Parcel p, string? binCode = null) => new(
-     p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
-     p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
-     p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate, binCode);
+      p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(),
+      p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—",
+      p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate,
+      binCode, p.Zone?.ToString());   // ← added p.Zone?.ToString()
+
+
+
+
     private static ParcelDetailDto MapToDetail(Parcel p)
     {
         bool isPickup = p.Status == ParcelStatus.Approved;
@@ -970,7 +1242,8 @@ public class ParcelService : IParcelService
                 SpecialInstructions: d.Parcel?.SpecialInstructions,
                 IsFragile: d.Parcel?.IsFragile ?? false,
                 DispatchedAt: d.DispatchedAt,
-                IsPickup: isPickup // <--- Added IsPickup mapping
+                IsPickup: isPickup,
+                RouteId: d.RouteId
             );
         });
     }
@@ -1004,5 +1277,24 @@ public class ParcelService : IParcelService
         // -------------------------------------------
 
         await _uow.SaveChangesAsync(ct);
+    }
+
+    private async Task CheckRouteCompletionAsync(Guid? routeId, CancellationToken ct)
+    {
+        if (routeId is null) return;
+
+        var route = await _uow.Query<DeliveryRoute>().GetByIdAsync(routeId.Value, ct);
+        if (route is null || route.Status == RouteStatus.Completed) return;
+
+        var allTerminal = await _uow.Deliveries.Query()
+            .Where(d => d.RouteId == routeId.Value)
+            .AllAsync(d => d.Status == DeliveryStatus.Delivered || d.Status == DeliveryStatus.Failed, ct);
+
+        if (allTerminal)
+        {
+            route.Status = RouteStatus.Completed;
+            route.CompletedAt = DateTime.UtcNow;
+            route.UpdatedAt = DateTime.UtcNow;
+        }
     }
 }

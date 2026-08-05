@@ -245,10 +245,17 @@ export function DispatchQueue() {
   const [selectedDriver, setSelectedDriver] = useState('')
   const [scanConfirm, setScanConfirm]       = useState('')
 
+  // ── batch route selection (InWarehouse tab only) ──
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [selectedZone, setSelectedZone] = useState(null)
+  const [routeModal, setRouteModal] = useState(false)
+  const [routeDriver, setRouteDriver] = useState('')
+  const [routeScans, setRouteScans] = useState({}) // { parcelId: scannedValue }
+
   const STATUS_FILTERS = [
-    { value: 'Approved',   label: 'Ready for pickup'   },
-    { value: 'InWarehouse',label: 'Ready for delivery' },
-  ]
+  { value: 'Approved',   label: 'Ready for pickup'   },
+  { value: 'CheckedOut', label: 'Ready for delivery' },   // was 'InWarehouse'
+]
 
   const { data, isLoading } = useQuery({
     queryKey: ['parcels-dispatch-queue', statusFilter],
@@ -276,13 +283,58 @@ export function DispatchQueue() {
     },
   })
 
+  const routeMutation = useMutation({
+    mutationFn: ({ parcelIds, driverId }) => parcelApi.dispatchRoute(parcelIds, driverId),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['parcels-dispatch-queue'] })
+      qc.invalidateQueries({ queryKey: ['available-drivers'] })
+      closeRouteModal()
+    },
+  })
+
   const closeDispatchModal = () => {
     setDispatchModal(null)
     setSelectedDriver('')
     setScanConfirm('')
   }
 
-  const isDeliveryLeg  = statusFilter === 'InWarehouse'
+  const closeRouteModal = () => {
+    setRouteModal(false)
+    setRouteDriver('')
+    setRouteScans({})
+    setSelectedIds(new Set())
+    setSelectedZone(null)
+  }
+
+  const toggleSelect = (parcel) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(parcel.id)) {
+        next.delete(parcel.id)
+        if (next.size === 0) setSelectedZone(null)
+      } else {
+        // Enforce single-zone selection: switching zones clears prior selection
+        if (selectedZone && parcel.zone !== selectedZone) {
+          next.clear()
+        }
+        next.add(parcel.id)
+        setSelectedZone(parcel.zone)
+      }
+      return next
+    })
+  }
+
+  const switchTab = (value) => {
+    setStatusFilter(value)
+    setSelectedIds(new Set())
+    setSelectedZone(null)
+  }
+
+  const selectedParcels = queueItems.filter(p => selectedIds.has(p.id))
+  const allScansConfirmed = selectedParcels.length > 0 &&
+    selectedParcels.every(p => routeScans[p.id] === p.trackingNumber)
+
+ const isDeliveryLeg = statusFilter === 'CheckedOut'   // was 'InWarehouse'
   const scanMismatch   = scanConfirm && scanConfirm !== dispatchModal?.trackingNumber
   const scanConfirmed  = scanConfirm && scanConfirm === dispatchModal?.trackingNumber
 
@@ -307,7 +359,7 @@ export function DispatchQueue() {
         {STATUS_FILTERS.map(f => (
           <button
             key={f.value}
-            onClick={() => setStatusFilter(f.value)}
+            onClick={() => switchTab(f.value)}
             className={clsx(
               'px-5 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all',
               statusFilter === f.value
@@ -319,6 +371,18 @@ export function DispatchQueue() {
           </button>
         ))}
       </div>
+
+      {isDeliveryLeg && selectedIds.size > 0 && (
+        <div className="mb-4 p-4 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-between">
+          <div className="text-sm">
+            <span className="font-bold text-brand-700">{selectedIds.size} parcel{selectedIds.size !== 1 ? 's' : ''} selected</span>
+            {selectedZone && <span className="ml-2 text-brand-600">· {selectedZone} zone</span>}
+          </div>
+          <button className="btn-primary btn-sm" onClick={() => setRouteModal(true)}>
+            <Truck size={14} /> Dispatch route ({selectedIds.size})
+          </button>
+        </div>
+      )}
 
       <div className="card">
         {isLoading ? <PageLoader /> : queueItems.length === 0 ? (
@@ -334,9 +398,12 @@ export function DispatchQueue() {
             <table className="table">
               <thead>
                 <tr>
+                  {isDeliveryLeg && <th></th>}
                   <th>Tracking #</th>
                   <th>Service</th>
                   <th>Destination</th>
+                  {isDeliveryLeg && <th>Zone</th>}
+                  {isDeliveryLeg && <th>Bin</th>}
                   <th>Weight</th>
                   <th>Updated</th>
                   <th>Action</th>
@@ -345,11 +412,28 @@ export function DispatchQueue() {
               <tbody>
                 {queueItems.map(p => (
                   <tr key={p.id}>
+                    {isDeliveryLeg && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          onChange={() => toggleSelect(p)}
+                          disabled={!!selectedZone && selectedZone !== p.zone && !selectedIds.has(p.id)}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                    )}
                     <td><TrackingBadge value={p.trackingNumber} /></td>
                     <td className="capitalize text-xs text-gray-600">{p.serviceType}</td>
                     <td className="text-xs text-gray-600">
                       {p.destinationCity}, {p.destinationProvince}
                     </td>
+                    {isDeliveryLeg && (
+                      <td className="text-xs font-medium text-gray-700">{p.zone ?? '—'}</td>
+                    )}
+                    {isDeliveryLeg && (
+                      <td className="text-xs text-gray-500">{p.binCode ?? '—'}</td>
+                    )}
                     <td className="text-xs text-gray-600">{p.weightKg} kg</td>
                     <td className="text-xs text-gray-400">{formatDate(p.updatedAt)}</td>
                     <td>
@@ -370,6 +454,7 @@ export function DispatchQueue() {
         )}
       </div>
 
+      {/* Single-parcel dispatch modal — unchanged from your current flow */}
       <Modal
         open={!!dispatchModal}
         onClose={closeDispatchModal}
@@ -456,6 +541,100 @@ export function DispatchQueue() {
             onClick={() => dispatchMutation.mutate({ id: dispatchModal.id, driverId: selectedDriver })}
           >
             <Truck size={14} /> Dispatch
+          </button>
+        </div>
+      </Modal>
+
+      {/* Batch route dispatch modal — requires scanning each selected parcel */}
+      <Modal
+        open={routeModal}
+        onClose={closeRouteModal}
+        title="Dispatch route"
+        size="md"
+      >
+        <p className="text-sm text-gray-600 mb-4">
+          Assigning <strong>{selectedParcels.length} parcel{selectedParcels.length !== 1 ? 's' : ''}</strong>
+          {selectedZone && <> in the <strong>{selectedZone}</strong> zone</>} to one driver.
+          Scan or type each tracking number to confirm before dispatching.
+        </p>
+
+        <div className="space-y-2 mb-4 max-h-44 overflow-y-auto scrollbar-thin">
+          {selectedParcels.map(p => {
+            const scanned = routeScans[p.id] || ''
+            const matched = scanned === p.trackingNumber
+            const mismatch = scanned && !matched
+            return (
+              <div key={p.id} className="flex items-center gap-2">
+                <div className="w-28 flex-shrink-0">
+                  <TrackingBadge value={p.trackingNumber} />
+                </div>
+                <input
+                  type="text"
+                  className="input font-mono text-xs flex-1"
+                  placeholder="Scan or type to confirm…"
+                  value={scanned}
+                  onChange={e => setRouteScans(prev => ({ ...prev, [p.id]: e.target.value.toUpperCase() }))}
+                />
+                {matched && <CheckCircle size={16} className="text-emerald-500 flex-shrink-0" />}
+                {mismatch && <XCircle size={16} className="text-red-500 flex-shrink-0" />}
+              </div>
+            )
+          })}
+        </div>
+
+        {availableDrivers.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+            <AlertTriangle size={15} className="flex-shrink-0" />
+            No drivers are currently available.
+          </div>
+        ) : (
+          <>
+            <label className="label">Select available driver</label>
+            <div className="space-y-2 mb-4 max-h-44 overflow-y-auto scrollbar-thin">
+              {availableDrivers.map(d => (
+                <button
+                  key={d.driverId}
+                  type="button"
+                  onClick={() => setRouteDriver(d.driverId)}
+                  className={clsx(
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all',
+                    routeDriver === d.driverId
+                      ? 'border-brand-400 bg-brand-50'
+                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                  )}
+                >
+                  <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {d.firstName[0]}{d.lastName[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800">{d.firstName} {d.lastName}</p>
+                    <p className="text-xs text-emerald-600">● Available · {d.phone}</p>
+                  </div>
+                  {routeDriver === d.driverId && (
+                    <CheckCircle size={16} className="text-brand-500 flex-shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {routeMutation.error && (
+          <Alert message={routeMutation.error.message} className="mb-3" />
+        )}
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" onClick={closeRouteModal}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary"
+            disabled={!routeDriver || !allScansConfirmed || routeMutation.isPending}
+            onClick={() => routeMutation.mutate({
+              parcelIds: Array.from(selectedIds),
+              driverId: routeDriver
+            })}
+          >
+            <Truck size={14} /> Dispatch route
           </button>
         </div>
       </Modal>

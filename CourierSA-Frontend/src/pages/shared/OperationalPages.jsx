@@ -358,16 +358,16 @@ export function WarehouseInventoryPage() {
   const parcels = data?.data?.items  ?? []
   const total   = data?.data?.totalCount ?? 0
 
-  // UPDATED: 'Approved' changed to 'AwaitingCheckIn' to match the backend enum
+  // 'InWarehouse' is now the pre-checkout stage; 'CheckedOut' is ready-for-dispatch
   const STATUS_FILTERS = [
-    { value: 'InWarehouse',     label: 'In warehouse'     },
-    { value: 'AwaitingCheckIn', label: 'Awaiting check-in'}, 
-    { value: 'OutForDelivery',  label: 'Out for delivery' },
+    { value: 'InWarehouse',     label: 'Awaiting checkout' },
+    { value: 'CheckedOut',      label: 'In warehouse'      },
+    { value: 'AwaitingCheckIn', label: 'Awaiting check-in' },
+    { value: 'OutForDelivery',  label: 'Out for delivery'  },
   ]
 
-  // Only the "In warehouse" tab has bin data — group parcels by bin there.
-  // Bin data comes back as p.binCode from the backend queue endpoint.
-  const isBinGroupable = statusFilter === 'InWarehouse'
+  // Bins are still occupied through CheckedOut — release only happens at actual dispatch
+  const isBinGroupable = statusFilter === 'InWarehouse' || statusFilter === 'CheckedOut'
 
   const binGroups = isBinGroupable
     ? parcels.reduce((groups, p) => {
@@ -386,6 +386,24 @@ export function WarehouseInventoryPage() {
         return a.localeCompare(b)
       })
     : []
+
+  // Row click → details modal
+  const [detailParcel, setDetailParcel] = useState(null)
+
+  const { data: detailData, isLoading: detailLoading } = useQuery({
+    queryKey: ['parcel-detail', detailParcel?.id],
+    queryFn:  () => api.get(`/parcels/${detailParcel.id}`),
+    enabled:  !!detailParcel,
+  })
+
+  const { data: inspData } = useQuery({
+    queryKey: ['parcel-inspections'],
+    queryFn:  () => api.get('/parcels/inspections'),
+    enabled:  !!detailParcel,
+  })
+
+  const detail = detailData?.data
+  const parcelInspections = (inspData?.data ?? []).filter(i => i.parcelId === detailParcel?.id)
 
   return (
     <AppShell title="Inventory">
@@ -450,7 +468,7 @@ export function WarehouseInventoryPage() {
                       </thead>
                       <tbody>
                         {binParcels.map(p => (
-                          <tr key={p.id}>
+                          <tr key={p.id} onClick={() => setDetailParcel(p)} className="cursor-pointer hover:bg-[#F6FAFF]">
                             <td><TrackingBadge value={p.trackingNumber} /></td>
                             <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
                             <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
@@ -493,7 +511,7 @@ export function WarehouseInventoryPage() {
               </thead>
               <tbody>
                 {parcels.map(p => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => setDetailParcel(p)} className="cursor-pointer hover:bg-[#F6FAFF]">
                     <td><TrackingBadge value={p.trackingNumber} /></td>
                     <td className="capitalize text-xs font-medium text-[#172554]">{p.serviceType}</td>
                     <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
@@ -513,6 +531,65 @@ export function WarehouseInventoryPage() {
           <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} />
         </div>
       )}
+
+      <Modal open={!!detailParcel} onClose={() => setDetailParcel(null)} title="Parcel details" size="md">
+        {detailLoading ? <PageLoader /> : detail && (
+          <div className="space-y-4 text-sm">
+            <div className="flex items-center gap-3">
+              <TrackingBadge value={detail.trackingNumber} />
+              <StatusPill status={detail.status} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-[#94A3B8] uppercase font-semibold mb-1">Pickup</p>
+                <p className="text-[#172554] font-medium">{detail.pickupAddress?.recipientName}</p>
+                <p className="text-[#64748B] text-xs">{detail.pickupAddress?.streetAddress}, {detail.pickupAddress?.city}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[#94A3B8] uppercase font-semibold mb-1">Delivery</p>
+                <p className="text-[#172554] font-medium">{detail.deliveryAddress?.recipientName}</p>
+                <p className="text-[#64748B] text-xs">{detail.deliveryAddress?.streetAddress}, {detail.deliveryAddress?.city}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div><p className="text-xs text-[#94A3B8] uppercase font-semibold">Weight</p><p className="font-mono">{detail.weightKg} kg</p></div>
+              <div><p className="text-xs text-[#94A3B8] uppercase font-semibold">Fragile</p><p>{detail.isFragile ? '⚠ Yes' : 'No'}</p></div>
+              <div><p className="text-xs text-[#94A3B8] uppercase font-semibold">Signature req.</p><p>{detail.requiresSignature ? 'Yes' : 'No'}</p></div>
+            </div>
+
+            {detail.dimensions && (
+              <div>
+                <p className="text-xs text-[#94A3B8] uppercase font-semibold">Dimensions</p>
+                <p className="font-mono">{detail.dimensions.lengthCm} × {detail.dimensions.widthCm} × {detail.dimensions.heightCm} cm</p>
+              </div>
+            )}
+
+            {detail.specialInstructions && (
+              <div>
+                <p className="text-xs text-[#94A3B8] uppercase font-semibold">Special instructions</p>
+                <p>{detail.specialInstructions}</p>
+              </div>
+            )}
+
+            {parcelInspections.length > 0 && (
+              <div>
+                <p className="text-xs text-[#94A3B8] uppercase font-semibold mb-2">Inspection history</p>
+                <div className="space-y-1.5">
+                  {parcelInspections.map(insp => (
+                    <div key={insp.id} className="flex items-center justify-between text-xs bg-[#F6FAFF] px-3 py-2 rounded-lg">
+                      <span className="font-medium text-[#172554]">{insp.stage}</span>
+                      <span className={insp.result === 'Pass' ? 'text-[#10B981]' : insp.result === 'Damaged' ? 'text-[#F59E0B]' : 'text-[#EF4444]'}>{insp.result}</span>
+                      <span className="text-[#94A3B8] font-mono">{formatDate(insp.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </AppShell>
   )
 }

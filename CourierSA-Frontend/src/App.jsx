@@ -1,153 +1,230 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider, useAuth } from '@/context/AuthContext'
-import { TrackingProvider } from '@/context/TrackingContext'
-import { RequireAuth, RequireRole, GuestOnly } from '@/routes/guards'
-
-import LandingPage from '@/pages/LandingPage'
-import LoginPage from '@/pages/auth/LoginPage'
-import RegisterPage from '@/pages/auth/RegisterPage'
-import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
-import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
-import ChangePasswordPage from '@/pages/auth/ChangePasswordPage'
-import CreateStaffPage from '@/pages/admin/CreateStaffPage'
-import AdminParcelsPage from '@/pages/admin/AdminParcelsPage'
-import AdminFleetPage from '@/pages/admin/AdminFleetPage'
-
-import { CustomerDashboard, CustomerParcels } from '@/pages/customer/CustomerPages'
-import ParcelDetailPage from '@/pages/customer/ParcelDetailPage'
-import BookParcelPage  from '@/pages/customer/book/BookParcelPage'
-import WalletPage      from '@/pages/customer/WalletPage'
-import ClaimsPage      from '@/pages/customer/ClaimsPage'
-import InvoicesPage    from '@/pages/customer/InvoicesPage'
-import CustomerTrackPage from '@/pages/customer/CustomerTrackPage'
-
-import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/DispatcherPages'
-import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
-import LiveMapPage          from '@/pages/dispatcher/LiveMapPage'
-import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
-
-// Driver Pages
-import { DriverDashboard }  from '@/pages/driver/DriverDashboard'
-import { DriverDeliveries } from '@/pages/driver/DriverPages'
-import { DriverRoute }      from '@/pages/driver/DriverRoute'
-import { DriverHistoryPage } from '@/pages/shared/OperationalPages'
-
+import { useState } from 'react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
+import { Avatar, LiveDot } from '@/components/ui'
+import { useTracking } from '@/context/TrackingContext'
 import {
-  WarehouseDashboard,
-  AdminDashboard,
-  BusinessDashboard,
-} from '@/pages/shared/OtherRolePages'
-import { VehicleInspectionsPage, WarehouseInventoryPage, AdminReportsPage } from '@/pages/shared/OperationalPages'
+  LayoutDashboard, Package, Truck, Users, FileText,
+  BarChart3, Settings, LogOut, Bell, Menu, X,
+  ClipboardCheck, Warehouse, ShieldCheck, MapPin,
+  CreditCard, AlertTriangle, ChevronRight,
+  PackageCheck, Search
+} from 'lucide-react'
+import clsx from 'clsx'
 
-import BulkUploadPage from '@/pages/business/BulkUploadPage'
-import AuditLogPage   from '@/pages/admin/AuditLogPage'
-
-import { PublicTrackingPage, NotFoundPage, UnauthorizedPage } from '@/pages/PublicPages'
-
-const qc = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 1000 * 60 * 2, retry: 1, refetchOnWindowFocus: false },
-  },
-})
-
-function RootRedirect() {
-  const { user, isAuthenticated, loading, dashboardPath } = useAuth()
-  if (loading) return null
-  if (!isAuthenticated) return <LandingPage />
-  return <Navigate to={dashboardPath(user.role)} replace />
+// ── Nav config per role ───────────────────────────────────────────────────────
+const NAV = {
+  Administrator: [
+    { label: 'Dashboard',   icon: LayoutDashboard, to: '/admin/dashboard'   },
+    { label: 'Parcels',     icon: Package,         to: '/admin/parcels'     },
+    { label: 'Users',       icon: Users,           to: '/admin/users'       },
+    { label: 'Vehicles',    icon: Truck,           to: '/admin/vehicles'    },
+    { label: 'Reports',     icon: BarChart3,       to: '/admin/reports'     },
+    { label: 'Audit Logs',  icon: ShieldCheck,     to: '/admin/audit-logs'  },
+    { label: 'Settings',    icon: Settings,        to: '/admin/settings'    },
+  ],
+  Dispatcher: [
+    { label: 'Dashboard',   icon: LayoutDashboard, to: '/dispatcher/dashboard' },
+    { label: 'Pending',     icon: ClipboardCheck,  to: '/dispatcher/pending'   },
+    { label: 'Dispatch',    icon: Truck,           to: '/dispatcher/dispatch'  },
+    { label: 'Live Map',    icon: MapPin,          to: '/dispatcher/map'       },
+    { label: 'Failed',      icon: AlertTriangle,   to: '/dispatcher/failed'    },
+  ],
+  WarehouseStaff: [
+    { label: 'Dashboard',    icon: LayoutDashboard, to: '/warehouse/dashboard'   },
+    { label: 'Check In',     icon: Warehouse,       to: '/warehouse/checkin'     },
+    { label: 'Checkout',     icon: PackageCheck,    to: '/warehouse/checkout'    },
+    { label: 'Inventory',    icon: Package,         to: '/warehouse/inventory'   },
+    { label: 'Inspections',  icon: ClipboardCheck,  to: '/warehouse/inspections' },
+    { label: 'Track Parcel', icon: Search,          to: '/warehouse/track'       },
+  ],
+  Driver: [
+    { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
+    { label: 'My Deliveries', icon: Truck,         to: '/driver/deliveries'    },
+    { label: 'Route',         icon: MapPin,        to: '/driver/route'         },
+    { label: 'History',       icon: FileText,      to: '/driver/history'       },
+  ],
+  Customer: [
+    { label: 'Dashboard',   icon: LayoutDashboard, to: '/customer/dashboard'   },
+    { label: 'My Parcels',  icon: Package,         to: '/customer/parcels'     },
+    { label: 'Book Parcel', icon: Package,         to: '/customer/book'        },
+    { label: 'Track',       icon: MapPin,          to: '/customer/track'       },
+    { label: 'Wallet',      icon: CreditCard,      to: '/customer/wallet'      },
+    { label: 'Claims',      icon: AlertTriangle,   to: '/customer/claims'      },
+    { label: 'Invoices',    icon: FileText,        to: '/customer/invoices'    },
+  ],
+  BusinessClient: [
+    { label: 'Dashboard',   icon: LayoutDashboard, to: '/business/dashboard'   },
+    { label: 'Parcels',     icon: Package,         to: '/business/parcels'     },
+    { label: 'Bulk Upload', icon: FileText,        to: '/business/bulk-upload' },
+    { label: 'Invoices',    icon: FileText,        to: '/business/invoices'    },
+    { label: 'Reports',     icon: BarChart3,       to: '/business/reports'     },
+    { label: 'Wallet',      icon: CreditCard,      to: '/business/wallet'      },
+  ],
 }
 
-export default function App() {
+const ROLE_LABELS = {
+  Administrator:  'Administrator',
+  Dispatcher:     'Dispatcher',
+  WarehouseStaff: 'Warehouse',
+  Driver:         'Driver',
+  Customer:       'Customer',
+  BusinessClient: 'Business Client',
+}
+
+const ROLE_COLORS = {
+  Administrator:  'bg-purple-500',
+  Dispatcher:     'bg-blue-500',
+  WarehouseStaff: 'bg-teal-500',
+  Driver:         'bg-amber-500',
+  Customer:       'bg-brand-500',
+  BusinessClient: 'bg-indigo-500',
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function Sidebar({ open, onClose }) {
+  const { user, logout } = useAuth()
+  const { connected }    = useTracking() ?? {}
+  const navigate         = useNavigate()
+  const navItems         = NAV[user?.role] ?? []
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login')
+  }
+
   return (
-    <QueryClientProvider client={qc}>
-      <BrowserRouter>
-        <AuthProvider>
-          <TrackingProvider>
-            <Routes>
-              <Route path="/"              element={<RootRedirect />} />
-              <Route path="/track"         element={<PublicTrackingPage />} />
-              <Route path="/track/:number" element={<PublicTrackingPage />} />
-              <Route path="/unauthorized"  element={<UnauthorizedPage />} />
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+          onClick={onClose}
+        />
+      )}
 
-              <Route element={<GuestOnly />}>
-                <Route path="/login"    element={<LoginPage />} />
-                <Route path="/register"        element={<RegisterPage />} />
-                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/reset-password"  element={<ResetPasswordPage />} />
-              </Route>
+      <aside className={clsx(
+        'fixed inset-y-0 left-0 z-30 w-64 bg-sidebar flex flex-col',
+        'transition-transform duration-200 ease-out lg:translate-x-0 lg:static lg:z-auto',
+        open ? 'translate-x-0' : '-translate-x-full'
+      )}>
+        {/* Logo */}
+        <div className="flex items-center justify-between h-16 px-5 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+              <Truck size={16} className="text-white" />
+            </div>
+            <span className="text-white font-bold text-lg tracking-tight">CourierSA</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white lg:hidden">
+            <X size={18} />
+          </button>
+        </div>
 
-              <Route element={<RequireAuth />}>
-              <Route path="/change-password" element={<ChangePasswordPage />} />
-                {/* Customer */}
-                <Route element={<RequireRole roles={['Customer']} />}>
-                  <Route path="/customer/dashboard" element={<CustomerDashboard />} />
-                  <Route path="/customer/parcels"   element={<CustomerParcels />} />
-                  <Route path="/customer/book"      element={<BookParcelPage />} />
-                  <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
-                  <Route path="/customer/track" element={<CustomerTrackPage />} />
-                  <Route path="/customer/wallet"    element={<WalletPage />} />
-                  <Route path="/customer/claims"    element={<ClaimsPage />} />
-                  <Route path="/customer/invoices"  element={<InvoicesPage />} />
-                </Route>
+        {/* Role badge */}
+        <div className="px-4 py-3 border-b border-white/10">
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full text-white',
+            ROLE_COLORS[user?.role] ?? 'bg-gray-600'
+          )}>
+            <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
+            {ROLE_LABELS[user?.role]}
+          </span>
+        </div>
 
-                {/* Dispatcher */}
-                <Route element={<RequireRole roles={['Dispatcher', 'Administrator']} />}>
-                  <Route path="/dispatcher/dashboard" element={<DispatcherDashboard />} />
-                  <Route path="/dispatcher/pending"   element={<DispatcherDashboard />} />
-                  <Route path="/dispatcher/dispatch"  element={<DispatchQueue />} />
-                  <Route path="/dispatcher/map"       element={<LiveMapPage />} />
-                  <Route path="/dispatcher/failed"    element={<FailedDeliveriesPage />} />
-                  <Route path="/dispatcher/reassign"  element={<DispatcherReassignmentPage />} /> 
-                </Route>
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-thin space-y-0.5">
+          {navItems.map(({ label, icon: Icon, to }) => (
+            <NavLink
+              key={to}
+              to={to}
+              onClick={onClose}
+              className={({ isActive }) =>
+                clsx('nav-item', isActive && 'nav-item-active')
+              }
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-                {/* Driver */}
-                <Route element={<RequireRole roles={['Driver']} />}>
-                  <Route path="/driver/dashboard"  element={<DriverDashboard />} />
-                  <Route path="/driver/deliveries" element={<DriverDeliveries />} />
-                  <Route path="/driver/route"      element={<DriverRoute />} />
-                  <Route path="/driver/history"    element={<DriverHistoryPage />} />
-                </Route>
+        {/* Bottom: user + logout */}
+        <div className="border-t border-white/10 p-4 space-y-3">
+          {/* SignalR status */}
+          <div className="flex items-center gap-2 px-1">
+            <LiveDot active={connected} />
+            <span className="text-xs text-gray-500">
+              {connected ? 'Live updates on' : 'Connecting…'}
+            </span>
+          </div>
 
-                {/* Warehouse */}
-                <Route element={<RequireRole roles={['WarehouseStaff', 'Administrator']} />}>
-                  <Route path="/warehouse/dashboard"   element={<WarehouseDashboard />} />
-                  <Route path="/warehouse/checkin"     element={<WarehouseDashboard />} />
-                  <Route path="/warehouse/inventory"   element={<WarehouseInventoryPage />} />
-                  <Route path="/warehouse/inspections" element={<VehicleInspectionsPage />} />
-                </Route>
+          <div className="flex items-center gap-3 px-1">
+            <Avatar name={`${user?.firstName} ${user?.lastName}`} size="sm" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {user?.firstName} {user?.lastName}
+              </p>
+              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            </div>
+          </div>
 
-                {/* Admin */}
-                <Route element={<RequireRole roles={['Administrator']} />}>
-                  <Route path="/admin/dashboard"  element={<AdminDashboard />} />
-                  <Route path="/admin/parcels"    element={<AdminParcelsPage />} />
-                  <Route path="/admin/users"      element={<AdminDashboard />} />
-                  <Route path="/admin/vehicles"   element={<VehicleInspectionsPage />} />
-                  <Route path="/admin/reports"    element={<AdminReportsPage />} />
-                  <Route path="/admin/audit-logs" element={<AuditLogPage />} />
-                  <Route path="/admin/settings"   element={<AdminDashboard />} />
-                  <Route path="/admin/staff/new" element={<CreateStaffPage />} />
-                  <Route path="/admin/fleet" element={<AdminFleetPage />} />
+          <button
+            onClick={handleLogout}
+            className="nav-item w-full text-red-400 hover:text-red-300 hover:bg-red-500/10"
+          >
+            <LogOut size={16} />
+            <span>Sign out</span>
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
 
-                </Route>
+// ── Top bar ───────────────────────────────────────────────────────────────────
+function TopBar({ onMenuClick, title }) {
+  return (
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onMenuClick}
+          className="btn-ghost btn-sm lg:hidden"
+        >
+          <Menu size={20} />
+        </button>
+        {title && (
+          <h1 className="text-base font-semibold text-gray-800 hidden sm:block">{title}</h1>
+        )}
+      </div>
 
-                {/* Business Client */}
-                <Route element={<RequireRole roles={['BusinessClient', 'Administrator']} />}>
-                  <Route path="/business/dashboard"   element={<BusinessDashboard />} />
-                  <Route path="/business/parcels"     element={<CustomerParcels />} />
-                  <Route path="/business/book"        element={<BookParcelPage />} />
-                  <Route path="/business/bulk-upload" element={<BulkUploadPage />} />
-                  <Route path="/business/invoices"    element={<InvoicesPage />} />
-                  <Route path="/business/reports"     element={<AdminReportsPage />} />
-                  <Route path="/business/wallet"      element={<WalletPage />} />
-                </Route>
-              </Route>
+      <div className="flex items-center gap-2">
+        <button className="btn-ghost btn-sm relative">
+          <Bell size={18} />
+          <span className="absolute top-1 right-1 w-2 h-2 bg-brand-500 rounded-full" />
+        </button>
+      </div>
+    </header>
+  )
+}
 
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
-          </TrackingProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
+// ── Shell layout ──────────────────────────────────────────────────────────────
+export default function AppShell({ children, title }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  return (
+    <div className="flex h-screen bg-canvas overflow-hidden">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <TopBar
+          onMenuClick={() => setSidebarOpen(true)}
+          title={title}
+        />
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 animate-fade-in">
+          {children}
+        </main>
+      </div>
+    </div>
   )
 }

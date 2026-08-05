@@ -20,6 +20,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ParcelAddress>            ParcelAddresses          { get; set; }
     public DbSet<TrackingEvent>            TrackingEvents           { get; set; }
     public DbSet<Quote>                    Quotes                   { get; set; }
+    public DbSet<ParcelInspection>         ParcelInspections        { get; set; }
     public DbSet<Delivery>                 Deliveries               { get; set; }
 
     // ── Fleet ──────────────────────────────────────────────────────────────────
@@ -37,6 +38,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<PostalCodeZoneRule> PostalCodeZoneRules { get; set; }
     public DbSet<SortingBin> SortingBins { get; set; }
     public DbSet<ParcelSortingAssignment> ParcelSortingAssignments { get; set; }
+
+    public DbSet<DeliveryRoute> DeliveryRoutes { get; set; }
 
     // ── Platform ───────────────────────────────────────────────────────────────
 

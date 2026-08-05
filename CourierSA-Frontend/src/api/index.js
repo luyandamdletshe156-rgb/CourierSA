@@ -76,8 +76,13 @@ export const parcelApi = {
   checkIn:          (id, sortingBinId) =>
                          api.put(`/parcels/${id}/checkin`, { sortingBinId }),
   sortingSuggestion:(id) => api.get(`/parcels/${id}/sorting-suggestion`),
+  checkout:      id        => api.put(`/parcels/${id}/checkout`),
+  logInspection: (id, dto) => api.post(`/parcels/${id}/inspections`, dto),
+  inspections:   ()        => api.get('/parcels/inspections'),
   dispatch:   (id, driverId) =>
                          api.put(`/parcels/${id}/dispatch`, { driverId }),
+  dispatchRoute: (parcelIds, driverId) =>
+                         api.post('/parcels/dispatch-route', { parcelIds, driverId }),
   bulkUpload: file   => {
     const form = new FormData()
     form.append('file', file)
@@ -149,7 +154,7 @@ export const adminApi = {
   auditLogs:      params   => api.get('/admin/audit-logs', { params }),
   dashboardStats: ()       => api.get('/admin/dashboard/stats'),
   createStaffUser: dto     => api.post('/admin/staff', dto),
-  
+
   // Fleet Management
   vehicles:       ()       => api.get('/admin/vehicles'),
   createVehicle:  dto      => api.post('/admin/vehicles', dto),

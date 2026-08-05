@@ -3,6 +3,7 @@ using System;
 using CourierSA.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CourierSA.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805073653_AddDeliveryRoutes")]
+    partial class AddDeliveryRoutes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -819,64 +822,6 @@ namespace CourierSA.Infrastructure.Migrations
                     b.ToTable("ParcelAddresses", (string)null);
                 });
 
-            modelBuilder.Entity("CourierSA.Domain.Entities.ParcelInspection", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool?>("FragileHandlingOk")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("NoMoistureDamage")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("longtext");
-
-                    b.Property<bool>("PackagingIntact")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<Guid>("ParcelId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("PhotoPaths")
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("Result")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("SealIntact")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<Guid>("StaffId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<int>("Stage")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("WeightMatchesDeclared")
-                        .HasColumnType("tinyint(1)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ParcelId");
-
-                    b.ToTable("ParcelInspections");
-                });
-
             modelBuilder.Entity("CourierSA.Domain.Entities.ParcelSortingAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1549,17 +1494,6 @@ namespace CourierSA.Infrastructure.Migrations
                     b.Navigation("PickupAddress");
                 });
 
-            modelBuilder.Entity("CourierSA.Domain.Entities.ParcelInspection", b =>
-                {
-                    b.HasOne("CourierSA.Domain.Entities.Parcel", "Parcel")
-                        .WithMany("Inspections")
-                        .HasForeignKey("ParcelId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Parcel");
-                });
-
             modelBuilder.Entity("CourierSA.Domain.Entities.ParcelSortingAssignment", b =>
                 {
                     b.HasOne("CourierSA.Domain.Entities.SortingBin", "ConfirmedBin")
@@ -1666,8 +1600,6 @@ namespace CourierSA.Infrastructure.Migrations
             modelBuilder.Entity("CourierSA.Domain.Entities.Parcel", b =>
                 {
                     b.Navigation("Deliveries");
-
-                    b.Navigation("Inspections");
 
                     b.Navigation("TrackingEvents");
                 });

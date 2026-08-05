@@ -87,6 +87,11 @@ export function DriverDashboard() {
                       Pickup
                     </span>
                   )}
+                  {currentStop.routeId && (
+                    <span className="px-2 py-0.5 text-xs font-semibold bg-brand-100 text-brand-700 rounded-full">
+                      Route stop
+                    </span>
+                  )}
                   <StatusPill status={currentStop.status} />
                   <span className="text-xs text-gray-400">· Stop #1</span>
                 </div>
@@ -107,6 +112,9 @@ export function DriverDashboard() {
               </div>
 
               <div className="flex items-center gap-2 pt-2 md:pt-0 border-t md:border-t-0">
+                {/* 
+                  FIX: Added the missing `<a` tag here 
+                */}
                 <a
                   href={`https://maps.google.com/?q=${encodeURIComponent(`${currentStop.deliveryAddress}, ${currentStop.city}`)}`}
                   target="_blank"

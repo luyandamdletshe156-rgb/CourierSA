@@ -8,8 +8,26 @@ import {
 import { deliveryApi } from '@/api'
 import { 
   Truck, CheckCircle, XCircle, Navigation, Phone, 
-  MapPin, Info, Calendar, X, AlertCircle 
+  MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon
 } from 'lucide-react'
+
+// ── Groups a list of deliveries by routeId. Items with no routeId (single
+//    dispatches) are returned separately and render flat, unchanged. ──────────
+function groupByRoute(list) {
+  const groups = new Map()
+  const ungrouped = []
+
+  for (const d of list) {
+    if (d.routeId) {
+      if (!groups.has(d.routeId)) groups.set(d.routeId, [])
+      groups.get(d.routeId).push(d)
+    } else {
+      ungrouped.push(d)
+    }
+  }
+
+  return { groups, ungrouped }
+}
 
 export function DriverDeliveries() {
   const qc = useQueryClient()
@@ -21,15 +39,10 @@ export function DriverDeliveries() {
 
   const deliveries = data?.data ?? []
 
-  // Active Tab State: 'active' | 'completed' | 'failed'
   const [activeTab, setActiveTab]           = useState('active')
-
-  // Modal States
   const [deliveredModal, setDeliveredModal] = useState(null)
   const [failedModal, setFailedModal]       = useState(null)
   const [detailModal, setDetailModal]       = useState(null)
-
-  // Form States
   const [podNotes, setPodNotes]             = useState('')
   const [failReason, setFailReason]         = useState('RecipientAbsent')
   const [failNotes, setFailNotes]           = useState('')
@@ -64,6 +77,7 @@ export function DriverDeliveries() {
   const failed    = deliveries.filter(d => d.status === 'Failed')
 
   const currentList = activeTab === 'active' ? active : activeTab === 'completed' ? completed : failed
+  const { groups, ungrouped } = groupByRoute(currentList)
 
   return (
     <AppShell title="My Deliveries">
@@ -74,7 +88,6 @@ export function DriverDeliveries() {
         </div>
       </div>
 
-      {/* Interactive Stat Cards / Quick Filter */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <button
           onClick={() => setActiveTab('active')}
@@ -98,7 +111,6 @@ export function DriverDeliveries() {
         </button>
       </div>
 
-      {/* Tab Navigation Buttons */}
       <div className="flex border-b border-gray-200 mb-6">
         <button
           onClick={() => setActiveTab('active')}
@@ -132,7 +144,6 @@ export function DriverDeliveries() {
         </button>
       </div>
 
-      {/* Deliveries List */}
       {isLoading ? (
         <PageLoader />
       ) : currentList.length === 0 ? (
@@ -148,102 +159,42 @@ export function DriverDeliveries() {
           />
         </div>
       ) : (
-        <div className="space-y-3">
-          {currentList.map(d => (
-            <div key={d.id} className="card hover:border-gray-300 transition-all">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <button
-                      onClick={() => setDetailModal(d)}
-                      className="hover:scale-105 transition-transform text-left cursor-pointer"
-                      title="Click for full details"
-                    >
-                      <TrackingBadge value={d.trackingNumber} />
-                    </button>
-                    {d.isPickup && (
-                      <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
-                        Pickup
-                      </span>
-                    )}
-                    <StatusPill status={d.status} />
-                    <button
-                      onClick={() => setDetailModal(d)}
-                      className="text-xs text-brand-500 hover:underline flex items-center gap-1 font-medium ml-1"
-                    >
-                      <Info size={13} /> Details
-                    </button>
-                  </div>
-
-                  <div className="flex items-start gap-1.5 text-sm text-gray-600 mb-1">
-                    <MapPin size={14} className="mt-0.5 text-gray-400 flex-shrink-0" />
-                    <div>
-                      <span className="font-medium text-gray-800">
-                        {d.recipientName}
-                      </span>
-                      <br />
-                      {d.deliveryAddress}, {d.city}
-                    </div>
-                  </div>
-
-                  {d.recipientPhone && (
-                    <a
-                      href={`tel:${d.recipientPhone}`}
-                      className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:text-brand-600 font-medium"
-                    >
-                      <Phone size={12} />
-                      {d.recipientPhone}
-                    </a>
-                  )}
-
-                  {d.specialInstructions && (
-                    <p className="mt-2 text-xs text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded border border-amber-200">
-                      ⚠ {d.specialInstructions}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-2 flex-shrink-0">
-                  {activeTab === 'active' && (
-                    <>
-                      <a
-                        href={`https://maps.google.com/?q=${encodeURIComponent(`${d.deliveryAddress}, ${d.city}`)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-secondary btn-sm"
-                      >
-                        <Navigation size={13} />
-                        Navigate
-                      </a>
-                      <button
-                        className="btn-primary btn-sm"
-                        onClick={() => setDeliveredModal(d)}
-                      >
-                        <CheckCircle size={13} />
-                        {d.isPickup ? 'Collected' : 'Delivered'}
-                      </button>
-                      <button
-                        className="btn-danger btn-sm"
-                        onClick={() => setFailedModal(d)}
-                      >
-                        <XCircle size={13} />
-                        Failed
-                      </button>
-                    </>
-                  )}
-
-                  {activeTab !== 'active' && (
-                    <button
-                      className="btn-secondary btn-sm"
-                      onClick={() => setDetailModal(d)}
-                    >
-                      <Info size={13} />
-                      View Details
-                    </button>
-                  )}
-                </div>
+        <div className="space-y-4">
+          {/* Grouped route stops */}
+          {[...groups.entries()].map(([routeId, stops]) => (
+            <div key={routeId} className="rounded-2xl border-2 border-brand-200 bg-brand-50/40 p-3">
+              <div className="flex items-center gap-2 px-2 py-1.5 mb-2">
+                <RouteIcon size={15} className="text-brand-600" />
+                <span className="text-xs font-bold text-brand-700 uppercase tracking-wide">
+                  Route · {stops.length} stop{stops.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {stops.map((d, i) => (
+                  <DeliveryCard
+                    key={d.id}
+                    d={d}
+                    stopNumber={i + 1}
+                    activeTab={activeTab}
+                    onDetail={() => setDetailModal(d)}
+                    onDelivered={() => setDeliveredModal(d)}
+                    onFailed={() => setFailedModal(d)}
+                  />
+                ))}
               </div>
             </div>
+          ))}
+
+          {/* Ungrouped single-dispatch stops — unchanged flat rendering */}
+          {ungrouped.map(d => (
+            <DeliveryCard
+              key={d.id}
+              d={d}
+              activeTab={activeTab}
+              onDetail={() => setDetailModal(d)}
+              onDelivered={() => setDeliveredModal(d)}
+              onFailed={() => setFailedModal(d)}
+            />
           ))}
         </div>
       )}
@@ -286,6 +237,12 @@ export function DriverDeliveries() {
                 <p className="font-medium text-gray-800 mt-0.5">{detailModal.city}</p>
               </div>
             </div>
+
+            {detailModal.routeId && (
+              <div className="flex items-center gap-2 text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+                <RouteIcon size={13} /> Part of a multi-stop route
+              </div>
+            )}
 
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full {detailModal.isPickup ? 'Pickup' : 'Delivery'} Address</p>
@@ -471,5 +428,111 @@ export function DriverDeliveries() {
         </div>
       )}
     </AppShell>
+  )
+}
+
+// ── Single delivery card — used for both grouped-route stops and ungrouped
+//    (single-dispatch) items, so the markup and actions are identical either way.
+function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFailed }) {
+  return (
+    <div className="card hover:border-gray-300 transition-all">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            {stopNumber && (
+              <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                {stopNumber}
+              </span>
+            )}
+            <button
+              onClick={onDetail}
+              className="hover:scale-105 transition-transform text-left cursor-pointer"
+              title="Click for full details"
+            >
+              <TrackingBadge value={d.trackingNumber} />
+            </button>
+            {d.isPickup && (
+              <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
+                Pickup
+              </span>
+            )}
+            <StatusPill status={d.status} />
+            <button
+              onClick={onDetail}
+              className="text-xs text-brand-500 hover:underline flex items-center gap-1 font-medium ml-1"
+            >
+              <Info size={13} /> Details
+            </button>
+          </div>
+
+          <div className="flex items-start gap-1.5 text-sm text-gray-600 mb-1">
+            <MapPin size={14} className="mt-0.5 text-gray-400 flex-shrink-0" />
+            <div>
+              <span className="font-medium text-gray-800">
+                {d.recipientName}
+              </span>
+              <br />
+              {d.deliveryAddress}, {d.city}
+            </div>
+          </div>
+
+          {d.recipientPhone && (
+            <a
+              href={`tel:${d.recipientPhone}`}
+              className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:text-brand-600 font-medium"
+            >
+              <Phone size={12} />
+              {d.recipientPhone}
+            </a>
+          )}
+
+          {d.specialInstructions && (
+            <p className="mt-2 text-xs text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded border border-amber-200">
+              ⚠ {d.specialInstructions}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 flex-shrink-0">
+          {activeTab === 'active' && (
+            <>
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent(`${d.deliveryAddress}, ${d.city}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-secondary btn-sm"
+              >
+                <Navigation size={13} />
+                Navigate
+              </a>
+              <button
+                className="btn-primary btn-sm"
+                onClick={onDelivered}
+              >
+                <CheckCircle size={13} />
+                {d.isPickup ? 'Collected' : 'Delivered'}
+              </button>
+              <button
+                className="btn-danger btn-sm"
+                onClick={onFailed}
+              >
+                <XCircle size={13} />
+                Failed
+              </button>
+            </>
+          )}
+
+          {activeTab !== 'active' && (
+            <button
+              className="btn-secondary btn-sm"
+              onClick={onDetail}
+            >
+              <Info size={13} />
+              View Details
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
