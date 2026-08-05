@@ -221,7 +221,7 @@ public class ParcelService : IParcelService
         await _uow.SaveChangesAsync(ct);
     }
 
-    // ── Check In at Warehouse ─────────────────────────────────────────────────
+    
     // ── Check In at Warehouse ─────────────────────────────────────────────────
     public async Task CheckInAsync(
         Guid parcelId, Guid sortingBinId,
@@ -230,11 +230,24 @@ public class ParcelService : IParcelService
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.AwaitingCheckIn);
 
+        // 🚨 NEW: Force Check-In Inspection
+        var hasInspection = await _uow.Query<ParcelInspection>()
+            .Query()
+            .AnyAsync(i => i.ParcelId == parcel.Id && i.Stage == ParcelInspectionStage.CheckIn, ct);
+
+        if (!hasInspection)
+        {
+            throw new BadRequestException("A check-in inspection must be logged before checking in this parcel.");
+        }
+        // ------------------------------------------------
+
         var bin = await _uow.Query<SortingBin>().GetByIdAsync(sortingBinId, ct)
             ?? throw new NotFoundException("Sorting bin not found.");
 
         if (!bin.IsActive)
             throw new BadRequestException("This sorting bin is inactive and cannot be used.");
+
+       
 
         var assignment = await _uow.Query<ParcelSortingAssignment>()
             .Query()
@@ -275,10 +288,22 @@ public class ParcelService : IParcelService
 
 
     // ── Checkout ──────────────────────────────────────────────────────────────
+    // ── Checkout ──────────────────────────────────────────────────────────────
     public async Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.InWarehouse);
+
+        // 🚨 ENFORCEMENT RULE: Must have a Checkout inspection logged
+        var hasInspection = await _uow.Query<ParcelInspection>()
+            .Query()
+            .AnyAsync(i => i.ParcelId == parcel.Id && i.Stage == ParcelInspectionStage.Checkout, ct);
+
+        if (!hasInspection)
+        {
+            throw new BadRequestException("A checkout inspection must be logged before releasing this parcel for dispatch.");
+        }
+        // -----------------------------------------------------------------
 
         parcel.Status = ParcelStatus.CheckedOut;
         parcel.UpdatedAt = DateTime.UtcNow;

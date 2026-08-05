@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Truck, Users, FileText,
   BarChart3, Settings, LogOut, Bell, Menu, X,
   ClipboardCheck, Warehouse, ShieldCheck, MapPin,
-  CreditCard, AlertTriangle, ChevronRight
+  CreditCard, AlertTriangle, ChevronRight, Archive, Search
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -30,10 +30,10 @@ const NAV = {
     { label: 'Failed',      icon: AlertTriangle,   to: '/dispatcher/failed'    },
   ],
   WarehouseStaff: [
-    { label: 'Dashboard',   icon: LayoutDashboard, to: '/warehouse/dashboard'  },
-    { label: 'Check In',    icon: Warehouse,       to: '/warehouse/checkin'    },
-    { label: 'Inventory',   icon: Package,         to: '/warehouse/inventory'  },
-    { label: 'Inspections', icon: ClipboardCheck,  to: '/warehouse/inspections'},
+    { label: 'Dashboard',    icon: LayoutDashboard, to: '/warehouse/dashboard'  },
+    { label: 'Inventory',    icon: Archive,         to: '/warehouse/inventory'  },
+    { label: 'Processing',   icon: ClipboardCheck,  to: '/warehouse/inspections'},
+    { label: 'Track Parcel', icon: Search,          to: '/warehouse/track'      },
   ],
   Driver: [
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
