@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using CourierSA.Infrastructure.Data;
 using System.Security.Claims;
 using CourierSA.Application.Interfaces.Services;
 
@@ -19,19 +18,18 @@ namespace CourierSA.API.Hubs;
 public class TrackingHub : Hub
 {
     private readonly ILogger<TrackingHub> _logger;
-    private readonly ApplicationDbContext _db;
+    private readonly IParcelService _parcelService;
 
-    public TrackingHub(ILogger<TrackingHub> logger, ApplicationDbContext db)
+    public TrackingHub(ILogger<TrackingHub> logger, IParcelService parcelService)
     {
         _logger = logger;
-        _db     = db;
+        _parcelService = parcelService;
     }
 
     // ── Connection ────────────────────────────────────────────────────────────
     public override async Task OnConnectedAsync()
     {
         var userId = Context.UserIdentifier;
-        // Check ClaimTypes.Role as well as raw "role" or "Role" strings
         var role = Context.User?.FindFirstValue(ClaimTypes.Role)
                   ?? Context.User?.FindFirstValue("role")
                   ?? Context.User?.FindFirstValue("Role");
@@ -83,6 +81,9 @@ public class TrackingHub : Hub
     /// <summary>
     /// Driver app calls this every ~15 seconds while on delivery.
     /// Dispatcher dashboard receives "DriverLocationUpdated".
+    /// Resolves the caller's UserId → DriverProfile via IParcelService, and
+    /// broadcasts DriverProfile.Id — matching the shape of GET /api/drivers/locations
+    /// so the frontend's REST snapshot and live SignalR updates key against the same id.
     /// </summary>
     [Authorize(Roles = "Driver")]
     public async Task UpdateLocation(
@@ -92,38 +93,39 @@ public class TrackingHub : Hub
         double? headingDegrees = null,
         double? speedKmh = null)
     {
-        var driverId = Context.UserIdentifier;
+        var userIdStr = Context.UserIdentifier;
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger.LogWarning("UpdateLocation: unparseable UserIdentifier {UserId}", userIdStr);
+            return;
+        }
+
+        var profileId = await _parcelService.UpdateDriverLocationAsync(
+            userId, (decimal)latitude, (decimal)longitude);
+
+        if (profileId is null)
+        {
+            _logger.LogWarning("UpdateLocation: no DriverProfile found for UserId {UserId} — location not persisted or broadcast", userId);
+            return;
+        }
 
         var payload = new
         {
-            DriverId        = driverId,
-            TrackingNumber  = trackingNumber,
-            Latitude        = latitude,
-            Longitude       = longitude,
-            Heading         = headingDegrees,
-            Speed           = speedKmh,
-            Timestamp       = DateTime.UtcNow
+            DriverId = profileId.Value,
+            TrackingNumber = trackingNumber,
+            Latitude = latitude,
+            Longitude = longitude,
+            Heading = headingDegrees,
+            Speed = speedKmh,
+            Timestamp = DateTime.UtcNow
         };
 
-        // Push to: the parcel's subscriber group + dispatchers
         await Clients.Group($"parcel:{trackingNumber}")
             .SendAsync("LocationUpdate", payload);
 
         await Clients.Group("role:Dispatcher")
             .SendAsync("DriverLocationUpdated", payload);
-
-        // Persist to DB so GET /api/drivers/locations always has current position
-        if (Guid.TryParse(driverId, out var driverGuid))
-        {
-            var profile = await _db.DriverProfiles.FindAsync(driverGuid);
-            if (profile is not null)
-            {
-                profile.CurrentLatitude  = (decimal)latitude;
-                profile.CurrentLongitude = (decimal)longitude;
-                profile.UpdatedAt        = DateTime.UtcNow;
-                await _db.SaveChangesAsync();
-            }
-        }
     }
 
     // ── Dispatcher: ping all drivers ──────────────────────────────────────────
@@ -139,7 +141,6 @@ public class TrackingHub : Hub
 /// Helper service injected into application services to push events to SignalR groups
 /// without the Hub having direct business logic dependencies.
 /// </summary>
-
 public class TrackingHubService : ITrackingHubService
 {
     private readonly IHubContext<TrackingHub> _hub;
@@ -153,16 +154,14 @@ public class TrackingHubService : ITrackingHubService
         var payload = new
         {
             TrackingNumber = trackingNumber,
-            NewStatus      = newStatus,
-            Location       = location,
-            UpdatedAt      = DateTime.UtcNow
+            NewStatus = newStatus,
+            Location = location,
+            UpdatedAt = DateTime.UtcNow
         };
 
-        // Notify the parcel's subscriber group (customer watching their parcel)
         await _hub.Clients.Group($"parcel:{trackingNumber}")
             .SendAsync("ParcelStatusChanged", payload, ct);
 
-        // Also notify dispatchers
         await _hub.Clients.Group("role:Dispatcher")
             .SendAsync("ParcelStatusChanged", payload, ct);
     }

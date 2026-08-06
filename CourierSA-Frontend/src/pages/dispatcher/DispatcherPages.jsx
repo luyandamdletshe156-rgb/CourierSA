@@ -8,10 +8,20 @@ import {
 import { parcelApi, adminApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
-  Clock, UserCheck, Send, RefreshCw
+  Clock, UserCheck, Send, RefreshCw, AlertTriangle
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
+
+// Wait-time triage: dispatchers should see the oldest bookings first without
+// having to eyeball timestamps. Thresholds are deliberately generous —
+// most bookings should clear well before "Aging" ever shows.
+function getWaitState(createdAt) {
+  const hours = (Date.now() - new Date(createdAt).getTime()) / 36e5
+  if (hours >= 4) return { label: 'Urgent', dot: 'bg-[#DC2626]', text: 'text-[#DC2626]', bg: 'bg-[#FEF2F2]', border: 'border-l-[#DC2626]' }
+  if (hours >= 2) return { label: 'Aging', dot: 'bg-[#D97706]', text: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-l-[#D97706]' }
+  return null
+}
 
 export function DispatcherDashboard() {
   const qc = useQueryClient()
@@ -43,6 +53,7 @@ export function DispatcherDashboard() {
   const drivers = driversData ?? []
   const activeDrivers = drivers.filter(d => d.status === 'OnDelivery' || d.status === 'Available').length
   const outForDeliveryCount = outForDeliveryData?.data?.totalCount ?? 0
+  const urgentCount = pending.filter(p => getWaitState(p.createdAt)?.label === 'Urgent').length
 
   const approveMutation = useMutation({
     mutationFn: (id) => parcelApi.approve(id),
@@ -76,15 +87,31 @@ export function DispatcherDashboard() {
 
       {/* Hero Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Awaiting Approval" value={pendingData?.data?.totalCount ?? pending.length} icon={Clock} color="bg-[#F59E0B]" />
+        <StatCard
+          label="Awaiting Approval"
+          value={pendingData?.data?.totalCount ?? pending.length}
+          icon={Clock}
+          color={urgentCount > 0 ? 'bg-[#DC2626]' : 'bg-[#F59E0B]'}
+        />
         <StatCard label="Active Drivers" value={activeDrivers} icon={Truck} color="bg-[#1E63E9]" />
         <StatCard label="Out For Delivery" value={outForDeliveryCount} icon={MapPin} color="bg-[#0A3D91]" />
-        
+
         {/* Clickable Maintenance Swaps Card */}
-        <Link to="/dispatcher/swaps" className="block hover:-translate-y-0.5 transition-transform">
+        <Link to="/dispatcher/swaps" className="block hover:-translate-y-0.5 transition-transform duration-200 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2">
           <StatCard label="Maintenance Swaps" value="0" icon={RefreshCw} color="bg-[#64748B]" />
         </Link>
       </div>
+
+      {approveMutation.error && (
+        <Alert type="error" message={approveMutation.error.message} className="mb-4" />
+      )}
+
+      {urgentCount > 0 && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 bg-[#FEF2F2] border border-[#DC2626]/20 rounded-xl text-xs font-semibold text-[#DC2626]">
+          <AlertTriangle size={14} />
+          {urgentCount} booking{urgentCount !== 1 ? 's have' : ' has'} been waiting over 4 hours — review these first.
+        </div>
+      )}
 
       {/* Queue Table */}
       <div className="card overflow-hidden">
@@ -111,40 +138,58 @@ export function DispatcherDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {pending.map(p => (
-                  <tr key={p.id} className="hover:bg-[#F6FAFF] transition-colors">
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <TrackingBadge value={p.trackingNumber} />
-                        {p.isFragile && <span className="text-[10px] font-bold bg-[#FEF3C7] text-[#D97706] px-1.5 py-0.5 rounded">Fragile</span>}
-                      </div>
-                    </td>
-                    <td>
-                      <p className="text-sm font-semibold text-[#172554] capitalize">{p.serviceType}</p>
-                      <p className="text-xs text-[#64748B]">{p.zone ? `Zone: ${p.zone}` : 'Unassigned Zone'}</p>
-                    </td>
-                    <td className="text-xs text-[#64748B] font-medium">{p.destinationCity}</td>
-                    <td>
-                      <p className="text-xs text-[#172554] font-mono font-semibold">{p.weightKg} kg</p>
-                      <p className="text-xs text-[#10B981] font-mono">{p.quoteAmountZAR ? formatZAR(p.quoteAmountZAR) : '—'}</p>
-                    </td>
-                    <td className="text-xs text-[#94A3B8] font-mono">{formatDate(p.createdAt, { time: true })}</td>
-                    <td className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button className="btn-danger btn-sm" onClick={() => setRejectModal(p)}>
-                          <XCircle size={14} /> Reject
-                        </button>
-                        <button
-                          className="btn-primary btn-sm"
-                          disabled={approveMutation.isPending}
-                          onClick={() => approveMutation.mutate(p.id)}
-                        >
-                          <CheckCircle2 size={14} /> Approve
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {pending.map(p => {
+                  const wait = getWaitState(p.createdAt)
+                  return (
+                    <tr
+                      key={p.id}
+                      className={clsx(
+                        "transition-colors duration-150 border-l-4",
+                        wait ? clsx(wait.bg, wait.border) : "border-l-transparent hover:bg-[#F6FAFF]"
+                      )}
+                    >
+                      <td>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <TrackingBadge value={p.trackingNumber} />
+                          {p.isFragile && <span className="text-[10px] font-bold bg-[#FEF3C7] text-[#D97706] px-1.5 py-0.5 rounded">Fragile</span>}
+                          {wait && (
+                            <span className={clsx("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded", wait.text)}>
+                              <span className={clsx("w-1.5 h-1.5 rounded-full", wait.dot)} />
+                              {wait.label}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <p className="text-sm font-semibold text-[#172554] capitalize">{p.serviceType}</p>
+                        <p className="text-xs text-[#64748B]">{p.zone ? `Zone: ${p.zone}` : 'Unassigned Zone'}</p>
+                      </td>
+                      <td className="text-xs text-[#64748B] font-medium">{p.destinationCity}</td>
+                      <td>
+                        <p className="text-xs text-[#172554] font-mono font-semibold">{p.weightKg} kg</p>
+                        <p className="text-xs text-[#10B981] font-mono">{p.quoteAmountZAR ? formatZAR(p.quoteAmountZAR) : '—'}</p>
+                      </td>
+                      <td className="text-xs text-[#94A3B8] font-mono">{formatDate(p.createdAt, { time: true })}</td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="btn-danger btn-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-1"
+                            onClick={() => setRejectModal(p)}
+                          >
+                            <XCircle size={14} /> Reject
+                          </button>
+                          <button
+                            className="btn-primary btn-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-1"
+                            disabled={approveMutation.isPending}
+                            onClick={() => approveMutation.mutate(p.id)}
+                          >
+                            <CheckCircle2 size={14} /> Approve
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -190,23 +235,31 @@ export function DispatchQueue() {
   })
 
   const { data: driversData, isLoading: driversLoading } = useQuery({
-    queryKey: ['dispatcher-[#available-drivers]'],
+    queryKey: ['dispatcher-available-drivers'],
     queryFn: async () => {
       const res = await adminApi.drivers()
       const list = Array.isArray(res) ? res : res?.data || []
-      return list.filter(d => d.status === 'Available' || d.status === 'OnDelivery')
+      // Only fully free drivers can take a new dispatch — a driver mid-route
+      // (OnDelivery) can't accept another delivery until they're back to Available.
+      return list.filter(d => d.status === 'Available')
     },
     refetchInterval: 15000,
   })
 
   const parcels = parcelsData?.data?.items ?? []
   const drivers = driversData ?? []
+  const selectedParcel = parcels.find(p => p.id === selectedParcelId)
+
+  const handleSelectParcel = (id) => {
+    setSelectedParcelId(id)
+    setSelectedDriverId('') // reset so a stale driver pick can't follow to a different parcel
+  }
 
   const dispatchMutation = useMutation({
     mutationFn: () => parcelApi.dispatch({ parcelId: selectedParcelId, driverId: selectedDriverId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
-      qc.invalidateQueries({ queryKey: ['dispatcher-drivers'] })
+      qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
       setSelectedParcelId('')
       setSelectedDriverId('')
     },
@@ -248,9 +301,9 @@ export function DispatchQueue() {
                   {parcels.map(p => (
                     <tr
                       key={p.id}
-                      onClick={() => setSelectedParcelId(p.id)}
+                      onClick={() => handleSelectParcel(p.id)}
                       className={clsx(
-                        "cursor-pointer transition-colors",
+                        "cursor-pointer transition-colors duration-150",
                         selectedParcelId === p.id ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
                       )}
                     >
@@ -259,8 +312,8 @@ export function DispatchQueue() {
                           type="radio"
                           name="selectedParcel"
                           checked={selectedParcelId === p.id}
-                          onChange={() => setSelectedParcelId(p.id)}
-                          className="w-4 h-4 text-[#0A3D91]"
+                          onChange={() => handleSelectParcel(p.id)}
+                          className="w-4 h-4 text-[#0A3D91] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-1"
                         />
                       </td>
                       <td><TrackingBadge value={p.trackingNumber} /></td>
@@ -275,17 +328,24 @@ export function DispatchQueue() {
           )}
         </div>
 
-        <div className="card p-5 h-max space-y-5">
+        <div className="card p-5 h-max space-y-5 lg:sticky lg:top-6">
           <h2 className="text-base font-bold text-[#172554] flex items-center gap-2 border-b border-[#E2E8F0] pb-3">
             <Send size={18} className="text-[#0A3D91]" /> Dispatch Assignment
           </h2>
 
-          {!selectedParcelId ? (
+          {!selectedParcel ? (
             <Alert type="warning" message="Select a parcel from the list on the left to assign a driver." />
           ) : (
-            <div className="bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] text-xs space-y-1">
-              <p className="text-[#94A3B8] uppercase font-bold text-[10px]">Selected Parcel</p>
-              <p className="font-mono font-bold text-[#172554]">ID: {selectedParcelId}</p>
+            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
+              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">Selected Parcel</p>
+              <TrackingBadge value={selectedParcel.trackingNumber} />
+              <div className="flex items-center gap-1.5 text-xs text-[#475569]">
+                <MapPin size={12} className="text-[#94A3B8]" />
+                {selectedParcel.destinationCity}
+              </div>
+              {selectedParcel.binCode && (
+                <p className="text-xs text-[#94A3B8]">Bin: <span className="font-mono font-semibold text-[#172554]">{selectedParcel.binCode}</span></p>
+              )}
             </div>
           )}
 
@@ -293,9 +353,14 @@ export function DispatchQueue() {
             <label className="label">Select Available Driver</label>
             {driversLoading ? (
               <p className="text-xs text-[#94A3B8]">Loading drivers...</p>
+            ) : drivers.length === 0 ? (
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
+                <UserCheck size={14} className="text-[#94A3B8] mt-0.5 flex-shrink-0" />
+                No drivers currently available — all active drivers are mid-route.
+              </div>
             ) : (
               <select
-                className="input bg-white"
+                className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
                 value={selectedDriverId}
                 onChange={(e) => setSelectedDriverId(e.target.value)}
                 disabled={!selectedParcelId}
@@ -303,7 +368,7 @@ export function DispatchQueue() {
                 <option value="">Choose Driver...</option>
                 {drivers.map(d => (
                   <option key={d.id} value={d.id}>
-                    {d.user?.fullName ?? `Driver #${d.id.substring(0,6)}`} ({d.status})
+                    {d.user?.fullName ?? `Driver #${d.id.substring(0,6)}`}
                   </option>
                 ))}
               </select>
@@ -315,7 +380,7 @@ export function DispatchQueue() {
           )}
 
           <button
-            className="btn-primary w-full py-3 justify-center text-sm shadow-md"
+            className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!selectedParcelId || !selectedDriverId || dispatchMutation.isPending}
             onClick={() => dispatchMutation.mutate()}
           >

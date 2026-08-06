@@ -1,18 +1,19 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { z } from 'zod'
 import CardPaymentForm from '@/components/payment/CardPaymentForm'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import { Alert, Spinner } from '@/components/ui'
+import { Alert } from '@/components/ui'
 import { parcelApi, quoteApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
+import { ParcelCartProvider, useParcelCart } from './ParcelCartContext'
+import CartSummaryPanel from './CartSummaryPanel'
 import {
   MapPin, Package, Calculator, CheckCircle,
   ChevronRight, ChevronLeft, Info, Shield,
   AlertTriangle, Truck, Zap, Clock, TrendingDown,
-  UploadCloud, Calendar, Flame
+  Calendar, Flame, Wallet, PlusCircle, ShoppingCart,
 } from 'lucide-react'
 import { SA_PROVINCES, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -28,6 +29,7 @@ const addressSchema = z.object({
     city:           z.string().min(2, 'City required'),
     province:       z.string().min(1, 'Province required'),
     postalCode:     z.string().regex(/^\d{4}$/, 'SA postal codes are 4 digits'),
+    specialInstructions: z.string().max(200).optional(),
   }),
   deliveryAddress: z.object({
     recipientName:  z.string().min(2, 'Recipient name required'),
@@ -38,8 +40,52 @@ const addressSchema = z.object({
     city:           z.string().min(2, 'City required'),
     province:       z.string().min(1, 'Province required'),
     postalCode:     z.string().regex(/^\d{4}$/, 'SA postal codes are 4 digits'),
+    specialInstructions: z.string().max(200).optional(),
   }),
 })
+
+// CreateAddressDto on the backend requires Country and SpecialInstructions per address.
+// Country is fixed — this is a South Africa-only courier — so we fill it in here rather
+// than asking the customer to type it. Dimensions is optional on CreateParcelDto but the
+// form doesn't collect it, so it's sent explicitly as null rather than silently omitted.
+const DEFAULT_COUNTRY = 'South Africa'
+
+// SaProvince enum members are PascalCase with no spaces/hyphens (e.g. "KwaZuluNatal",
+// "WesternCape"). SA_PROVINCES in utils.js is a display list and very likely uses
+// human-readable labels ("KwaZulu-Natal", "Western Cape") as values instead. Rather than
+// depend on utils.js being edited to match, normalize whatever comes out of the dropdown
+// (spacing/hyphenation/casing all stripped) against the real enum names before sending.
+const SA_PROVINCE_ENUM_NAMES = [
+  'Gauteng', 'WesternCape', 'EasternCape', 'KwaZuluNatal',
+  'Limpopo', 'Mpumalanga', 'NorthWest', 'NorthernCape', 'FreeState',
+]
+
+function toProvinceEnum(value) {
+  if (!value) return value
+  const normalized = value.replace(/[\s-]/g, '').toLowerCase()
+  const match = SA_PROVINCE_ENUM_NAMES.find(name => name.toLowerCase() === normalized)
+  if (!match) {
+    // Unrecognised — send through as-is so the backend's own validation error surfaces
+    // instead of silently swallowing a real data problem here.
+    console.warn(`Unrecognised province value "${value}" — check it matches a SaProvince enum member.`)
+  }
+  return match || value
+}
+
+function toAddressDto(addr) {
+  return {
+    recipientName:  addr?.recipientName,
+    recipientPhone: addr?.recipientPhone,
+    recipientEmail: addr?.recipientEmail || null,
+    streetAddress:  addr?.streetAddress,
+    suburb:         addr?.suburb || null,
+    city:           addr?.city,
+    province:       toProvinceEnum(addr?.province),
+    postalCode:     addr?.postalCode,
+    country:        DEFAULT_COUNTRY,
+    specialInstructions: addr?.specialInstructions?.trim() || null,
+  }
+}
 
 const parcelSchema = z.object({
   serviceType:         z.string().min(1, 'Select a service type'),
@@ -49,22 +95,17 @@ const parcelSchema = z.object({
   isFragile:           z.boolean().default(false),
   requiresSignature:   z.boolean().default(false),
   insuranceRequired:   z.boolean().default(false),
-  isEmergency:         z.boolean().default(false),
+  isEmergency:          z.boolean().default(false),
   scheduledPickupDate: z.string().optional(),
   specialInstructions: z.string().max(300).optional(),
-  dimensions: z.object({
-    lengthCm: z.union([z.coerce.number().min(1).max(300), z.literal('')]).optional(),
-    widthCm:  z.union([z.coerce.number().min(1).max(300), z.literal('')]).optional(),
-    heightCm: z.union([z.coerce.number().min(1).max(300), z.literal('')]).optional(),
-  }).optional(),
 })
 
 // ── Step metadata ─────────────────────────────────────────────────────────────
 const STEPS = [
-  { id: 1, label: 'Addresses',     icon: MapPin       },
-  { id: 2, label: 'Parcel details',icon: Package      },
-  { id: 3, label: 'Quote',         icon: Calculator   },
-  { id: 4, label: 'Confirm',       icon: CheckCircle  },
+  { id: 1, label: 'Addresses',      icon: MapPin      },
+  { id: 2, label: 'Parcel details', icon: Package     },
+  { id: 3, label: 'Quote',          icon: Calculator  },
+  { id: 4, label: 'Confirm',        icon: CheckCircle },
 ]
 
 function StepIndicator({ currentStep }) {
@@ -95,7 +136,13 @@ function Step1Addresses({ onNext }) {
   const Field = ({ prefix, name, label, placeholder, span, required }) => (
     <div className={span ? 'col-span-2' : ''}>
       <label className="label">{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
-      <input type="text" className={clsx('input', errors[prefix]?.[name] && 'input-error')} placeholder={placeholder} {...register(`${prefix}.${name}`)} />
+      <input
+        type="text"
+        className={clsx('input', errors[prefix]?.[name] && 'input-error')}
+        placeholder={placeholder}
+        aria-invalid={!!errors[prefix]?.[name]}
+        {...register(`${prefix}.${name}`)}
+      />
       {errors[prefix]?.[name] && <p className="field-error">{errors[prefix][name].message}</p>}
     </div>
   )
@@ -134,6 +181,11 @@ function Step1Addresses({ onNext }) {
               {errors[prefix]?.province && <p className="field-error">{errors[prefix].province.message}</p>}
             </div>
             <Field prefix={prefix} name="postalCode" label="Postal code" placeholder="4001" required />
+            <Field
+              prefix={prefix} name="specialInstructions" span
+              label={i === 0 ? 'Pickup location notes (optional)' : 'Delivery location notes (optional)'}
+              placeholder="e.g. Gate code 4521, blue security gate, unit 12B"
+            />
           </div>
         </div>
       ))}
@@ -144,40 +196,42 @@ function Step1Addresses({ onNext }) {
   )
 }
 
-// ── Step 2: Parcel details (With Risk Assessment & Emergency) ─────────────────
+// ── Step 2: Parcel details ─────────────────────────────────────────────────────
 const SERVICE_META = {
-  Economy:  { icon: TrendingDown, label: 'Economy',  sub: '5–7 business days',  color: 'text-[#64748B]'  },
-  Standard: { icon: Truck,        label: 'Standard', sub: '3–5 business days',  color: 'text-[#1E63E9]'  },
-  Express:  { icon: Zap,          label: 'Express',  sub: '1–2 business days',  color: 'text-[#0A3D91]' },
-  Overnight:{ icon: Clock,        label: 'Overnight',sub: 'Next business day',  color: 'text-purple-500'},
-  SameDay:  { icon: Zap,          label: 'Same day', sub: 'Delivered today',    color: 'text-[#EF4444]'   },
+  Economy:   { icon: TrendingDown, label: 'Economy',   sub: '5–7 business days', color: 'text-[#64748B]'  },
+  Standard:  { icon: Truck,        label: 'Standard',  sub: '3–5 business days', color: 'text-[#1E63E9]'  },
+  Express:   { icon: Zap,          label: 'Express',   sub: '1–2 business days', color: 'text-[#0A3D91]'  },
+  Overnight: { icon: Clock,        label: 'Overnight', sub: 'Next business day', color: 'text-purple-500' },
+  SameDay:   { icon: Zap,          label: 'Same day',  sub: 'Delivered today',   color: 'text-[#EF4444]'  },
 }
 
-function Step2ParcelDetails({ onNext, onBack }) {
+// nextButtonLabel lets us reuse this step for both "Get quote" (single booking)
+// and "Add to cart" (multi-parcel booking) flows without duplicating the form.
+function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   const { register, watch, setValue, handleSubmit, setError, clearErrors, formState: { errors: e } } = useFormContext()
 
-  const serviceType  = watch('serviceType')
-  const isFragile    = watch('isFragile')
-  const isEmergency  = watch('isEmergency')
-  const declaredVal  = Number(watch('declaredValueZAR')) || 0
-  
-  // ── 1. RISK ASSESSMENT LOGIC ──
-  // If declared value > R2000 OR item is fragile, force insurance
-  const isHighRisk = isFragile || declaredVal >= 2000;
-  
+  const serviceType = watch('serviceType')
+  const isFragile   = watch('isFragile')
+  const isEmergency = watch('isEmergency')
+  const declaredVal = Number(watch('declaredValueZAR')) || 0
+
+  // Automatic risk assessment: fragile or high-value (>= R2,000) forces insurance on.
+  // We deliberately don't auto-uncheck it if the risk condition later clears —
+  // once a customer has opted into cover for a shipment, silently removing it
+  // is a worse failure mode than leaving it on.
+  const isHighRisk = isFragile || declaredVal >= 2000
   useEffect(() => {
     if (isHighRisk) setValue('insuranceRequired', true, { shouldValidate: true })
   }, [isHighRisk, setValue])
 
-  // ── 2. EMERGENCY ESCALATION LOGIC ──
-  // Force SameDay service if escalated
+  // Emergency escalation forces Same Day service.
   useEffect(() => {
     if (isEmergency) setValue('serviceType', 'SameDay', { shouldValidate: true })
   }, [isEmergency, setValue])
 
   const submit = handleSubmit(async (data) => {
     try {
-      clearErrors(['serviceType', 'weightKg', 'description', 'declaredValueZAR', 'dimensions'])
+      clearErrors(['serviceType', 'weightKg', 'description', 'declaredValueZAR'])
       await parcelSchema.parseAsync(data)
       onNext()
     } catch (err) { err?.issues?.forEach(issue => setError(issue.path.join('.'), { message: issue.message })) }
@@ -185,29 +239,26 @@ function Step2ParcelDetails({ onNext, onBack }) {
 
   return (
     <div className="space-y-5">
-      {/* Risk Warning Alert */}
       {isHighRisk && (
-        <div className="flex gap-3 px-4 py-3 bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl text-[#047857] animate-in fade-in">
+        <div className="flex gap-3 px-4 py-3 bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl text-[#047857]">
           <Shield size={20} className="mt-0.5 flex-shrink-0" />
           <div className="text-sm">
-            <strong>Automatic Risk Assessment</strong>
-            <p className="mt-0.5 opacity-90">Because your item is marked as fragile or high-value (≥ R2,000), insurance coverage has been automatically applied to protect your goods.</p>
+            <strong>Automatic risk assessment</strong>
+            <p className="mt-0.5 opacity-90">Because this item is fragile or high-value (≥ R2,000), insurance cover has been applied automatically.</p>
           </div>
         </div>
       )}
 
-      {/* Emergency Warning Alert */}
       {isEmergency && (
-        <div className="flex gap-3 px-4 py-3 bg-[#EF4444]/10 border border-[#EF4444]/20 rounded-xl text-[#B91C1C] animate-in fade-in">
+        <div className="flex gap-3 px-4 py-3 bg-[#EF4444]/10 border border-[#EF4444]/20 rounded-xl text-[#B91C1C]">
           <Flame size={20} className="mt-0.5 flex-shrink-0" />
           <div className="text-sm">
-            <strong>Emergency Escalation Active</strong>
-            <p className="mt-0.5 opacity-90">Your parcel will be prioritized by dispatchers. Service type has been locked to <b>Same Day</b>.</p>
+            <strong>Emergency escalation active</strong>
+            <p className="mt-0.5 opacity-90">Dispatchers will prioritise this parcel. Service type is locked to <b>Same Day</b>.</p>
           </div>
         </div>
       )}
 
-      {/* Basic info */}
       <div className="card">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -227,14 +278,13 @@ function Step2ParcelDetails({ onNext, onBack }) {
         </div>
       </div>
 
-      {/* Scheduling & Instructions */}
       <div className="card">
         <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Logistics</h3></div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label flex items-center gap-1.5"><Calendar size={14}/> Schedule collection</label>
-            <input type="date" className="input" {...register('scheduledPickupDate')} min={new Date().toISOString().split('T')[0]} />
-            <p className="text-xs text-[#94A3B8] mt-1.5">Leave blank for ASAP collection</p>
+            <label className="label flex items-center gap-1.5"><Calendar size={14} /> Schedule collection</label>
+            <input type="date" className="input" {...register('scheduledPickupDate')} min={new Date().toISOString().split('T')[0]} disabled={isEmergency} />
+            <p className="text-xs text-[#94A3B8] mt-1.5">{isEmergency ? 'Not available for emergency escalations — collection is immediate.' : 'Leave blank for ASAP collection'}</p>
           </div>
           <div>
             <label className="label">Driver special instructions</label>
@@ -243,7 +293,6 @@ function Step2ParcelDetails({ onNext, onBack }) {
         </div>
       </div>
 
-      {/* Service type */}
       <div className="card">
         <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Service type</h3></div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -264,15 +313,14 @@ function Step2ParcelDetails({ onNext, onBack }) {
         {e.serviceType && <p className="field-error mt-2">{e.serviceType.message}</p>}
       </div>
 
-      {/* Options */}
       <div className="card">
         <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Options</h3></div>
         <div className="grid sm:grid-cols-2 gap-3">
           {[
-            { field: 'isFragile', icon: AlertTriangle, color: 'text-[#F59E0B]', label: 'Fragile contents', sub: 'Handle with extra care' },
-            { field: 'requiresSignature', icon: CheckCircle, color: 'text-[#1E63E9]', label: 'Signature required', sub: 'Sign on delivery' },
-            { field: 'insuranceRequired', icon: Shield, color: 'text-[#10B981]', label: 'Parcel insurance', sub: 'Protect your items', disabled: isHighRisk },
-            { field: 'isEmergency', icon: Flame, color: 'text-[#EF4444]', label: 'Emergency Escalation', sub: 'Top priority dispatch' },
+            { field: 'isFragile',         icon: AlertTriangle, color: 'text-[#F59E0B]', label: 'Fragile contents',    sub: 'Handle with extra care' },
+            { field: 'requiresSignature', icon: CheckCircle,   color: 'text-[#1E63E9]', label: 'Signature required',  sub: 'Sign on delivery' },
+            { field: 'insuranceRequired', icon: Shield,        color: 'text-[#10B981]', label: 'Parcel insurance',    sub: 'Protect your items', disabled: isHighRisk },
+            { field: 'isEmergency',        icon: Flame,         color: 'text-[#EF4444]', label: 'Emergency escalation', sub: 'Top priority dispatch' },
           ].map(({ field, icon: Icon, color, label, sub, disabled }) => {
             const value = watch(field)
             return (
@@ -290,13 +338,43 @@ function Step2ParcelDetails({ onNext, onBack }) {
 
       <div className="flex justify-between pt-2">
         <button type="button" onClick={onBack} className="btn-secondary"><ChevronLeft size={16} /> Back</button>
-        <button type="button" onClick={submit} className="btn-primary">Get quote <ChevronRight size={16} /></button>
+        <button type="button" onClick={submit} className="btn-primary">{nextButtonLabel} <ChevronRight size={16} /></button>
       </div>
     </div>
   )
 }
 
-// ── Step 3: Quote ─────────────────────────────────────────────────────────────
+// ── Payment method picker (shared by single + cart checkout) ──────────────────
+function PaymentMethodPicker({ paymentMethod, setPaymentMethod, amount, walletBalance, walletLoading }) {
+  const canPayWallet = !walletLoading && walletBalance >= amount
+
+  return (
+    <div className="card">
+      <h3 className="text-sm font-bold text-[#172554] mb-4">Payment</h3>
+      <div className="space-y-3">
+        <label className="flex items-center gap-3">
+          <input type="radio" name="paymentMethod" checked={paymentMethod === 'Card'} onChange={() => setPaymentMethod('Card')} />
+          Pay by card
+        </label>
+
+        <label className={clsx('flex items-center gap-3', !canPayWallet && 'opacity-60')}>
+          <input type="radio" name="paymentMethod" checked={paymentMethod === 'Wallet'} disabled={!canPayWallet} onChange={() => setPaymentMethod('Wallet')} />
+          <span className="flex items-center gap-1.5"><Wallet size={14} /> Pay from wallet</span>
+          <span className="text-xs text-[#64748B] ml-auto">
+            {walletLoading ? 'Loading balance…' : canPayWallet ? `Balance: ${formatZAR(walletBalance)}` : `Insufficient balance (${formatZAR(walletBalance)})`}
+          </span>
+        </label>
+
+        <label className="flex items-center gap-3">
+          <input type="radio" name="paymentMethod" checked={paymentMethod === 'CashOnCollection'} onChange={() => setPaymentMethod('CashOnCollection')} />
+          Cash on collection
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ── Step 3: Quote (single booking) ─────────────────────────────────────────────
 function Step3Quote({ onNext, onBack }) {
   const { watch } = useFormContext(); const formData = watch()
   const [quote, setQuote] = useState(null); const [quoteError, setQuoteError] = useState('')
@@ -312,14 +390,12 @@ function Step3Quote({ onNext, onBack }) {
   const fetchQuote = () => {
     setQuoteError('')
     quoteMutation.mutate({
-      originProvince: formData.pickupAddress?.province, destinationProvince: formData.deliveryAddress?.province,
+      originProvince: toProvinceEnum(formData.pickupAddress?.province), destinationProvince: toProvinceEnum(formData.deliveryAddress?.province),
       weightKg: Number(formData.weightKg), serviceType: formData.serviceType,
       declaredValueZAR: formData.declaredValueZAR ? Number(formData.declaredValueZAR) : null,
       insuranceRequired: formData.insuranceRequired ?? false,
     })
   }
-
-  const canPayWallet = walletBalance >= (quote?.totalAmountZAR ?? 0)
 
   return (
     <div className="space-y-5">
@@ -337,16 +413,14 @@ function Step3Quote({ onNext, onBack }) {
           <div className="card">
             <h3 className="text-sm font-bold text-[#172554] mb-4">Total: {formatZAR(quote.totalAmountZAR)}</h3>
           </div>
-          <div className="card">
-            <h3 className="text-sm font-bold text-[#172554] mb-4">Payment</h3>
-            <div className="space-y-3">
-              <label className="flex gap-3"><input type="radio" checked={paymentMethod === 'Card'} onChange={() => setPaymentMethod('Card')} /> Pay by card</label>
-              <label className="flex gap-3"><input type="radio" checked={paymentMethod === 'CashOnCollection'} onChange={() => setPaymentMethod('CashOnCollection')} /> Cash on collection</label>
-            </div>
-          </div>
+
+          <PaymentMethodPicker
+            paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
+            amount={quote.totalAmountZAR} walletBalance={walletBalance} walletLoading={walletLoading}
+          />
+
           {paymentMethod === 'Card' && (
             <div className="card">
-              {/* Note: The CardPaymentForm will return the cardToken object on submit */}
               <CardPaymentForm amount={quote.totalAmountZAR} submitLabel="Continue" onSubmit={(token) => onNext({ quote, paymentMethod, cardToken: token })} />
             </div>
           )}
@@ -363,14 +437,54 @@ function Step3Quote({ onNext, onBack }) {
   )
 }
 
-// ── Step 4: Confirm ───────────────────────────────────────────────────────────
-function Step4Confirm({ onBack, onSubmit, isSubmitting, error }) {
+// ── Step 4: Confirm (single booking) — now shows an actual review ─────────────
+function SummaryRow({ label, value }) {
+  if (value === null || value === undefined || value === '') return null
   return (
-    <div className="card text-center space-y-6">
-      <h3 className="text-xl font-bold">Review your booking</h3>
+    <div className="flex justify-between py-1.5 text-sm">
+      <span className="text-[#64748B]">{label}</span>
+      <span className="font-semibold text-[#172554] text-right">{value}</span>
+    </div>
+  )
+}
+
+function Step4Confirm({ onBack, onSubmit, isSubmitting, error }) {
+  const { watch } = useFormContext()
+  const data = watch()
+
+  return (
+    <div className="space-y-5">
+      <div className="card">
+        <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Pickup</h3></div>
+        <SummaryRow label="Contact" value={data.pickupAddress?.recipientName} />
+        <SummaryRow label="Address" value={[data.pickupAddress?.streetAddress, data.pickupAddress?.suburb, data.pickupAddress?.city].filter(Boolean).join(', ')} />
+        <SummaryRow label="Postal code" value={data.pickupAddress?.postalCode} />
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Delivery</h3></div>
+        <SummaryRow label="Contact" value={data.deliveryAddress?.recipientName} />
+        <SummaryRow label="Address" value={[data.deliveryAddress?.streetAddress, data.deliveryAddress?.suburb, data.deliveryAddress?.city].filter(Boolean).join(', ')} />
+        <SummaryRow label="Postal code" value={data.deliveryAddress?.postalCode} />
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h3 className="text-sm font-bold text-[#172554]">Parcel</h3></div>
+        <SummaryRow label="Service" value={data.serviceType} />
+        <SummaryRow label="Weight" value={`${data.weightKg} kg`} />
+        <SummaryRow label="Description" value={data.description} />
+        <SummaryRow label="Fragile" value={data.isFragile ? 'Yes' : null} />
+        <SummaryRow label="Signature required" value={data.requiresSignature ? 'Yes' : null} />
+        <SummaryRow label="Insurance" value={data.insuranceRequired ? 'Included' : null} />
+        <SummaryRow label="Emergency escalation" value={data.isEmergency ? 'Yes — Same Day priority' : null} />
+        <SummaryRow label="Scheduled collection" value={data.scheduledPickupDate || null} />
+        <SummaryRow label="Instructions" value={data.specialInstructions} />
+      </div>
+
       {error && <Alert type="error" message={error} />}
-      <div className="flex justify-between">
-        <button type="button" onClick={onBack} className="btn-secondary" disabled={isSubmitting}>Back</button>
+
+      <div className="flex justify-between pt-2">
+        <button type="button" onClick={onBack} className="btn-secondary" disabled={isSubmitting}><ChevronLeft size={16} /> Back</button>
         <button type="button" onClick={onSubmit} disabled={isSubmitting} className="btn-primary px-8">
           {isSubmitting ? 'Booking…' : 'Confirm booking'}
         </button>
@@ -379,41 +493,8 @@ function Step4Confirm({ onBack, onSubmit, isSubmitting, error }) {
   )
 }
 
-// ── Bulk Upload Component (Cart equivalent) ───────────────────────────────────
-function BulkUploadCSV() {
-  const [file, setFile] = useState(null)
-  const [status, setStatus] = useState('')
-
-  const handleUpload = async () => {
-    if (!file) return
-    const formData = new FormData()
-    formData.append('file', file)
-    setStatus('Uploading...')
-    try {
-      // Calls the /api/parcels/bulk-upload endpoint you shared earlier
-      const res = await parcelApi.bulkUpload(formData) 
-      setStatus(`Success: ${res.data.successful} booked, ${res.data.failed} failed.`)
-    } catch (e) {
-      setStatus(`Error: ${e.message}`)
-    }
-  }
-
-  return (
-    <div className="card text-center py-12">
-      <UploadCloud size={48} className="text-[#0A3D91] mx-auto mb-4" />
-      <h3 className="text-lg font-bold text-[#172554] mb-2">Bulk Parcel Upload</h3>
-      <p className="text-sm text-[#64748B] mb-6">Upload a CSV file to book multiple parcels at once (like a cart checkout).</p>
-      <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} className="mb-4 text-sm" />
-      <br/>
-      <button onClick={handleUpload} disabled={!file} className="btn-primary px-8 mx-auto">Upload & Process Bulk</button>
-      {status && <p className="mt-4 text-sm font-semibold text-[#172554]">{status}</p>}
-    </div>
-  )
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
-export default function BookParcelPage() {
-  const [mode, setMode] = useState('single') // 'single' | 'bulk'
+// ── Single-parcel booking flow ─────────────────────────────────────────────────
+function SingleParcelFlow() {
   const [step, setStep] = useState(1)
   const [quoteData, setQuoteData] = useState(null)
   const [success, setSuccess] = useState(null)
@@ -425,48 +506,228 @@ export default function BookParcelPage() {
   const handleSubmit = () => {
     setBookError('')
     const data = methods.getValues()
-    
-    // Concatenate Emergency and Scheduling info into SpecialInstructions for the backend
-    let finalInstructions = data.specialInstructions || ''
-    if (data.isEmergency) finalInstructions = `[EMERGENCY ESCALATION] ${finalInstructions}`
-    if (data.scheduledPickupDate) finalInstructions = `[SCHEDULED PICKUP: ${data.scheduledPickupDate}] ${finalInstructions}`
 
     bookMutation.mutate({
-      pickupAddress: data.pickupAddress, deliveryAddress: data.deliveryAddress,
+      pickupAddress: toAddressDto(data.pickupAddress), deliveryAddress: toAddressDto(data.deliveryAddress),
       serviceType: data.serviceType, weightKg: Number(data.weightKg),
+      dimensions: null,
       description: data.description, declaredValueZAR: data.declaredValueZAR ? Number(data.declaredValueZAR) : null,
       isFragile: data.isFragile, requiresSignature: data.requiresSignature, insuranceRequired: data.insuranceRequired,
-      specialInstructions: finalInstructions.trim(),
+      isEmergency: data.isEmergency,
+      scheduledPickupDate: data.scheduledPickupDate || null,
+      specialInstructions: data.specialInstructions?.trim() || null,
       quoteId: quoteData?.quote?.quoteId ?? null,
       paymentMethod: quoteData?.paymentMethod ?? 'CashOnCollection',
-      
-      // FIX FOR 400 BAD REQUEST: Ensure token object is stringified!
       cardToken: quoteData?.cardToken ? JSON.stringify(quoteData.cardToken) : null,
     })
   }
 
+  if (success) {
+    return (
+      <div className="card text-center py-12">
+        <h2 className="text-2xl font-bold">Booking confirmed!</h2>
+        <p className="mt-2 text-xl font-mono">{success.trackingNumber}</p>
+      </div>
+    )
+  }
+
+  return (
+    <FormProvider {...methods}>
+      <StepIndicator currentStep={step} />
+      {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}
+      {step === 2 && <Step2ParcelDetails onNext={() => setStep(3)} onBack={() => setStep(1)} />}
+      {step === 3 && <Step3Quote onNext={(d) => { setQuoteData(d); setStep(4) }} onBack={() => setStep(2)} />}
+      {step === 4 && <Step4Confirm onBack={() => setStep(3)} onSubmit={handleSubmit} isSubmitting={bookMutation.isPending} error={bookError} />}
+    </FormProvider>
+  )
+}
+
+// ── Multi-parcel (cart) flow ───────────────────────────────────────────────────
+function AddParcelToCartForm({ onAdded }) {
+  const [step, setStep] = useState(1)
+  const methods = useForm({ defaultValues: { isFragile: false, isEmergency: false, insuranceRequired: false } })
+  const { addItem } = useParcelCart()
+
+  const handleAdd = () => {
+    const data = methods.getValues()
+    addItem({
+      pickupAddress: toAddressDto(data.pickupAddress), deliveryAddress: toAddressDto(data.deliveryAddress),
+      serviceType: data.serviceType, weightKg: Number(data.weightKg),
+      dimensions: null,
+      description: data.description, declaredValueZAR: data.declaredValueZAR ? Number(data.declaredValueZAR) : null,
+      isFragile: data.isFragile, requiresSignature: data.requiresSignature, insuranceRequired: data.insuranceRequired,
+      isEmergency: data.isEmergency,
+      scheduledPickupDate: data.scheduledPickupDate || null,
+      specialInstructions: data.specialInstructions?.trim() || null,
+    })
+    methods.reset({ isFragile: false, isEmergency: false, insuranceRequired: false })
+    setStep(1)
+    onAdded()
+  }
+
+  return (
+    <FormProvider {...methods}>
+      <div className="flex items-center gap-2 mb-4">
+        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 1 ? 'bg-[#0A3D91] text-white' : 'bg-[#DCEEFF]/40 text-[#0A3D91]')}>1</div>
+        <span className="text-xs font-bold text-[#64748B]">Addresses</span>
+        <div className="flex-1 h-0.5 bg-[#D8E4F5]" />
+        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-white' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
+        <span className="text-xs font-bold text-[#64748B]">Parcel details</span>
+      </div>
+      {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}
+      {step === 2 && <Step2ParcelDetails onNext={handleAdd} onBack={() => setStep(1)} nextButtonLabel="Add to cart" />}
+    </FormProvider>
+  )
+}
+
+function CartCheckoutView({ onBookedSuccess }) {
+  const { items, removeItem, clearCart } = useParcelCart()
+  const [quotes, setQuotes] = useState(null)
+  const [quoteError, setQuoteError] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
+  const [bookError, setBookError] = useState('')
+  const { balance: walletBalance, isLoading: walletLoading } = useWallet()
+
+  const total = quotes?.reduce((sum, q) => sum + (q?.totalAmountZAR ?? 0), 0) ?? 0
+
+  const quoteAllMutation = useMutation({
+    mutationFn: async () => Promise.all(items.map(item => quoteApi.calculate({
+      originProvince: item.pickupAddress?.province, destinationProvince: item.deliveryAddress?.province,
+      weightKg: item.weightKg, serviceType: item.serviceType,
+      declaredValueZAR: item.declaredValueZAR, insuranceRequired: item.insuranceRequired ?? false,
+    }).then(r => r.data))),
+    onSuccess: (results) => { setQuotes(results); setQuoteError('') },
+    onError: (err) => setQuoteError(err.message),
+  })
+
+  // NOTE: adjust `parcelApi.bookBatch` to whatever your POST /api/parcels/batch
+  // client method is actually named — see the note in the chat response.
+  const bookBatchMutation = useMutation({
+    mutationFn: (dto) => parcelApi.bookBatch(dto),
+    onSuccess: (res) => { clearCart(); onBookedSuccess(res.data) },
+    onError: (err) => setBookError(err.message),
+  })
+
+  const handleBookAll = (cardToken) => {
+    setBookError('')
+    bookBatchMutation.mutate({
+      parcels: items.map((item, i) => ({
+        pickupAddress: item.pickupAddress, deliveryAddress: item.deliveryAddress,
+        serviceType: item.serviceType, weightKg: item.weightKg,
+        dimensions: null, description: item.description,
+        declaredValueZAR: item.declaredValueZAR, isFragile: item.isFragile,
+        requiresSignature: item.requiresSignature, insuranceRequired: item.insuranceRequired,
+        isEmergency: item.isEmergency, scheduledPickupDate: item.scheduledPickupDate,
+        specialInstructions: item.specialInstructions || null,
+        quoteId: quotes?.[i]?.quoteId ?? null,
+      })),
+      paymentMethod,
+      cardToken: cardToken ? JSON.stringify(cardToken) : null,
+    })
+  }
+
+  return (
+    <div className="space-y-5">
+      <CartSummaryPanel items={items} quotes={quotes} onRemove={removeItem} />
+
+      {items.length > 0 && !quotes && (
+        <div className="card text-center py-8">
+          <button type="button" onClick={() => quoteAllMutation.mutate()} disabled={quoteAllMutation.isPending} className="btn-primary px-8 mx-auto">
+            {quoteAllMutation.isPending ? 'Calculating…' : `Get quote for ${items.length} parcel${items.length === 1 ? '' : 's'}`}
+          </button>
+          {quoteError && <Alert type="error" message={quoteError} className="mt-4" />}
+        </div>
+      )}
+
+      {quotes && (
+        <>
+          <div className="card">
+            <h3 className="text-sm font-bold text-[#172554]">Batch total: {formatZAR(total)}</h3>
+          </div>
+
+          <PaymentMethodPicker
+            paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
+            amount={total} walletBalance={walletBalance} walletLoading={walletLoading}
+          />
+
+          {bookError && <Alert type="error" message={bookError} />}
+
+          {paymentMethod === 'Card' ? (
+            <div className="card">
+              <CardPaymentForm amount={total} submitLabel="Confirm & pay" onSubmit={handleBookAll} />
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <button type="button" onClick={() => handleBookAll(null)} disabled={bookBatchMutation.isPending} className="btn-primary px-8">
+                {bookBatchMutation.isPending ? 'Booking…' : `Book ${items.length} parcel${items.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function CartFlow() {
+  const { items } = useParcelCart()
+  const [view, setView] = useState('add') // 'add' | 'checkout'
+  const [success, setSuccess] = useState(null)
+
+  if (success) {
+    return (
+      <div className="card text-center py-12">
+        <h2 className="text-2xl font-bold">{success.length ?? items.length} parcels booked!</h2>
+        <p className="mt-2 text-sm text-[#64748B]">Tracking numbers have been sent to your account and email.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-3">
+        <button
+          onClick={() => setView('add')}
+          className={clsx('flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl border-2 transition-all', view === 'add' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}
+        >
+          <PlusCircle size={15} /> Add parcel
+        </button>
+        <button
+          onClick={() => setView('checkout')}
+          className={clsx('flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl border-2 transition-all', view === 'checkout' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}
+        >
+          <ShoppingCart size={15} /> Cart{items.length > 0 && ` (${items.length})`}
+        </button>
+      </div>
+
+      {view === 'add' && <AddParcelToCartForm onAdded={() => setView('checkout')} />}
+      {view === 'checkout' && <CartCheckoutView onBookedSuccess={setSuccess} />}
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function BookParcelPage() {
+  const [mode, setMode] = useState('single') // 'single' | 'cart'
+
   return (
     <AppShell title="Book a Parcel">
       <div className="max-w-2xl mx-auto">
-        
-        {/* Toggle between Single and Bulk Cart */}
         <div className="flex gap-4 mb-6">
-          <button onClick={() => setMode('single')} className={clsx('flex-1 py-3 font-bold rounded-xl border-2 transition-all', mode === 'single' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}>Single Parcel Booking</button>
-          <button onClick={() => setMode('bulk')} className={clsx('flex-1 py-3 font-bold rounded-xl border-2 transition-all', mode === 'bulk' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}>Bulk Upload (Cart)</button>
+          <button onClick={() => setMode('single')} className={clsx('flex-1 py-3 font-bold rounded-xl border-2 transition-all', mode === 'single' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}>
+            Single parcel
+          </button>
+          <button onClick={() => setMode('cart')} className={clsx('flex-1 py-3 font-bold rounded-xl border-2 transition-all', mode === 'cart' ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#64748B] border-[#D8E4F5]')}>
+            Multiple parcels
+          </button>
         </div>
 
-        {mode === 'bulk' ? (
-          <BulkUploadCSV />
-        ) : success ? (
-          <div className="card text-center py-12"><h2 className="text-2xl font-bold">Booking confirmed!</h2><p className="mt-2 text-xl font-mono">{success.trackingNumber}</p></div>
+        {mode === 'single' ? (
+          <SingleParcelFlow />
         ) : (
-          <FormProvider {...methods}>
-            <StepIndicator currentStep={step} />
-            {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}
-            {step === 2 && <Step2ParcelDetails onNext={() => setStep(3)} onBack={() => setStep(1)} />}
-            {step === 3 && <Step3Quote onNext={(d) => { setQuoteData(d); setStep(4) }} onBack={() => setStep(2)} />}
-            {step === 4 && <Step4Confirm onBack={() => setStep(3)} onSubmit={handleSubmit} isSubmitting={bookMutation.isPending} error={bookError} />}
-          </FormProvider>
+          <ParcelCartProvider>
+            <CartFlow />
+          </ParcelCartProvider>
         )}
       </div>
     </AppShell>

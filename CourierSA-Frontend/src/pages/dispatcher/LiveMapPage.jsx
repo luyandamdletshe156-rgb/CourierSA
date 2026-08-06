@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -9,7 +9,7 @@ import { driverApi } from '@/api'
 import { useTracking } from '@/context/TrackingContext'
 import {
   Truck, MapPin, Phone, Package, Clock,
-  Radio, Wifi, WifiOff, Play, Square,
+  WifiOff, Play, Square,
   ChevronRight, Navigation, AlertTriangle,
   RefreshCw, Users
 } from 'lucide-react'
@@ -197,22 +197,25 @@ export default function LiveMapPage() {
     setLiveDrivers(merged)
   }, [snapshotDrivers])
 
-  // Merge incoming SignalR location updates
+  // Merge incoming SignalR location updates.
+  // driverId here is DriverProfile.Id — the Hub now resolves and broadcasts that
+  // (not raw UserId), so it matches the REST snapshot's keying and this no longer
+  // needs to defensively drop updates for drivers missing from the last snapshot.
   useEffect(() => {
     Object.entries(driverLocations ?? {}).forEach(([driverId, loc]) => {
       setLiveDrivers(prev => {
-        if (!prev[driverId]) return prev
         const existing = prev[driverId]
-        const trail    = [...(existing.trail ?? []), [loc.lat, loc.lng]].slice(-8)
+        const trail = [...(existing?.trail ?? []), [loc.lat, loc.lng]].slice(-8)
         return {
           ...prev,
           [driverId]: {
             ...existing,
-            lat:          loc.lat,
-            lng:          loc.lng,
-            heading:      loc.heading,
-            speed:        loc.speed,
-            lastUpdatedAt:loc.updatedAt,
+            driverId,
+            lat:           loc.lat,
+            lng:           loc.lng,
+            heading:       loc.heading,
+            speed:         loc.speed,
+            lastUpdatedAt: loc.updatedAt,
             trail,
           },
         }
@@ -494,7 +497,7 @@ export default function LiveMapPage() {
               const color    = DEMO_DRIVERS.find(d => d.id === id)?.color ?? '#F97316'
 
               return (
-                <div key={id}>
+                <Fragment key={id}>
                   {/* Breadcrumb trail */}
                   {driver.trail?.length > 1 && (
                     <Polyline
@@ -556,7 +559,7 @@ export default function LiveMapPage() {
                       </div>
                     </Popup>
                   </Marker>
-                </div>
+                </Fragment>
               )
             })}
           </MapContainer>

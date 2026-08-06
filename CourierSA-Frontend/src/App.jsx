@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { TrackingProvider } from '@/context/TrackingContext'
+import { ParcelCartProvider } from '@/context/Parcelcartcontext'
 import { RequireAuth, RequireRole, GuestOnly } from '@/routes/guards'
 
 // Public & Auth
@@ -70,6 +71,16 @@ function RootRedirect() {
   return <Navigate to={dashboardPath(user.role)} replace />
 }
 
+// Wraps any route subtree that needs access to the parcel cart (Customer + Business).
+// Persistence (localStorage) is handled inside ParcelCartProvider itself.
+function ParcelCartLayout() {
+  return (
+    <ParcelCartProvider>
+      <Outlet />
+    </ParcelCartProvider>
+  )
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={qc}>
@@ -91,17 +102,19 @@ export default function App() {
 
               <Route element={<RequireAuth />}>
                 <Route path="/change-password" element={<ChangePasswordPage />} />
-                
+
                 {/* Customer */}
                 <Route element={<RequireRole roles={['Customer']} />}>
-                  <Route path="/customer/dashboard" element={<CustomerDashboard />} />
-                  <Route path="/customer/parcels" element={<CustomerParcels />} />
-                  <Route path="/customer/book" element={<BookParcelPage />} />
-                  <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
-                  <Route path="/customer/track" element={<CustomerTrackPage />} />
-                  <Route path="/customer/wallet" element={<WalletPage />} />
-                  <Route path="/customer/claims" element={<ClaimsPage />} />
-                  <Route path="/customer/invoices" element={<InvoicesPage />} />
+                  <Route element={<ParcelCartLayout />}>
+                    <Route path="/customer/dashboard" element={<CustomerDashboard />} />
+                    <Route path="/customer/parcels" element={<CustomerParcels />} />
+                    <Route path="/customer/book" element={<BookParcelPage />} />
+                    <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
+                    <Route path="/customer/track" element={<CustomerTrackPage />} />
+                    <Route path="/customer/wallet" element={<WalletPage />} />
+                    <Route path="/customer/claims" element={<ClaimsPage />} />
+                    <Route path="/customer/invoices" element={<InvoicesPage />} />
+                  </Route>
                 </Route>
 
                 {/* Dispatcher */}
@@ -148,13 +161,15 @@ export default function App() {
 
                 {/* Business Client */}
                 <Route element={<RequireRole roles={['BusinessClient', 'Administrator']} />}>
-                  <Route path="/business/dashboard" element={<BusinessDashboard />} />
-                  <Route path="/business/parcels" element={<CustomerParcels />} />
-                  <Route path="/business/book" element={<BookParcelPage />} />
-                  <Route path="/business/bulk-upload" element={<BulkUploadPage />} />
-                  <Route path="/business/invoices" element={<InvoicesPage />} />
-                  <Route path="/business/reports" element={<AdminReportsPage />} />
-                  <Route path="/business/wallet" element={<WalletPage />} />
+                  <Route element={<ParcelCartLayout />}>
+                    <Route path="/business/dashboard" element={<BusinessDashboard />} />
+                    <Route path="/business/parcels" element={<CustomerParcels />} />
+                    <Route path="/business/book" element={<BookParcelPage />} />
+                    <Route path="/business/bulk-upload" element={<BulkUploadPage />} />
+                    <Route path="/business/invoices" element={<InvoicesPage />} />
+                    <Route path="/business/reports" element={<AdminReportsPage />} />
+                    <Route path="/business/wallet" element={<WalletPage />} />
+                  </Route>
                 </Route>
               </Route>
 

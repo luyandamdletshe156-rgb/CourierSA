@@ -56,7 +56,7 @@ public interface IParcelService
     Task<ParcelDetailDto?> GetPrivateTrackingAsync(string trackingNumber, Guid requestingUserId, CancellationToken ct = default); // ← ADD
     Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(ParcelFilterDto filter, Guid customerId, CancellationToken ct = default);
     Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
-    Task UpdateDriverLocationAsync(Guid driverId, decimal lat, decimal lng, CancellationToken ct = default);
+    Task<Guid?> UpdateDriverLocationAsync(Guid userId, decimal lat, decimal lng, CancellationToken ct = default);
     Task<RouteSummaryDto> DispatchRouteAsync(CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default);
     Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task<ParcelInspectionDto> LogInspectionAsync(Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default);

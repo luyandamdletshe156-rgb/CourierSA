@@ -88,7 +88,7 @@ public class Parcel : BaseEntity
     public string?      Description         { get; set; }
     public string?      SpecialInstructions { get; set; }
     public bool         IsFragile           { get; set; }
-    public bool IsEmergency { get; set; }
+    public bool IsEmergency { get; set; } = false;
     public DateTime? ScheduledPickupDate { get; set; }
     public bool         RequiresSignature   { get; set; }
     public bool         InsuranceRequired   { get; set; }
@@ -195,6 +195,7 @@ public class Quote : BaseEntity
     public DateTime    ExpiresAt           { get; set; }
 
     public CustomerProfile? Customer { get; set; }
+    public bool InsuranceRequired { get; set; }
 }
 
 // ── Vehicle ───────────────────────────────────────────────────────────────────
@@ -246,6 +247,7 @@ public class WalletTransaction : BaseEntity
 public class Invoice : BaseEntity
 {
     public Guid          CustomerId    { get; set; }
+    public Guid ParcelId { get; set; }
     public string        InvoiceNumber { get; set; } = string.Empty;
     public InvoiceStatus Status        { get; set; }
     public decimal       SubtotalZAR   { get; set; }

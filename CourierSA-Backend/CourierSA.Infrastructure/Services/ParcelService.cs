@@ -78,6 +78,8 @@ public class ParcelService : IParcelService
                 throw new BadRequestException("Quote is invalid or has already been used.");
             if (quote.ExpiresAt < DateTime.UtcNow)
                 throw new BadRequestException("Quote has expired. Please request a new quote.");
+            if (quote.ServiceType != finalServiceType || quote.InsuranceRequired != dto.InsuranceRequired)
+                throw new BadRequestException("Quote no longer matches this booking's service type or insurance selection. Please request a new quote.");
 
             finalQuoteAmount = quote.TotalAmountZAR;
         }
@@ -172,7 +174,7 @@ public class ParcelService : IParcelService
         {
             quote.Status = QuoteStatus.Accepted;
             quote.ParcelId = parcel.Id;
-            _uow.Quotes.Update(quote);
+           
         }
 
         parcel.PaymentMethod = dto.PaymentMethod;
@@ -206,6 +208,7 @@ public class ParcelService : IParcelService
         {
             Id = Guid.NewGuid(),
             CustomerId = customer.Id,
+            ParcelId = parcel.Id,
             InvoiceNumber = $"INV-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
             Status = parcel.IsPaid ? InvoiceStatus.Paid : InvoiceStatus.Issued, // 👈 FIXED HERE
             SubtotalZAR = subtotalZar,
@@ -258,18 +261,47 @@ public class ParcelService : IParcelService
 
     // ── Reject ────────────────────────────────────────────────────────────────
     public async Task RejectAsync(
-        Guid parcelId, string reason, Guid staffId, CancellationToken ct = default)
+     Guid parcelId, string reason, Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
         EnsureStatus(parcel, ParcelStatus.PendingApproval);
 
+        var previousStatus = parcel.Status;
         parcel.Status = ParcelStatus.Cancelled;
         parcel.UpdatedAt = DateTime.UtcNow;
+
+        if (parcel.IsPaid)
+        {
+            switch (parcel.PaymentMethod)
+            {
+                case PaymentMethod.Wallet:
+                    await RefundWalletAsync(parcel, ct);
+                    break;
+
+                case PaymentMethod.Card:
+                case PaymentMethod.EFT:
+                    await FlagInvoiceForManualRefundAsync(parcel, reason, staffId, ct);
+                    break;
+            }
+
+            parcel.IsPaid = false;
+        }
+        else
+        {
+            await VoidInvoiceAsync(parcel, ct);
+        }
 
         var trackingEvent = AddTrackingEvent(parcel, TrackingEventType.Cancelled, $"Booking rejected: {reason}");
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("PARCEL_REJECTED", "Parcel", parcel.Id,
+            new { Status = previousStatus.ToString() },
+            new { Status = parcel.Status.ToString(), reason }, staffId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Cancelled", ct: ct);
     }
+
 
     // ── Check In at Warehouse ─────────────────────────────────────────────────
     public async Task CheckInAsync(
@@ -803,8 +835,8 @@ public class ParcelService : IParcelService
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
-        await CheckRouteCompletionAsync(delivery.RouteId, ct);
         await _uow.SaveChangesAsync(ct);
+        await CheckRouteCompletionAsync(delivery.RouteId, ct);
 
         if (!isPickup)
         {
@@ -896,9 +928,8 @@ public class ParcelService : IParcelService
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
-        await CheckRouteCompletionAsync(delivery.RouteId, ct);
         await _uow.SaveChangesAsync(ct);
-
+        await CheckRouteCompletionAsync(delivery.RouteId, ct);
         try
         {
             await _notificationService.SendFailedDeliveryAsync(
@@ -1130,6 +1161,66 @@ public class ParcelService : IParcelService
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+
+    
+    
+    private async Task RefundWalletAsync(Parcel parcel, CancellationToken ct)
+    {
+        // parcel.CustomerId holds CustomerProfile.Id (set from customer.Id in BookAsync),
+        // not User.Id — fetch by CustomerProfile's own Id.
+        var customer = await _uow.Query<CustomerProfile>().GetByIdAsync(parcel.CustomerId, ct)
+            ?? throw new NotFoundException("Customer profile not found for refund.");
+
+        var refundAmount = parcel.QuoteAmountZAR ?? 0;
+
+        customer.WalletBalanceZAR += refundAmount;
+        customer.UpdatedAt = DateTime.UtcNow;
+
+        var walletTx = new WalletTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = customer.UserId,   // WalletTransaction keys off User, not CustomerProfile
+            Type = WalletTransactionType.Refund,
+            AmountZAR = refundAmount,
+            BalanceAfterZAR = customer.WalletBalanceZAR,
+            ReferenceId = parcel.Id,
+            ReferenceType = "Parcel",
+            Description = $"Refund for rejected parcel {parcel.TrackingNumber}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.Query<WalletTransaction>().AddAsync(walletTx, ct);
+
+        await VoidInvoiceAsync(parcel, ct);
+    }
+
+    private async Task FlagInvoiceForManualRefundAsync(Parcel parcel, string reason, Guid staffId, CancellationToken ct)
+    {
+        await VoidInvoiceAsync(parcel, ct);
+
+        await _audit.LogAsync("MANUAL_REFUND_REQUIRED", "Parcel", parcel.Id,
+            null,
+            new { parcel.TrackingNumber, Amount = parcel.QuoteAmountZAR, parcel.PaymentMethod, reason },
+            staffId, null, ct);
+    }
+
+    private async Task VoidInvoiceAsync(Parcel parcel, CancellationToken ct)
+    {
+        var invoice = await _uow.Query<Invoice>()
+            .Query()
+            .FirstOrDefaultAsync(i => i.ParcelId == parcel.Id, ct);
+
+        if (invoice is not null)
+        {
+            invoice.Status = InvoiceStatus.Voided;
+            invoice.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+
+
+
     private async Task<Parcel> GetOrThrowAsync(Guid id, CancellationToken ct)
         => await _uow.Parcels.GetByIdAsync(id, ct)
            ?? throw new NotFoundException($"Parcel {id} not found.");
@@ -1288,13 +1379,13 @@ public class ParcelService : IParcelService
     }
 
     // ── Update driver GPS location ────────────────────────────────────────────
-    public async Task UpdateDriverLocationAsync(
-        Guid driverId, decimal lat, decimal lng, CancellationToken ct = default)
+    public async Task<Guid?> UpdateDriverLocationAsync(
+     Guid userId, decimal lat, decimal lng, CancellationToken ct = default)
     {
         var profile = await _uow.Query<DriverProfile>()
-            .FirstOrDefaultAsync(d => d.UserId == driverId, ct);
+            .FirstOrDefaultAsync(d => d.UserId == userId, ct);
 
-        if (profile is null) return;
+        if (profile is null) return null;
 
         profile.CurrentLatitude = lat;
         profile.CurrentLongitude = lng;
@@ -1307,11 +1398,11 @@ public class ParcelService : IParcelService
                               (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
 
             if (!hasActiveDeliveries)
-            {
                 profile.Status = DriverStatus.Available;
-            }
         }
+
         await _uow.SaveChangesAsync(ct);
+        return profile.Id;
     }
 
     private async Task CheckRouteCompletionAsync(Guid? routeId, CancellationToken ct)
