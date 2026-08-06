@@ -7,8 +7,8 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import { parcelApi, quoteApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
-import { ParcelCartProvider, useParcelCart } from './ParcelCartContext'
-import CartSummaryPanel from '../Cartsummarypanel'
+import { ParcelCartProvider, useParcelCart } from '@/context/ParcelCartContext'
+import CartSummaryPanel from './CartSummaryPanel'
 import {
   MapPin, Package, Calculator, CheckCircle,
   ChevronRight, ChevronLeft, Info, Shield,
