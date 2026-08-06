@@ -8,7 +8,7 @@ import { Alert } from '@/components/ui'
 import { parcelApi, quoteApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
 import { ParcelCartProvider, useParcelCart } from './ParcelCartContext'
-import CartSummaryPanel from './CartSummaryPanel'
+import CartSummaryPanel from '../Cartsummarypanel'
 import {
   MapPin, Package, Calculator, CheckCircle,
   ChevronRight, ChevronLeft, Info, Shield,
