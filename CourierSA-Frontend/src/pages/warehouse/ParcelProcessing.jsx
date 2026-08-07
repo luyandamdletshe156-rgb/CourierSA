@@ -110,9 +110,13 @@ export function ParcelProcessingPage() {
 
   const processMutation = useMutation({
     mutationFn: async () => {
+      // Map enums to C# numeric enum values (0 = CheckIn/Pass, 1 = Checkout/Damaged, 2 = Rejected)
+      const stageValue = activeModal.type === 'checkin' ? 0 : 1
+      const resultValue = result === 'Damaged' ? 1 : result === 'Rejected' ? 2 : 0
+
       const inspectionBody = {
-        stage: activeModal.type === 'checkin' ? 'CheckIn' : 'Checkout',
-        result: result || 'Pass',
+        stage: stageValue,
+        result: resultValue,
         packagingIntact: Boolean(checklist.packagingIntact),
         noMoistureDamage: Boolean(checklist.noMoistureDamage),
         weightMatchesDeclared: Boolean(checklist.weightMatchesDeclared),
@@ -138,8 +142,9 @@ export function ParcelProcessingPage() {
           body: JSON.stringify(inspectionBody)
         })
         if (!res.ok) {
-          const errText = await res.text()
-          throw new Error(errText || `Inspection failed (${res.status})`)
+          const errData = await res.json().catch(() => null)
+          const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+          throw new Error(msg || `Inspection failed (${res.status})`)
         }
       }
 
@@ -161,8 +166,9 @@ export function ParcelProcessingPage() {
             body: JSON.stringify({ sortingBinId: selectedBinId })
           })
           if (!res.ok) {
-            const errText = await res.text()
-            throw new Error(errText || `Check-in failed (${res.status})`)
+            const errData = await res.json().catch(() => null)
+            const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+            throw new Error(msg || `Check-in failed (${res.status})`)
           }
         }
       } else {
@@ -181,8 +187,9 @@ export function ParcelProcessingPage() {
             }
           })
           if (!res.ok) {
-            const errText = await res.text()
-            throw new Error(errText || `Checkout failed (${res.status})`)
+            const errData = await res.json().catch(() => null)
+            const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+            throw new Error(msg || `Checkout failed (${res.status})`)
           }
         }
       }
@@ -193,12 +200,17 @@ export function ParcelProcessingPage() {
     }
   })
 
-  // Extract explicit error text from backend response if available
-  const processErrorMessage = processMutation.error?.response?.data?.message 
-    || processMutation.error?.response?.data?.title
-    || (typeof processMutation.error?.response?.data === 'string' ? processMutation.error.response.data : null)
-    || processMutation.error?.message 
-    || 'Failed to process parcel'
+  // Helper to extract detailed server error messages
+  const getErrorMessage = (err) => {
+    if (!err) return null
+    const data = err?.response?.data
+    if (!data) return err.message || 'Failed to process parcel'
+    if (typeof data === 'string') return data
+    if (data.message) return data.message
+    if (data.title) return data.title
+    if (data.errors) return Object.values(data.errors).flat().join(', ')
+    return err.message || 'Failed to process parcel'
+  }
 
   return (
     <AppShell title="Processing & Inspections">
@@ -311,7 +323,7 @@ export function ParcelProcessingPage() {
         )}
 
         {processMutation.error && (
-          <Alert type="error" message={processErrorMessage} className="mt-4" />
+          <Alert type="error" message={getErrorMessage(processMutation.error)} className="mt-4" />
         )}
 
         <div className="flex justify-end gap-3 mt-6">
