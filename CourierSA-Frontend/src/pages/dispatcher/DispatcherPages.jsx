@@ -365,9 +365,9 @@ export function DispatchQueue() {
                 disabled={!selectedParcelId}
               >
                 <option value="">Choose Driver...</option>
-                {drivers.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.user?.fullName ?? `Driver #${d.id.substring(0,6)}`}
+                {drivers.map((d, index) => (
+                  <option key={d?.id || index} value={d?.id || ''}>
+                    {d?.user?.fullName ?? `Driver #${d?.id ? String(d.id).substring(0,6) : 'Unknown'}`}
                   </option>
                 ))}
               </select>
