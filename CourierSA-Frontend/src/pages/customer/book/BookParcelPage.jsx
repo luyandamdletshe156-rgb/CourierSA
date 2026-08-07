@@ -411,7 +411,34 @@ function Step3Quote({ onNext, onBack }) {
       {quote && (
         <>
           <div className="card">
-            <h3 className="text-sm font-bold text-[#172554] mb-4">Total: {formatZAR(quote.totalAmountZAR)}</h3>
+            <h3 className="text-sm font-bold text-[#172554] mb-4 border-b border-[#D8E4F5] pb-3">Quote Summary</h3>
+            
+            <div className="space-y-1 mb-2">
+              {quote.breakdown?.map((item, index) => (
+                <div key={index} className={clsx("flex justify-between py-2 text-sm", item.isTotal && "border-t border-[#D8E4F5] mt-2 pt-3")}>
+                  <div className="flex flex-col">
+                    <span className={clsx(item.isTotal ? "font-bold text-[#172554] text-base" : "text-[#64748B]")}>
+                      {item.label}
+                    </span>
+                    {item.description && (
+                      <span className="text-[11px] text-[#94A3B8] mt-0.5">{item.description}</span>
+                    )}
+                  </div>
+                  <span className={clsx(item.isTotal ? "font-bold text-[#1E63E9] text-base" : "font-semibold text-[#172554]")}>
+                    {formatZAR(item.amountZAR)}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {quote.estimatedDeliveryDate && (
+              <div className="mt-4 pt-3 border-t border-[#D8E4F5] flex justify-between text-sm bg-[#F6FAFF] p-3 rounded-lg">
+                 <span className="text-[#64748B]">Estimated delivery</span>
+                 <span className="font-bold text-[#0A3D91]">
+                   {new Date(quote.estimatedDeliveryDate).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                 </span>
+              </div>
+            )}
           </div>
 
           <PaymentMethodPicker

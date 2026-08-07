@@ -162,6 +162,7 @@ public class QuoteService : IQuoteService
                     BaseAmountZAR        = baseAmount,
                     SurchargeZAR         = surcharge > 0 ? surcharge : null,
                     InsurancePremiumZAR  = insurancePremium > 0 ? insurancePremium : null,
+                    InsuranceRequired = dto.InsuranceRequired,
                     TotalAmountZAR       = total,
                     VatAmountZAR         = vat,
                     ExpiresAt            = DateTime.UtcNow.AddMinutes(30),

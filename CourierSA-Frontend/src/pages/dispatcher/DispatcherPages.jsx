@@ -229,7 +229,7 @@ export function DispatcherDashboard() {
 export function DispatchQueue() {
   const qc = useQueryClient()
   const [selectedDriverId, setSelectedDriverId] = useState('')
-  const [selectedParcelId, setSelectedParcelId] = useState('')
+  const [selectedParcelIds, setSelectedParcelIds] = useState([])
 
   // 1. Fetch Deliveries (Leaving the warehouse)
   const { data: checkedOutData, isLoading: checkedOutLoading } = useQuery({
@@ -265,19 +265,35 @@ export function DispatchQueue() {
   })
 
   const drivers = driversData ?? []
-  const selectedParcel = parcels.find(p => p.id === selectedParcelId)
+  const selectedParcels = parcels.filter(p => selectedParcelIds.includes(p.id))
 
-  const handleSelectParcel = (id) => {
-    setSelectedParcelId(id)
-    setSelectedDriverId('') 
+  // Proximity Lock: Lock selection to the city of the FIRST selected item
+  const activeCity = selectedParcels.length > 0 
+    ? (selectedParcels[0].city || selectedParcels[0].destinationCity) 
+    : null
+
+  const handleToggleParcel = (id) => {
+    setSelectedParcelIds(prev => {
+      const next = prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+      if (next.length === 0) setSelectedDriverId('')
+      return next
+    })
   }
 
   const dispatchMutation = useMutation({
-    mutationFn: () => parcelApi.dispatch(selectedParcelId, selectedDriverId),
+    mutationFn: () => {
+      if (selectedParcelIds.length === 1) {
+        return parcelApi.dispatch(selectedParcelIds[0], selectedDriverId)
+      }
+      return parcelApi.dispatchRoute({
+        parcelIds: selectedParcelIds,
+        driverId: selectedDriverId
+      })
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
-      setSelectedParcelId('')
+      setSelectedParcelIds([])
       setSelectedDriverId('')
     },
   })
@@ -307,7 +323,7 @@ export function DispatchQueue() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th></th>
+                    <th className="w-8"></th>
                     <th>Tracking #</th>
                     <th>Task Type</th>
                     <th>City</th>
@@ -317,22 +333,32 @@ export function DispatchQueue() {
                 <tbody>
                   {parcels.map(p => {
                     const isPickup = p.status === 'Approved'
+                    const isSelected = selectedParcelIds.includes(p.id)
+                    const taskCity = p.city || p.destinationCity || ''
+                    
+                    // Disable checkbox if task is outside the currently active city selection
+                    const isOutOfArea = activeCity && taskCity !== activeCity
+
                     return (
                       <tr
                         key={p.id}
-                        onClick={() => handleSelectParcel(p.id)}
+                        onClick={() => {
+                          if (!isOutOfArea || isSelected) handleToggleParcel(p.id)
+                        }}
                         className={clsx(
-                          "cursor-pointer transition-colors duration-150",
-                          selectedParcelId === p.id ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
+                          "transition-colors duration-150",
+                          isOutOfArea && !isSelected ? "opacity-40 bg-[#F8FAFC] cursor-not-allowed" : "cursor-pointer hover:bg-[#F6FAFF]",
+                          isSelected ? "bg-[#DCEEFF]/50 font-semibold" : ""
                         )}
                       >
-                        <td className="w-8 text-center">
+                        <td className="w-8 text-center" onClick={(e) => e.stopPropagation()}>
                           <input
-                            type="radio"
-                            name="selectedParcel"
-                            checked={selectedParcelId === p.id}
-                            onChange={() => handleSelectParcel(p.id)}
-                            className="w-4 h-4 text-[#0A3D91] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-1"
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isOutOfArea && !isSelected}
+                            onChange={() => handleToggleParcel(p.id)}
+                            className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] disabled:cursor-not-allowed"
+                            title={isOutOfArea ? "Cannot batch tasks from different cities" : ""}
                           />
                         </td>
                         <td><TrackingBadge value={p.trackingNumber} /></td>
@@ -347,7 +373,7 @@ export function DispatchQueue() {
                              </span>
                           )}
                         </td>
-                        <td className="text-xs text-[#64748B]">{p.city || p.destinationCity || '—'}</td>
+                        <td className="text-xs text-[#64748B]">{taskCity || '—'}</td>
                         <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
                       </tr>
                     )
@@ -363,21 +389,32 @@ export function DispatchQueue() {
             <Send size={18} className="text-[#0A3D91]" /> Dispatch Assignment
           </h2>
 
-          {!selectedParcel ? (
-            <Alert type="warning" message="Select a task from the list on the left to assign a driver." />
+          {selectedParcels.length === 0 ? (
+            <Alert type="warning" message="Select one or more tasks from the list on the left to assign a driver." />
           ) : (
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
-              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">
-                {selectedParcel.status === 'Approved' ? 'Selected Pickup' : 'Selected Delivery'}
-              </p>
-              <TrackingBadge value={selectedParcel.trackingNumber} />
-              <div className="flex items-center gap-1.5 text-xs text-[#475569]">
-                <MapPin size={12} className="text-[#94A3B8]" />
-                {selectedParcel.city || selectedParcel.destinationCity || 'Unknown City'}
+            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-3 animate-[fadeIn_0.15s_ease-in]">
+              <div className="flex justify-between items-center">
+                <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">
+                  Selected Tasks ({selectedParcels.length})
+                </p>
+                <span className="text-xs font-semibold text-[#0A3D91] flex items-center gap-1">
+                  <MapPin size={12} /> {activeCity}
+                </span>
               </div>
-              {selectedParcel.binCode && (
-                <p className="text-xs text-[#94A3B8]">Bin: <span className="font-mono font-semibold text-[#172554]">{selectedParcel.binCode}</span></p>
-              )}
+
+              <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                {selectedParcels.map(p => (
+                  <div key={p.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
+                    <TrackingBadge value={p.trackingNumber} />
+                    <span className={clsx(
+                      "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase",
+                      p.status === 'Approved' ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"
+                    )}>
+                      {p.status === 'Approved' ? 'Pickup' : 'Delivery'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -395,14 +432,11 @@ export function DispatchQueue() {
                 className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
                 value={selectedDriverId}
                 onChange={(e) => setSelectedDriverId(e.target.value)}
-                disabled={!selectedParcelId}
+                disabled={selectedParcelIds.length === 0}
               >
                 <option value="">Choose Driver...</option>
                 {drivers.map((d, index) => {
-                  // Check common ID variations from the backend
                   const actualId = d?.id || d?.driverId || d?.userId;
-                  
-                  // Check common Name variations from the backend
                   const actualName = d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`;
                   
                   return (
@@ -421,10 +455,15 @@ export function DispatchQueue() {
 
           <button
             className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!selectedParcelId || !selectedDriverId || dispatchMutation.isPending}
+            disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending}
             onClick={() => dispatchMutation.mutate()}
           >
-            <Send size={16} /> Assign & Dispatch Driver
+            <Send size={16} /> 
+            {dispatchMutation.isPending 
+              ? 'Assigning...' 
+              : selectedParcelIds.length > 1 
+                ? `Dispatch ${selectedParcelIds.length} Tasks` 
+                : 'Assign & Dispatch Driver'}
           </button>
         </div>
       </div>
