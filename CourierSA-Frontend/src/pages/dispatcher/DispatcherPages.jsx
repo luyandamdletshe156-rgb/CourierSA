@@ -8,14 +8,11 @@ import {
 import { parcelApi, driverApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
-  Clock, UserCheck, Send, RefreshCw, AlertTriangle
+  Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
-// Wait-time triage: dispatchers should see the oldest bookings first without
-// having to eyeball timestamps. Thresholds are deliberately generous —
-// most bookings should clear well before "Aging" ever shows.
 function getWaitState(createdAt) {
   const hours = (Date.now() - new Date(createdAt).getTime()) / 36e5
   if (hours >= 4) return { label: 'Urgent', dot: 'bg-[#DC2626]', text: 'text-[#DC2626]', bg: 'bg-[#FEF2F2]', border: 'border-l-[#DC2626]' }
@@ -34,8 +31,6 @@ export function DispatcherDashboard() {
     refetchInterval: 15000,
   })
 
-  // Dashboard needs the FULL driver directory (not just Available) so the
-  // "Active Drivers" count includes drivers currently OnDelivery too.
   const { data: driversData } = useQuery({
     queryKey: ['dispatcher-drivers'],
     queryFn: async () => {
@@ -51,10 +46,10 @@ export function DispatcherDashboard() {
     refetchInterval: 30000,
   })
 
-  const pending = pendingData?.data?.items ?? []
+  const pending = pendingData?.data?.items ?? pendingData?.items ?? pendingData?.data ?? []
   const drivers = driversData ?? []
   const activeDrivers = drivers.filter(d => d.status === 'OnDelivery' || d.status === 'Available').length
-  const outForDeliveryCount = outForDeliveryData?.data?.totalCount ?? 0
+  const outForDeliveryCount = outForDeliveryData?.data?.totalCount ?? outForDeliveryData?.totalCount ?? 0
   const urgentCount = pending.filter(p => getWaitState(p.createdAt)?.label === 'Urgent').length
 
   const approveMutation = useMutation({
@@ -62,6 +57,7 @@ export function DispatcherDashboard() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatcher-pending'] })
       qc.invalidateQueries({ queryKey: ['admin-stats'] })
+      qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] }) // Refresh the queue on next page
     },
   })
 
@@ -87,7 +83,6 @@ export function DispatcherDashboard() {
         </div>
       </div>
 
-      {/* Hero Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Awaiting Approval"
@@ -98,7 +93,6 @@ export function DispatcherDashboard() {
         <StatCard label="Active Drivers" value={activeDrivers} icon={Truck} color="bg-[#1E63E9]" />
         <StatCard label="Out For Delivery" value={outForDeliveryCount} icon={MapPin} color="bg-[#0A3D91]" />
 
-        {/* Clickable Maintenance Swaps Card */}
         <Link to="/dispatcher/swaps" className="block hover:-translate-y-0.5 transition-transform duration-200 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2">
           <StatCard label="Maintenance Swaps" value="0" icon={RefreshCw} color="bg-[#64748B]" />
         </Link>
@@ -115,7 +109,6 @@ export function DispatcherDashboard() {
         </div>
       )}
 
-      {/* Queue Table */}
       <div className="card overflow-hidden">
         <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
           <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
@@ -230,11 +223,29 @@ export function DispatchQueue() {
   const [selectedDriverId, setSelectedDriverId] = useState('')
   const [selectedParcelId, setSelectedParcelId] = useState('')
 
-  const { data: parcelsData, isLoading: parcelsLoading } = useQuery({
-    queryKey: ['dispatcher-ready-queue'],
+  // 1. Fetch Deliveries (Leaving the warehouse)
+  const { data: checkedOutData, isLoading: checkedOutLoading } = useQuery({
+    queryKey: ['dispatcher-ready-queue', 'CheckedOut'],
     queryFn: () => parcelApi.queue({ status: 'CheckedOut', pageSize: 50 }),
     refetchInterval: 15000,
   })
+
+  // 2. Fetch Pickups (Freshly approved bookings that need to be collected)
+  const { data: approvedData, isLoading: approvedLoading } = useQuery({
+    queryKey: ['dispatcher-ready-queue', 'Approved'],
+    queryFn: () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
+    refetchInterval: 15000,
+  })
+
+  // Helper to safely extract items from API response
+  const extractItems = (data) => Array.isArray(data) ? data : data?.data?.items ?? data?.items ?? data?.data ?? []
+
+  const deliveries = extractItems(checkedOutData)
+  const pickups = extractItems(approvedData)
+  
+  // Combine both into one queue
+  const parcels = [...pickups, ...deliveries]
+  const parcelsLoading = checkedOutLoading || approvedLoading
 
   const { data: driversData, isLoading: driversLoading } = useQuery({
     queryKey: ['dispatcher-available-drivers'],
@@ -245,13 +256,12 @@ export function DispatchQueue() {
     refetchInterval: 15000,
   })
 
-  const parcels = parcelsData?.data?.items ?? []
   const drivers = driversData ?? []
   const selectedParcel = parcels.find(p => p.id === selectedParcelId)
 
   const handleSelectParcel = (id) => {
     setSelectedParcelId(id)
-    setSelectedDriverId('') // reset so a stale driver pick can't follow to a different parcel
+    setSelectedDriverId('') 
   }
 
   const dispatchMutation = useMutation({
@@ -269,7 +279,7 @@ export function DispatchQueue() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Dispatch Queue</h1>
-          <p className="page-subtitle">Assign checked-out warehouse parcels to active drivers</p>
+          <p className="page-subtitle">Assign drivers to collect new bookings (Pickups) and dispatch warehouse parcels (Deliveries)</p>
         </div>
       </div>
 
@@ -279,11 +289,11 @@ export function DispatchQueue() {
             <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
               <Truck size={18} className="text-[#0A3D91]" /> Ready for Dispatch
             </h2>
-            <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{parcels.length} Parcels</span>
+            <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{parcels.length} Tasks</span>
           </div>
 
           {parcelsLoading ? <PageLoader /> : parcels.length === 0 ? (
-            <EmptyState icon={CheckCircle2} title="No parcels ready" description="Check-out parcels at the warehouse first to prepare them for dispatch." />
+            <EmptyState icon={CheckCircle2} title="Queue is clear" description="No parcels are currently waiting for pickup or delivery." />
           ) : (
             <div className="table-container">
               <table className="table">
@@ -291,36 +301,49 @@ export function DispatchQueue() {
                   <tr>
                     <th></th>
                     <th>Tracking #</th>
-                    <th>Destination</th>
+                    <th>Task Type</th>
+                    <th>City</th>
                     <th>Bin Code</th>
-                    <th>Zone</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parcels.map(p => (
-                    <tr
-                      key={p.id}
-                      onClick={() => handleSelectParcel(p.id)}
-                      className={clsx(
-                        "cursor-pointer transition-colors duration-150",
-                        selectedParcelId === p.id ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
-                      )}
-                    >
-                      <td className="w-8 text-center">
-                        <input
-                          type="radio"
-                          name="selectedParcel"
-                          checked={selectedParcelId === p.id}
-                          onChange={() => handleSelectParcel(p.id)}
-                          className="w-4 h-4 text-[#0A3D91] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-1"
-                        />
-                      </td>
-                      <td><TrackingBadge value={p.trackingNumber} /></td>
-                      <td className="text-xs text-[#64748B]">{p.destinationCity}</td>
-                      <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
-                      <td><span className="text-xs font-semibold px-2 py-0.5 bg-[#F1F5F9] rounded text-[#475569]">{p.zone ?? 'Default'}</span></td>
-                    </tr>
-                  ))}
+                  {parcels.map(p => {
+                    const isPickup = p.status === 'Approved'
+                    return (
+                      <tr
+                        key={p.id}
+                        onClick={() => handleSelectParcel(p.id)}
+                        className={clsx(
+                          "cursor-pointer transition-colors duration-150",
+                          selectedParcelId === p.id ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
+                        )}
+                      >
+                        <td className="w-8 text-center">
+                          <input
+                            type="radio"
+                            name="selectedParcel"
+                            checked={selectedParcelId === p.id}
+                            onChange={() => handleSelectParcel(p.id)}
+                            className="w-4 h-4 text-[#0A3D91] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-1"
+                          />
+                        </td>
+                        <td><TrackingBadge value={p.trackingNumber} /></td>
+                        <td>
+                          {isPickup ? (
+                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-[#E0E7FF] text-[#4338CA] rounded-full uppercase tracking-wide">
+                               <Package size={10} /> Pickup
+                             </span>
+                          ) : (
+                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-[#ECFDF5] text-[#059669] rounded-full uppercase tracking-wide">
+                               <MapPin size={10} /> Delivery
+                             </span>
+                          )}
+                        </td>
+                        <td className="text-xs text-[#64748B]">{p.city || p.destinationCity || '—'}</td>
+                        <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -333,14 +356,16 @@ export function DispatchQueue() {
           </h2>
 
           {!selectedParcel ? (
-            <Alert type="warning" message="Select a parcel from the list on the left to assign a driver." />
+            <Alert type="warning" message="Select a task from the list on the left to assign a driver." />
           ) : (
             <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
-              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">Selected Parcel</p>
+              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">
+                {selectedParcel.status === 'Approved' ? 'Selected Pickup' : 'Selected Delivery'}
+              </p>
               <TrackingBadge value={selectedParcel.trackingNumber} />
               <div className="flex items-center gap-1.5 text-xs text-[#475569]">
                 <MapPin size={12} className="text-[#94A3B8]" />
-                {selectedParcel.destinationCity}
+                {selectedParcel.city || selectedParcel.destinationCity || 'Unknown City'}
               </div>
               {selectedParcel.binCode && (
                 <p className="text-xs text-[#94A3B8]">Bin: <span className="font-mono font-semibold text-[#172554]">{selectedParcel.binCode}</span></p>
