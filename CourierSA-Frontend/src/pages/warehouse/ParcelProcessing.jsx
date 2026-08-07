@@ -110,13 +110,19 @@ export function ParcelProcessingPage() {
 
   const processMutation = useMutation({
     mutationFn: async () => {
-      // Map enums to C# numeric enum values (0 = CheckIn/Pass, 1 = Checkout/Damaged, 2 = Rejected)
-      const stageValue = activeModal.type === 'checkin' ? 0 : 1
-      const resultValue = result === 'Damaged' ? 1 : result === 'Rejected' ? 2 : 0
+      const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
+      const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
 
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+
+      // Step 1: Log Inspection
       const inspectionBody = {
-        stage: stageValue,
-        result: resultValue,
+        stage: activeModal.type === 'checkin' ? 'CheckIn' : 'Checkout',
+        result: result || 'Pass',
         packagingIntact: Boolean(checklist.packagingIntact),
         noMoistureDamage: Boolean(checklist.noMoistureDamage),
         weightMatchesDeclared: Boolean(checklist.weightMatchesDeclared),
@@ -125,72 +131,41 @@ export function ParcelProcessingPage() {
         notes: notes || null
       }
 
-      // 1. Log the Inspection
-      if (typeof parcelApi?.logInspection === 'function') {
-        await parcelApi.logInspection(parcelId, inspectionBody)
-      } else {
-        const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
-        const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
-        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-        
-        const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/inspections`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify(inspectionBody)
-        })
-        if (!res.ok) {
-          const errData = await res.json().catch(() => null)
-          const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
-          throw new Error(msg || `Inspection failed (${res.status})`)
-        }
+      const inspectionRes = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/inspections`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(inspectionBody)
+      })
+
+      if (!inspectionRes.ok) {
+        const errData = await inspectionRes.json().catch(() => null)
+        const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+        throw new Error(msg || `Inspection failed (${inspectionRes.status})`)
       }
 
-      // 2. Perform CheckIn or Checkout
+      // Step 2: Check-in or Checkout
       if (activeModal.type === 'checkin') {
-        if (typeof parcelApi?.checkIn === 'function') {
-          await parcelApi.checkIn(parcelId, { sortingBinId: selectedBinId })
-        } else {
-          const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
-          const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
-          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+        const checkinRes = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkin`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ sortingBinId: selectedBinId }) // Guarantees {"sortingBinId": "guid-string"}
+        })
 
-          const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkin`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({ sortingBinId: selectedBinId })
-          })
-          if (!res.ok) {
-            const errData = await res.json().catch(() => null)
-            const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
-            throw new Error(msg || `Check-in failed (${res.status})`)
-          }
+        if (!checkinRes.ok) {
+          const errData = await checkinRes.json().catch(() => null)
+          const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+          throw new Error(msg || `Check-in failed (${checkinRes.status})`)
         }
       } else {
-        if (typeof parcelApi?.checkout === 'function') {
-          await parcelApi.checkout(parcelId)
-        } else {
-          const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
-          const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
-          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+        const checkoutRes = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkout`, {
+          method: 'PUT',
+          headers
+        })
 
-          const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkout`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            }
-          })
-          if (!res.ok) {
-            const errData = await res.json().catch(() => null)
-            const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
-            throw new Error(msg || `Checkout failed (${res.status})`)
-          }
+        if (!checkoutRes.ok) {
+          const errData = await checkoutRes.json().catch(() => null)
+          const msg = errData?.message || errData?.title || (errData?.errors ? Object.values(errData.errors).flat().join(', ') : null)
+          throw new Error(msg || `Checkout failed (${checkoutRes.status})`)
         }
       }
     },
@@ -200,7 +175,7 @@ export function ParcelProcessingPage() {
     }
   })
 
-  // Helper to extract detailed server error messages
+  // Extract detailed server error messages
   const getErrorMessage = (err) => {
     if (!err) return null
     const data = err?.response?.data
