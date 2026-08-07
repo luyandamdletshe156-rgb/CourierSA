@@ -13,6 +13,9 @@ import {
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
+// Wait-time triage: dispatchers should see the oldest bookings first without
+// having to eyeball timestamps. Thresholds are deliberately generous —
+// most bookings should clear well before "Aging" ever shows.
 function getWaitState(createdAt) {
   const hours = (Date.now() - new Date(createdAt).getTime()) / 36e5
   if (hours >= 4) return { label: 'Urgent', dot: 'bg-[#DC2626]', text: 'text-[#DC2626]', bg: 'bg-[#FEF2F2]', border: 'border-l-[#DC2626]' }
@@ -31,6 +34,8 @@ export function DispatcherDashboard() {
     refetchInterval: 15000,
   })
 
+  // Dashboard needs the FULL driver directory (not just Available) so the
+  // "Active Drivers" count includes drivers currently OnDelivery too.
   const { data: driversData } = useQuery({
     queryKey: ['dispatcher-drivers'],
     queryFn: async () => {
@@ -83,6 +88,7 @@ export function DispatcherDashboard() {
         </div>
       </div>
 
+      {/* Hero Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Awaiting Approval"
@@ -93,6 +99,7 @@ export function DispatcherDashboard() {
         <StatCard label="Active Drivers" value={activeDrivers} icon={Truck} color="bg-[#1E63E9]" />
         <StatCard label="Out For Delivery" value={outForDeliveryCount} icon={MapPin} color="bg-[#0A3D91]" />
 
+        {/* Clickable Maintenance Swaps Card */}
         <Link to="/dispatcher/swaps" className="block hover:-translate-y-0.5 transition-transform duration-200 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2">
           <StatCard label="Maintenance Swaps" value="0" icon={RefreshCw} color="bg-[#64748B]" />
         </Link>
@@ -109,6 +116,7 @@ export function DispatcherDashboard() {
         </div>
       )}
 
+      {/* Queue Table */}
       <div className="card overflow-hidden">
         <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
           <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
@@ -390,11 +398,19 @@ export function DispatchQueue() {
                 disabled={!selectedParcelId}
               >
                 <option value="">Choose Driver...</option>
-                {drivers.map((d, index) => (
-                  <option key={d?.id || index} value={d?.id || ''}>
-                    {d?.user?.fullName ?? `Driver #${d?.id ? String(d.id).substring(0,6) : 'Unknown'}`}
-                  </option>
-                ))}
+                {drivers.map((d, index) => {
+                  // Check common ID variations from the backend
+                  const actualId = d?.id || d?.driverId || d?.userId;
+                  
+                  // Check common Name variations from the backend
+                  const actualName = d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`;
+                  
+                  return (
+                    <option key={actualId || index} value={actualId || ''}>
+                      {actualName}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>
