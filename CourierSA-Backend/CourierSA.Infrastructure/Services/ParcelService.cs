@@ -11,10 +11,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CourierSA.Infrastructure.Services;
 
-/// <summary>
-/// Orchestrates the full parcel lifecycle:
-/// Draft → Pending → Approved → AwaitingCheckIn → InWarehouse → InTransit → Delivered (or Failed)
-/// </summary>
 public class ParcelService : IParcelService
 {
     private readonly IUnitOfWork _uow;
@@ -49,8 +45,13 @@ public class ParcelService : IParcelService
         await _uow.SaveChangesAsync(ct);
 
         var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
-        await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
-        await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
+
+        // 👈 Safe Notification & Audit (Prevents 500 crashes if email/push fails)
+        try { await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct); }
+        catch (Exception ex) { Console.WriteLine($"[NOTIFY] BookAsync notification failed: {ex.Message}"); }
+
+        try { await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct); }
+        catch (Exception ex) { Console.WriteLine($"[AUDIT] BookAsync log failed: {ex.Message}"); }
 
         return await GetDetailAsync(parcel.Id, ct)
                ?? throw new InvalidOperationException("Failed to retrieve parcel after booking.");
@@ -83,8 +84,7 @@ public class ParcelService : IParcelService
                 var parcel = await BuildAndAddParcelAsync(itemDto, customer, ct);
                 bookedParcels.Add(parcel);
 
-                // 👈 FIX: Save inside the loop so the DB updates. 
-                // This ensures the next parcel gets a unique tracking number!
+                // Save inside loop so tracking IDs update per iteration
                 await _uow.SaveChangesAsync(ct);
             }
 
@@ -101,8 +101,13 @@ public class ParcelService : IParcelService
         foreach (var parcel in bookedParcels)
         {
             var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
-            await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
-            await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
+
+            // 👈 Safe Notification & Audit
+            try { await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct); }
+            catch (Exception ex) { Console.WriteLine($"[NOTIFY] BookBatchAsync notification failed: {ex.Message}"); }
+
+            try { await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct); }
+            catch (Exception ex) { Console.WriteLine($"[AUDIT] BookBatchAsync log failed: {ex.Message}"); }
 
             total += parcel.QuoteAmountZAR ?? 0;
             var detail = await GetDetailAsync(parcel.Id, ct)
@@ -511,7 +516,6 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
     }
 
-    // 👈 FIX: Multi-dispatch batching updated to support geographic lock and pickups
     public async Task<RouteSummaryDto> DispatchRouteAsync(
         CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
     {
@@ -530,14 +534,11 @@ public class ParcelService : IParcelService
 
         foreach (var p in parcels)
         {
-            // Allow BOTH Pickups (Approved) and Deliveries (CheckedOut)
             if (p.Status != ParcelStatus.CheckedOut && p.Status != ParcelStatus.Approved)
                 throw new BadRequestException(
                     $"Parcel {p.TrackingNumber} is not ready for dispatch (status: {p.Status}).");
         }
 
-        // PROXIMITY CHECK (Close to each other)
-        // Group Pickups by Origin City, and Deliveries by Destination Zone
         var routingAreas = parcels.Select(p =>
             p.Status == ParcelStatus.Approved ? p.PickupAddress?.City : p.Zone?.ToString()
         ).Distinct().ToList();
@@ -585,7 +586,6 @@ public class ParcelService : IParcelService
             };
             await _uow.Deliveries.AddAsync(delivery, ct);
 
-            // Status updates based on task type
             if (!isPickup)
             {
                 parcel.Status = ParcelStatus.OutForDelivery;
@@ -840,7 +840,6 @@ public class ParcelService : IParcelService
             UpdatedAt = DateTime.UtcNow
         };
 
-        // 👈 FIX: Ensure the list exists before adding to prevent null ref crash
         parcel.TrackingEvents ??= new List<TrackingEvent>();
         parcel.TrackingEvents.Add(trackingEvent);
 

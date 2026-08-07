@@ -44,17 +44,8 @@ const addressSchema = z.object({
   }),
 })
 
-// CreateAddressDto on the backend requires Country and SpecialInstructions per address.
-// Country is fixed — this is a South Africa-only courier — so we fill it in here rather
-// than asking the customer to type it. Dimensions is optional on CreateParcelDto but the
-// form doesn't collect it, so it's sent explicitly as null rather than silently omitted.
 const DEFAULT_COUNTRY = 'South Africa'
 
-// SaProvince enum members are PascalCase with no spaces/hyphens (e.g. "KwaZuluNatal",
-// "WesternCape"). SA_PROVINCES in utils.js is a display list and very likely uses
-// human-readable labels ("KwaZulu-Natal", "Western Cape") as values instead. Rather than
-// depend on utils.js being edited to match, normalize whatever comes out of the dropdown
-// (spacing/hyphenation/casing all stripped) against the real enum names before sending.
 const SA_PROVINCE_ENUM_NAMES = [
   'Gauteng', 'WesternCape', 'EasternCape', 'KwaZuluNatal',
   'Limpopo', 'Mpumalanga', 'NorthWest', 'NorthernCape', 'FreeState',
@@ -65,8 +56,6 @@ function toProvinceEnum(value) {
   const normalized = value.replace(/[\s-]/g, '').toLowerCase()
   const match = SA_PROVINCE_ENUM_NAMES.find(name => name.toLowerCase() === normalized)
   if (!match) {
-    // Unrecognised — send through as-is so the backend's own validation error surfaces
-    // instead of silently swallowing a real data problem here.
     console.warn(`Unrecognised province value "${value}" — check it matches a SaProvince enum member.`)
   }
   return match || value
@@ -205,8 +194,6 @@ const SERVICE_META = {
   SameDay:   { icon: Zap,          label: 'Same day',  sub: 'Delivered today',   color: 'text-[#EF4444]'  },
 }
 
-// nextButtonLabel lets us reuse this step for both "Get quote" (single booking)
-// and "Add to cart" (multi-parcel booking) flows without duplicating the form.
 function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   const { register, watch, setValue, handleSubmit, setError, clearErrors, formState: { errors: e } } = useFormContext()
 
@@ -215,16 +202,11 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   const isEmergency = watch('isEmergency')
   const declaredVal = Number(watch('declaredValueZAR')) || 0
 
-  // Automatic risk assessment: fragile or high-value (>= R2,000) forces insurance on.
-  // We deliberately don't auto-uncheck it if the risk condition later clears —
-  // once a customer has opted into cover for a shipment, silently removing it
-  // is a worse failure mode than leaving it on.
   const isHighRisk = isFragile || declaredVal >= 2000
   useEffect(() => {
     if (isHighRisk) setValue('insuranceRequired', true, { shouldValidate: true })
   }, [isHighRisk, setValue])
 
-  // Emergency escalation forces Same Day service.
   useEffect(() => {
     if (isEmergency) setValue('serviceType', 'SameDay', { shouldValidate: true })
   }, [isEmergency, setValue])
@@ -384,7 +366,7 @@ function Step3Quote({ onNext, onBack }) {
   const quoteMutation = useMutation({
     mutationFn: (dto) => quoteApi.calculate(dto),
     onSuccess: (res) => setQuote(res.data),
-    onError:   (err) => setQuoteError(err.message),
+    onError:   (err) => setQuoteError(err?.response?.data?.message || err?.message || 'Failed to calculate quote.'),
   })
 
   const fetchQuote = () => {
@@ -464,7 +446,7 @@ function Step3Quote({ onNext, onBack }) {
   )
 }
 
-// ── Step 4: Confirm (single booking) — now shows an actual review ─────────────
+// ── Step 4: Confirm (single booking) ──────────────────────────────────────────
 function SummaryRow({ label, value }) {
   if (value === null || value === undefined || value === '') return null
   return (
@@ -528,7 +510,12 @@ function SingleParcelFlow() {
   const [bookError, setBookError] = useState('')
 
   const methods = useForm({ defaultValues: { isFragile: false, isEmergency: false, insuranceRequired: false } })
-  const bookMutation = useMutation({ mutationFn: (dto) => parcelApi.book(dto), onSuccess: (res) => setSuccess(res.data), onError: (err) => setBookError(err.message) })
+  
+  const bookMutation = useMutation({ 
+    mutationFn: (dto) => parcelApi.book(dto), 
+    onSuccess: (res) => setSuccess(res.data), 
+    onError: (err) => setBookError(err?.response?.data?.message || err?.message || 'Failed to book parcel.') 
+  })
 
   const handleSubmit = () => {
     setBookError('')
@@ -598,7 +585,7 @@ function AddParcelToCartForm({ onAdded }) {
         <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 1 ? 'bg-[#0A3D91] text-white' : 'bg-[#DCEEFF]/40 text-[#0A3D91]')}>1</div>
         <span className="text-xs font-bold text-[#64748B]">Addresses</span>
         <div className="flex-1 h-0.5 bg-[#D8E4F5]" />
-        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-white' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
+        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-[#0A3D91]' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
         <span className="text-xs font-bold text-[#64748B]">Parcel details</span>
       </div>
       {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}
@@ -624,13 +611,13 @@ function CartCheckoutView({ onBookedSuccess }) {
       declaredValueZAR: item.declaredValueZAR, insuranceRequired: item.insuranceRequired ?? false,
     }).then(r => r.data))),
     onSuccess: (results) => { setQuotes(results); setQuoteError('') },
-    onError: (err) => setQuoteError(err.message),
+    onError: (err) => setQuoteError(err?.response?.data?.message || err?.message || 'Failed to calculate quotes.'),
   })
 
   const bookBatchMutation = useMutation({
     mutationFn: (dto) => parcelApi.bookBatch(dto),
     onSuccess: (res) => { clearCart(); onBookedSuccess(res.data) },
-    onError: (err) => setBookError(err.message),
+    onError: (err) => setBookError(err?.response?.data?.message || err?.message || 'Failed to book batch parcels.'),
   })
 
   const handleBookAll = (cardToken) => {
