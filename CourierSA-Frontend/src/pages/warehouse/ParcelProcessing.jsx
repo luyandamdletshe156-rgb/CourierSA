@@ -7,16 +7,27 @@ import { PackageCheck, PackagePlus, CheckCircle, Search, ClipboardCheck, ArrowRi
 import { formatDate } from '@/utils'
 import clsx from 'clsx'
 
-const emptyChecklist = { packagingIntact: false, noMoistureDamage: false, weightMatchesDeclared: false, fragileHandlingOk: null, sealIntact: false }
+const emptyChecklist = { 
+  packagingIntact: true, 
+  noMoistureDamage: true, 
+  weightMatchesDeclared: true, 
+  fragileHandlingOk: false, 
+  sealIntact: true 
+}
 
 function InspectionChecklistFields({ checklist, setChecklist }) {
   const toggle = key => setChecklist(prev => ({ ...prev, [key]: !prev[key] }))
   return (
     <div className="space-y-2">
-      {['packagingIntact', 'noMoistureDamage', 'weightMatchesDeclared', 'sealIntact'].map(k => (
-        <label key={k} className="flex items-center gap-3 cursor-pointer px-4 py-2.5 rounded-xl border border-[#D8E4F5] hover:bg-[#F6FAFF]">
-          <input type="checkbox" checked={!!checklist[k]} onChange={() => toggle(k)} className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5]" />
-          <span className="text-sm font-medium text-[#334155]">{k.replace(/([A-Z])/g, ' $1').toLowerCase()} checked</span>
+      {[
+        { key: 'packagingIntact', label: 'packaging intact checked' },
+        { key: 'noMoistureDamage', label: 'no moisture damage checked' },
+        { key: 'weightMatchesDeclared', label: 'weight matches declared checked' },
+        { key: 'sealIntact', label: 'seal intact checked' }
+      ].map(({ key, label }) => (
+        <label key={key} className="flex items-center gap-3 cursor-pointer px-4 py-2.5 rounded-xl border border-[#D8E4F5] hover:bg-[#F6FAFF]">
+          <input type="checkbox" checked={!!checklist[key]} onChange={() => toggle(key)} className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5]" />
+          <span className="text-sm font-medium text-[#334155]">{label}</span>
         </label>
       ))}
     </div>
@@ -37,7 +48,7 @@ export function ParcelProcessingPage() {
   const { data: checkoutData } = useQuery({ queryKey: ['q-checkout'], queryFn: () => parcelApi.queue({ status: 'InWarehouse', pageSize: 50 }) })
   const { data: historyData } = useQuery({ queryKey: ['q-history'], queryFn: () => parcelApi.inspections() })
   
-  // Safely resolve the Parcel ID regardless of casing
+  // Safely resolve the Parcel ID regardless of property casing
   const parcelId = activeModal?.parcel?.id || activeModal?.parcel?.Id || activeModal?.parcel?.parcelId
 
   const { data: suggestionData, isLoading: suggestionLoading, error: suggestionError } = useQuery({ 
@@ -45,12 +56,10 @@ export function ParcelProcessingPage() {
     queryFn: async () => {
       if (!parcelId) return null
 
-      // 1. Try defined parcelApi method if available
       if (typeof parcelApi?.getSortingSuggestion === 'function') {
         return await parcelApi.getSortingSuggestion(parcelId)
       }
 
-      // 2. Direct fetch fallback if missing on parcelApi object
       const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
       const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
@@ -101,16 +110,81 @@ export function ParcelProcessingPage() {
 
   const processMutation = useMutation({
     mutationFn: async () => {
-      await parcelApi.logInspection(parcelId, { 
-        stage: activeModal.type === 'checkin' ? 'CheckIn' : 'Checkout', 
-        ...checklist, 
-        result, 
-        notes 
-      })
-      if (activeModal.type === 'checkin') {
-        await parcelApi.checkIn(parcelId, { sortingBinId: selectedBinId })
+      const inspectionBody = {
+        stage: activeModal.type === 'checkin' ? 'CheckIn' : 'Checkout',
+        result: result || 'Pass',
+        packagingIntact: Boolean(checklist.packagingIntact),
+        noMoistureDamage: Boolean(checklist.noMoistureDamage),
+        weightMatchesDeclared: Boolean(checklist.weightMatchesDeclared),
+        fragileHandlingOk: Boolean(checklist.fragileHandlingOk),
+        sealIntact: Boolean(checklist.sealIntact),
+        notes: notes || null
+      }
+
+      // 1. Log the Inspection
+      if (typeof parcelApi?.logInspection === 'function') {
+        await parcelApi.logInspection(parcelId, inspectionBody)
       } else {
-        await parcelApi.checkout(parcelId)
+        const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
+        const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
+        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+        
+        const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/inspections`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(inspectionBody)
+        })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(errText || `Inspection failed (${res.status})`)
+        }
+      }
+
+      // 2. Perform CheckIn or Checkout
+      if (activeModal.type === 'checkin') {
+        if (typeof parcelApi?.checkIn === 'function') {
+          await parcelApi.checkIn(parcelId, { sortingBinId: selectedBinId })
+        } else {
+          const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
+          const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
+          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+
+          const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkin`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ sortingBinId: selectedBinId })
+          })
+          if (!res.ok) {
+            const errText = await res.text()
+            throw new Error(errText || `Check-in failed (${res.status})`)
+          }
+        }
+      } else {
+        if (typeof parcelApi?.checkout === 'function') {
+          await parcelApi.checkout(parcelId)
+        } else {
+          const token = localStorage.getItem('token') || localStorage.getItem('jwt') || localStorage.getItem('accessToken') || ''
+          const baseUrl = import.meta.env?.VITE_API_BASE_URL || '/api'
+          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+
+          const res = await fetch(`${cleanBaseUrl}/parcels/${parcelId}/checkout`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          })
+          if (!res.ok) {
+            const errText = await res.text()
+            throw new Error(errText || `Checkout failed (${res.status})`)
+          }
+        }
       }
     },
     onSuccess: () => { 
@@ -118,6 +192,13 @@ export function ParcelProcessingPage() {
       closeModal() 
     }
   })
+
+  // Extract explicit error text from backend response if available
+  const processErrorMessage = processMutation.error?.response?.data?.message 
+    || processMutation.error?.response?.data?.title
+    || (typeof processMutation.error?.response?.data === 'string' ? processMutation.error.response.data : null)
+    || processMutation.error?.message 
+    || 'Failed to process parcel'
 
   return (
     <AppShell title="Processing & Inspections">
@@ -230,7 +311,7 @@ export function ParcelProcessingPage() {
         )}
 
         {processMutation.error && (
-          <Alert type="error" message={processMutation.error.message} className="mt-4" />
+          <Alert type="error" message={processErrorMessage} className="mt-4" />
         )}
 
         <div className="flex justify-end gap-3 mt-6">
@@ -240,7 +321,7 @@ export function ParcelProcessingPage() {
             disabled={scanConfirm !== activeModal?.parcel?.trackingNumber || (activeModal?.type === 'checkin' && !selectedBinId) || processMutation.isPending} 
             onClick={() => processMutation.mutate()}
           >
-            Confirm
+            {processMutation.isPending ? 'Processing...' : 'Confirm'}
           </button>
         </div>
       </Modal>
