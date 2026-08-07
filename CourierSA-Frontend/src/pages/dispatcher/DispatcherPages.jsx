@@ -5,7 +5,7 @@ import AppShell from '@/components/layout/AppShell'
 import {
   StatCard, TrackingBadge, EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
-import { parcelApi, adminApi } from '@/api'
+import { parcelApi, driverApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
   Clock, UserCheck, Send, RefreshCw, AlertTriangle
@@ -34,10 +34,12 @@ export function DispatcherDashboard() {
     refetchInterval: 15000,
   })
 
+  // Dashboard needs the FULL driver directory (not just Available) so the
+  // "Active Drivers" count includes drivers currently OnDelivery too.
   const { data: driversData } = useQuery({
     queryKey: ['dispatcher-drivers'],
     queryFn: async () => {
-      const res = await adminApi.drivers()
+      const res = await driverApi.all()
       return Array.isArray(res) ? res : res?.data || []
     },
     refetchInterval: 30000,
@@ -237,11 +239,8 @@ export function DispatchQueue() {
   const { data: driversData, isLoading: driversLoading } = useQuery({
     queryKey: ['dispatcher-available-drivers'],
     queryFn: async () => {
-      const res = await adminApi.drivers()
-      const list = Array.isArray(res) ? res : res?.data || []
-      // Only fully free drivers can take a new dispatch — a driver mid-route
-      // (OnDelivery) can't accept another delivery until they're back to Available.
-      return list.filter(d => d.status === 'Available')
+      const res = await driverApi.available()
+      return Array.isArray(res) ? res : res?.data || []
     },
     refetchInterval: 15000,
   })
@@ -256,7 +255,7 @@ export function DispatchQueue() {
   }
 
   const dispatchMutation = useMutation({
-    mutationFn: () => parcelApi.dispatch({ parcelId: selectedParcelId, driverId: selectedDriverId }),
+    mutationFn: () => parcelApi.dispatch(selectedParcelId, selectedDriverId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })

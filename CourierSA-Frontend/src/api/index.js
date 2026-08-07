@@ -71,6 +71,7 @@ export const parcelApi = {
   queue:   (params) => api.get('/parcels/queue', { params }),
   get:        id     => api.get(`/parcels/${id}`),
   book:       dto    => api.post('/parcels', dto),
+  bookBatch:  dto    => api.post('/parcels/batch', dto),
   approve:    id     => api.put(`/parcels/${id}/approve`),
   reject:     (id, reason) => api.put(`/parcels/${id}/reject`, { reason }),
   checkIn:          (id, sortingBinId) =>

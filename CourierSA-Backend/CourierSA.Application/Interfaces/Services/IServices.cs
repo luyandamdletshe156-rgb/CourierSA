@@ -19,7 +19,7 @@ public interface IAuthService
     Task<AuthResponseDto> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
     Task RevokeTokenAsync(Guid userId, CancellationToken ct = default);
 
-    Task ForgotPasswordAsync(string email, CancellationToken ct = default);     
+    Task ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task ResetPasswordAsync(ResetPasswordDto dto, CancellationToken ct = default);
     Task<User> CreateStaffUserAsync(CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default);  // ← add
     Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken ct = default);
@@ -28,21 +28,22 @@ public interface IAuthService
 
 public interface ITokenService
 {
-    string          GenerateAccessToken(User user);
-    string          GenerateRefreshToken();
+    string GenerateAccessToken(User user);
+    string GenerateRefreshToken();
     ClaimsPrincipal? ValidateAccessToken(string token);
-    DateTime        GetRefreshTokenExpiry();
+    DateTime GetRefreshTokenExpiry();
 }
 
 public interface IPasswordService
 {
     string Hash(string password);
-    bool   Verify(string password, string storedHash);
+    bool Verify(string password, string storedHash);
 }
 
 public interface IParcelService
 {
     Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default);
+    Task<ParcelBatchResultDto> BookBatchAsync(CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default);
     Task ApproveAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task RejectAsync(Guid parcelId, string reason, Guid staffId, CancellationToken ct = default);
     Task CheckInAsync(Guid parcelId, Guid sortingBinId, Guid staffId, CancellationToken ct = default);
@@ -68,7 +69,7 @@ public interface IParcelService
 public interface IQuoteService
 {
     Task<QuoteResponseDto> CalculateAsync(QuoteRequestDto dto, Guid? customerId, CancellationToken ct = default);
-    Task<Quote?>           GetAsync(Guid quoteId, CancellationToken ct = default);
+    Task<Quote?> GetAsync(Guid quoteId, CancellationToken ct = default);
 }
 
 // ── Bulk CSV ──────────────────────────────────────────────────────────────────
@@ -107,13 +108,13 @@ public interface INotificationService
 public interface IAuditService
 {
     Task LogAsync(
-        string   action,
-        string   entityType,
-        Guid?    entityId,
-        object?  oldValues,
-        object?  newValues,
-        Guid?    performedByUserId,
-        string?  ipAddress,
+        string action,
+        string entityType,
+        Guid? entityId,
+        object? oldValues,
+        object? newValues,
+        Guid? performedByUserId,
+        string? ipAddress,
         CancellationToken ct = default);
 }
 
@@ -122,15 +123,15 @@ public interface IStorageService
 {
     Task<string> UploadAsync(Stream stream, string fileName, string contentType, CancellationToken ct = default);
     Task<Stream> DownloadAsync(string filePath, CancellationToken ct = default);
-    Task         DeleteAsync(string filePath, CancellationToken ct = default);
-    Task<bool>   ExistsAsync(string filePath, CancellationToken ct = default);
+    Task DeleteAsync(string filePath, CancellationToken ct = default);
+    Task<bool> ExistsAsync(string filePath, CancellationToken ct = default);
 }
 
 // ── Barcode ───────────────────────────────────────────────────────────────────
 public interface IBarcodeService
 {
-    Task<string>  GenerateAsync(string trackingNumber, CancellationToken ct = default);
-    Task<byte[]>  GetBytesAsync(string trackingNumber, CancellationToken ct = default);
+    Task<string> GenerateAsync(string trackingNumber, CancellationToken ct = default);
+    Task<byte[]> GetBytesAsync(string trackingNumber, CancellationToken ct = default);
 }
 
 // ── Email ─────────────────────────────────────────────────────────────────────

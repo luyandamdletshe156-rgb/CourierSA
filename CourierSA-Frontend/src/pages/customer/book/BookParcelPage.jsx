@@ -600,8 +600,6 @@ function CartCheckoutView({ onBookedSuccess }) {
     onError: (err) => setQuoteError(err.message),
   })
 
-  // NOTE: adjust `parcelApi.bookBatch` to whatever your POST /api/parcels/batch
-  // client method is actually named — see the note in the chat response.
   const bookBatchMutation = useMutation({
     mutationFn: (dto) => parcelApi.bookBatch(dto),
     onSuccess: (res) => { clearCart(); onBookedSuccess(res.data) },
@@ -677,7 +675,7 @@ function CartFlow() {
   if (success) {
     return (
       <div className="card text-center py-12">
-        <h2 className="text-2xl font-bold">{success.length ?? items.length} parcels booked!</h2>
+        <h2 className="text-2xl font-bold">{success.parcels?.length ?? 0} parcels booked!</h2>
         <p className="mt-2 text-sm text-[#64748B]">Tracking numbers have been sent to your account and email.</p>
       </div>
     )

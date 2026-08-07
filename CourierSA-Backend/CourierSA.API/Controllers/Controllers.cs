@@ -164,6 +164,16 @@ public class ParcelsController : CourierSABaseController
         return Created(result, $"Parcel booked. Tracking: {result.TrackingNumber}");
     }
 
+    /// <summary>POST /api/parcels/batch – Book multiple parcels from the customer's cart in one transaction</summary>
+    [HttpPost("batch")]
+    [Authorize(Roles = "Customer, BusinessClient, Dispatcher, Administrator")]
+    public async Task<IActionResult> BookBatch(
+        [FromBody] CreateParcelBatchDto dto, CancellationToken ct)
+    {
+        var result = await _parcelService.BookBatchAsync(dto, CurrentUserId, ct);
+        return Created(result, $"{result.Parcels.Count} parcel(s) booked.");
+    }
+
     /// <summary>PUT /api/parcels/{id}/approve – Dispatcher approves a booking</summary>
     [HttpPut("{id:guid}/approve")]
     [Authorize(Policy = "DispatcherOrAdmin")]

@@ -4,30 +4,30 @@ using CourierSA.Domain.Enums;
 namespace CourierSA.Application.DTOs.Auth
 {
 
-public record LoginDto(string Email, string Password);
+    public record LoginDto(string Email, string Password);
 
-public record RegisterDto(
-    string FirstName,
-    string LastName,
-    string Email,
-    string Password,
-    string PhoneNumber
-);
+    public record RegisterDto(
+        string FirstName,
+        string LastName,
+        string Email,
+        string Password,
+        string PhoneNumber
+    );
 
-public record RefreshTokenDto(string RefreshToken);
+    public record RefreshTokenDto(string RefreshToken);
 
-public record AuthResponseDto(
-    string AccessToken,
-    string RefreshToken,
-    DateTime RefreshTokenExpiry,
-    Guid UserId,
-    string Email,
-    string FirstName,
-    string LastName,
-    string Role,
-     bool MustChangePassword
+    public record AuthResponseDto(
+        string AccessToken,
+        string RefreshToken,
+        DateTime RefreshTokenExpiry,
+        Guid UserId,
+        string Email,
+        string FirstName,
+        string LastName,
+        string Role,
+         bool MustChangePassword
 
-);
+    );
     public record ForgotPasswordDto(string Email);
     public record ResetPasswordDto(string Token, string NewPassword);
 }
@@ -69,17 +69,49 @@ namespace CourierSA.Application.DTOs.Parcels
          string? CardToken = null
     );
 
+    // ── Batch booking (multi-parcel cart checkout) ──────────────────────────
+    // One entry per parcel in the customer's cart. PaymentMethod and CardToken
+    // are NOT repeated per item — they're shared for the whole batch, matching
+    // how the frontend cart checkout works (one payment covers the batch).
+    public record CreateParcelBatchItemDto(
+        CreateAddressDto PickupAddress,
+        CreateAddressDto DeliveryAddress,
+        ServiceType ServiceType,
+        decimal WeightKg,
+        ParcelDimensionsDto? Dimensions,
+        decimal? DeclaredValueZAR,
+        string? Description,
+        string? SpecialInstructions,
+        bool IsFragile,
+        bool RequiresSignature,
+        bool InsuranceRequired,
+        Guid? QuoteId,
+        bool IsEmergency = false,
+        DateTime? ScheduledPickupDate = null
+    );
+
+    public record CreateParcelBatchDto(
+        List<CreateParcelBatchItemDto> Parcels,
+        PaymentMethod PaymentMethod,
+        string? CardToken = null
+    );
+
+    public record ParcelBatchResultDto(
+        List<ParcelDetailDto> Parcels,
+        decimal TotalAmountZAR
+    );
+
     public record CreateAddressDto(
-    string     RecipientName,
-    string     RecipientPhone,
-    string?    RecipientEmail,
-    string     StreetAddress,
-    string?    Suburb,
-    string     City,
+    string RecipientName,
+    string RecipientPhone,
+    string? RecipientEmail,
+    string StreetAddress,
+    string? Suburb,
+    string City,
     SaProvince Province,
-    string     PostalCode,
-    string?    Country,
-    string?    SpecialInstructions
+    string PostalCode,
+    string? Country,
+    string? SpecialInstructions
 );
 
 
@@ -109,13 +141,13 @@ public record ParcelDimensionsDto(
 );
 
 public record ParcelSummaryDto(
-    Guid     Id,
-    string   TrackingNumber,
-    string   Status,
-    string   ServiceType,
-    string   DestinationCity,
-    string   DestinationProvince,
-    decimal  WeightKg,
+    Guid Id,
+    string TrackingNumber,
+    string Status,
+    string ServiceType,
+    string DestinationCity,
+    string DestinationProvince,
+    decimal WeightKg,
     decimal? QuoteAmountZAR,
     DateTime CreatedAt,
     DateTime? EstimatedDeliveryDate,
@@ -163,35 +195,35 @@ public record ParcelDetailDto(
     string? ClaimStatus = null
 );
 public record TrackingResultDto(
-    string   TrackingNumber,
-    string   Status,
-    string   ServiceType,
-    string   Destination,
+    string TrackingNumber,
+    string Status,
+    string ServiceType,
+    string Destination,
     DateTime? EstimatedDelivery,
     List<TrackingEventDto> Events
 );
 
 public record TrackingEventDto(
-    string   EventType,
-    string?  Location,
-    string?  Description,
+    string EventType,
+    string? Location,
+    string? Description,
     DateTime OccurredAt,
     decimal? Latitude,
     decimal? Longitude
 );
 
 public record ParcelFilterDto(
-    int    Page     = 1,
-    int    PageSize = 10,
-    string? Status  = null,
-    string? Search  = null
+    int Page = 1,
+    int PageSize = 10,
+    string? Status = null,
+    string? Search = null
 );
 
 public record PagedResult<T>(
     List<T> Items,
-    int     TotalCount,
-    int     Page,
-    int     PageSize
+    int TotalCount,
+    int Page,
+    int PageSize
 );
 
 public record RejectParcelDto(string Reason);
@@ -206,7 +238,7 @@ public record ProofOfDeliveryDto(
 
 public record FailedDeliveryDto(
     FailureReason Reason,
-    string?       Notes
+    string? Notes
 );
 
 public record DriverLocationDto(decimal Latitude, decimal Longitude);
@@ -229,22 +261,22 @@ public record DeliveryDto(
     Guid? RouteId = null
 );
 public record BulkUploadResultDto(
-    int      TotalRows,
-    int      Successful,
-    int      Failed,
-    int      Skipped,
-    string   UploadId,
+    int TotalRows,
+    int Successful,
+    int Failed,
+    int Skipped,
+    string UploadId,
     DateTime ProcessedAt,
     List<BulkRowResultDto> Rows
 );
 
 public record BulkRowResultDto(
-    int      RowNumber,
-    bool     Success,
-    string?  TrackingNumber,
-    string?  ClientReference,
-    string?  RecipientName,
-    string?  DestinationCity,
+    int RowNumber,
+    bool Success,
+    string? TrackingNumber,
+    string? ClientReference,
+    string? RecipientName,
+    string? DestinationCity,
     List<string> Errors
 );
 
@@ -433,7 +465,7 @@ namespace CourierSA.Application.DTOs.Vehicles
         DateTime CreatedAt
     );
 
-   
+
     public record CreateInspectionDto(
         Guid VehicleId,
         InspectionType Type,

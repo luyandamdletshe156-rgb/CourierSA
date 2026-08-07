@@ -1,14 +1,15 @@
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
-using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Application.DTOs.Routing;
+using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
+using CourierSA.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
-using ZXing;
+
 
 namespace CourierSA.Infrastructure.Services;
 
@@ -45,11 +46,108 @@ public class ParcelService : IParcelService
     public async Task<ParcelDetailDto> BookAsync(
      CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
-        var customer = await _uow.Query<CustomerProfile>()
+        var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
+
+        var parcel = await BuildAndAddParcelAsync(dto, customer, ct);
+
+        await _uow.SaveChangesAsync(ct);
+
+        var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
+        await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
+        await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
+
+        return await GetDetailAsync(parcel.Id, ct)
+               ?? throw new InvalidOperationException("Failed to retrieve parcel after booking.");
+    }
+
+    // ── Book Batch (multi-parcel cart checkout) ─────────────────────────────
+    // Wraps every parcel in the cart in a single DB transaction: if any one
+    // parcel fails (bad quote, insufficient wallet balance partway through,
+    // insurance validation, etc.) the whole batch rolls back — the customer
+    // never ends up with 2 of 3 parcels booked and charged.
+    public async Task<ParcelBatchResultDto> BookBatchAsync(
+        CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default)
+    {
+        if (dto.Parcels is null || dto.Parcels.Count == 0)
+            throw new BadRequestException("Batch must contain at least one parcel.");
+
+        var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
+
+        var bookedParcels = new List<Parcel>();
+
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            foreach (var item in dto.Parcels)
+            {
+                var itemDto = new CreateParcelDto(
+                    item.PickupAddress,
+                    item.DeliveryAddress,
+                    item.ServiceType,
+                    item.WeightKg,
+                    item.Dimensions,
+                    item.DeclaredValueZAR,
+                    item.Description,
+                    item.SpecialInstructions,
+                    item.IsFragile,
+                    item.RequiresSignature,
+                    item.InsuranceRequired,
+                    item.QuoteId,
+                    dto.PaymentMethod,
+                    ClientReference: null,
+                    IsEmergency: item.IsEmergency,
+                    ScheduledPickupDate: item.ScheduledPickupDate,
+                    CardToken: dto.CardToken
+                );
+
+                var parcel = await BuildAndAddParcelAsync(itemDto, customer, ct);
+                bookedParcels.Add(parcel);
+            }
+
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
+
+        // Notifications/audit happen after commit — a failure here shouldn't
+        // undo parcels that already booked successfully.
+        var results = new List<ParcelDetailDto>();
+        decimal total = 0;
+        foreach (var parcel in bookedParcels)
+        {
+            var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
+            await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
+            await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
+
+            total += parcel.QuoteAmountZAR ?? 0;
+            var detail = await GetDetailAsync(parcel.Id, ct)
+                ?? throw new InvalidOperationException("Failed to retrieve parcel after batch booking.");
+            results.Add(detail);
+        }
+
+        return new ParcelBatchResultDto(results, total);
+    }
+
+    private async Task<CustomerProfile> GetCustomerProfileOrThrowAsync(Guid customerId, CancellationToken ct)
+    {
+        return await _uow.Query<CustomerProfile>()
             .Query()
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
             ?? throw new NotFoundException("Customer profile not found.");
+    }
 
+    // Builds one Parcel (+ addresses + invoice + tracking events) and stages it
+    // via AddAsync. Does NOT call SaveChangesAsync, notify, or audit-log — those
+    // are the caller's responsibility, so BookAsync and BookBatchAsync can share
+    // this exact logic while controlling their own save/commit and notification
+    // timing (batch needs one transaction around N of these calls).
+    private async Task<Parcel> BuildAndAddParcelAsync(
+        CreateParcelDto dto, CustomerProfile customer, CancellationToken ct)
+    {
         // 🚨 1. ENFORCE RISK ASSESSMENT (Security)
         // Ensure malicious API calls can't bypass mandatory insurance rules
         bool isHighRisk = dto.IsFragile || (dto.DeclaredValueZAR >= 2000);
@@ -174,7 +272,7 @@ public class ParcelService : IParcelService
         {
             quote.Status = QuoteStatus.Accepted;
             quote.ParcelId = parcel.Id;
-           
+
         }
 
         parcel.PaymentMethod = dto.PaymentMethod;
@@ -223,7 +321,7 @@ public class ParcelService : IParcelService
 
         await _uow.Query<Invoice>().AddAsync(invoice, ct);
 
-        // 6. Save & Notify
+        // 6. Tracking events (Save + Notify are handled by BookAsync / BookBatchAsync)
         AddTrackingEvent(parcel, TrackingEventType.Booked, "Parcel booking confirmed", pickup.City);
 
         // ➕ Append separate Emergency Alert tracking history
@@ -233,13 +331,7 @@ public class ParcelService : IParcelService
                 "EMERGENCY ESCALATION: Parcel prioritized for Same-Day dispatch");
         }
 
-        await _uow.SaveChangesAsync(ct);
-
-        await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery.City, amountZAR: parcel.QuoteAmountZAR, ct: ct);
-        await _audit.LogAsync("PARCEL_BOOKED", "Parcel", parcel.Id, null, new { parcel.TrackingNumber, parcel.Status }, customerId, null, ct);
-
-        return await GetDetailAsync(parcel.Id, ct)
-               ?? throw new InvalidOperationException("Failed to retrieve parcel after booking.");
+        return parcel;
     }
 
     // ── Approve ───────────────────────────────────────────────────────────────
@@ -1163,8 +1255,8 @@ public class ParcelService : IParcelService
     // ── Helpers ───────────────────────────────────────────────────────────────
 
 
-    
-    
+
+
     private async Task RefundWalletAsync(Parcel parcel, CancellationToken ct)
     {
         // parcel.CustomerId holds CustomerProfile.Id (set from customer.Id in BookAsync),
@@ -1424,3 +1516,4 @@ public class ParcelService : IParcelService
         }
     }
 }
+
