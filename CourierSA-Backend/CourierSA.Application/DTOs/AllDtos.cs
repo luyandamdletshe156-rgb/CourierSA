@@ -255,11 +255,13 @@ public record DeliveryDto(
     string City,
     string? SpecialInstructions,
     bool IsFragile,
-    DateTime? DispatchedAt,    // Changed to DateTime? to fix the CS1503 errors
-    bool IsPickup,             // The new flag we added for the frontend
-    string? DriverName = null, // Restored to fix the CS0117 errors
-    string? DriverPhone = null, // Restored to fix the CS0117 errors
-    Guid? RouteId = null
+    DateTime? DispatchedAt,
+    bool IsPickup,
+    string? DriverName = null,
+    string? DriverPhone = null,
+    Guid? RouteId = null,
+    bool RequiresOtpVerification = false,   // ← ADD
+    bool OtpVerified = false                // ← ADD
 );
 public record BulkUploadResultDto(
     int TotalRows,
@@ -586,4 +588,33 @@ namespace CourierSA.Application.DTOs.Returns
         decimal? RefundAmountZAR, DateTime? RefundedAt);
 
 
+}
+
+
+namespace CourierSA.Application.DTOs.SecureDelivery
+{
+
+    public record FlagHighValueResultDto(
+        Guid ParcelId, string TrackingNumber, bool RequiresOtpVerification,
+        string? Otp,   // plaintext, demo-only — see note in service comments
+        DateTime? OtpGeneratedAt);
+
+    public record VerifyOtpDto(string Otp);
+
+    public record VerifyOtpResultDto(Guid ParcelId, string TrackingNumber, bool Verified, DateTime? OtpVerifiedAt);
+
+}
+
+namespace CourierSA.Application.DTOs.Rescheduling
+{
+
+    public record RescheduleQuoteDto(
+        DateTime CurrentScheduledPickupDate, DateTime ProposedScheduledPickupDate,
+        bool IsFeeApplicable, decimal FeeZAR, string Reason);
+
+    public record RescheduleCollectionDto(DateTime NewScheduledPickupDate);
+
+    public record RescheduleResultDto(
+        Guid ParcelId, string TrackingNumber, DateTime NewScheduledPickupDate,
+        bool FeeCharged, decimal FeeZAR, string ChargeMethod);
 }

@@ -116,6 +116,15 @@ public class Parcel : BaseEntity
     public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;   // ← add
     public bool IsPaid { get; set; }                                     // ← add
     public DateTime? PaidAt { get; set; }                                     // ← add
+    public bool RequiresOtpVerification { get; set; }
+    public string? OtpCodeHash { get; set; }
+    public DateTime? OtpGeneratedAt { get; set; }
+    public DateTime? OtpVerifiedAt { get; set; }
+
+    public DateTime? OriginalScheduledPickupDate { get; set; }   // captured on first reschedule only
+    public int RescheduleCount { get; set; }
+    public decimal? LastRescheduleFeeZAR { get; set; }
+
 }
 
 public class ParcelDimensions

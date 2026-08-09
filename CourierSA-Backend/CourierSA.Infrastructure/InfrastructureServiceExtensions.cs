@@ -113,6 +113,8 @@ public static class InfrastructureServiceExtensions
         services.Configure<BrevoEmailSettings>(configuration.GetSection("BrevoEmailSettings"));
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IBulkCsvService, BulkCsvService>();
+        services.AddScoped<ISecureDeliveryService, SecureDeliveryService>();
+        services.AddScoped<IReschedulingService, ReschedulingService>();
 
 
         // ── SignalR ───────────────────────────────────────────────────────────

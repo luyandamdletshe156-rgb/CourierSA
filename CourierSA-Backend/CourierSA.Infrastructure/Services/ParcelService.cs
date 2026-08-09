@@ -658,6 +658,10 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct) ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
 
         var isPickup = parcel.Status == ParcelStatus.Approved;
+
+        if (!isPickup && parcel.RequiresOtpVerification && parcel.OtpVerifiedAt is null)
+            throw new BadRequestException("This is a high-value parcel. OTP verification is required before delivery can be completed.");
+
         delivery.Status = DeliveryStatus.Delivered; delivery.DeliveredAt = DateTime.UtcNow; delivery.ProofOfDeliveryImagePath = pod.ImagePath; delivery.RecipientSignaturePath = pod.SignaturePath; delivery.AttemptNotes = pod.Notes; delivery.UpdatedAt = DateTime.UtcNow;
         if (!isPickup) parcel.Status = ParcelStatus.Delivered; else parcel.Status = ParcelStatus.AwaitingCheckIn;
         parcel.UpdatedAt = DateTime.UtcNow;
@@ -857,7 +861,7 @@ public class ParcelService : IParcelService
         return new(
             p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(), p.WeightKg, p.Dimensions, p.DeclaredValueZAR, p.Description, p.SpecialInstructions, p.IsFragile, p.RequiresSignature, p.InsuranceRequired, p.IsEmergency, p.ScheduledPickupDate, p.QuoteAmountZAR, p.BarcodeImagePath, p.CreatedAt, p.EstimatedDeliveryDate, MapAddress(p.PickupAddress), MapAddress(p.DeliveryAddress),
             p.TrackingEvents.OrderByDescending(t => t.OccurredAt).Select(t => new TrackingEventDto(t.EventType.ToString(), t.Location, t.Description, t.OccurredAt, t.Latitude, t.Longitude)).ToList(),
-            p.ActiveDelivery is null ? null : new DeliveryDto(p.ActiveDelivery.Id, p.Id, p.TrackingNumber, p.ActiveDelivery.Status.ToString(), targetAddress?.RecipientName ?? "—", targetAddress?.RecipientPhone ?? "—", $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '), targetAddress?.City ?? "—", p.SpecialInstructions, p.IsFragile, p.ActiveDelivery.DispatchedAt, isPickup)
+           p.ActiveDelivery is null ? null : new DeliveryDto(p.ActiveDelivery.Id, p.Id, p.TrackingNumber, p.ActiveDelivery.Status.ToString(), targetAddress?.RecipientName ?? "—", targetAddress?.RecipientPhone ?? "—", $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '), targetAddress?.City ?? "—", p.SpecialInstructions, p.IsFragile, p.ActiveDelivery.DispatchedAt, isPickup, RequiresOtpVerification: p.RequiresOtpVerification, OtpVerified: p.OtpVerifiedAt is not null)
         );
     }
 
@@ -871,7 +875,7 @@ public class ParcelService : IParcelService
         return deliveries.Select(d => {
             var isPickup = d.Parcel?.Status == ParcelStatus.Approved;
             var targetAddress = isPickup ? d.Parcel?.PickupAddress : d.Parcel?.DeliveryAddress;
-            return new DeliveryDto(Id: d.Id, ParcelId: d.ParcelId, TrackingNumber: d.Parcel?.TrackingNumber ?? "—", Status: d.Status.ToString(), RecipientName: targetAddress?.RecipientName ?? "—", RecipientPhone: targetAddress?.RecipientPhone ?? "—", DeliveryAddress: $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '), City: targetAddress?.City ?? "—", SpecialInstructions: d.Parcel?.SpecialInstructions, IsFragile: d.Parcel?.IsFragile ?? false, DispatchedAt: d.DispatchedAt, IsPickup: isPickup, RouteId: d.RouteId);
+            return new DeliveryDto(Id: d.Id, ParcelId: d.ParcelId, TrackingNumber: d.Parcel?.TrackingNumber ?? "—", Status: d.Status.ToString(), RecipientName: targetAddress?.RecipientName ?? "—", RecipientPhone: targetAddress?.RecipientPhone ?? "—", DeliveryAddress: $"{targetAddress?.StreetAddress}, {targetAddress?.Suburb}".Trim(',', ' '), City: targetAddress?.City ?? "—", SpecialInstructions: d.Parcel?.SpecialInstructions, IsFragile: d.Parcel?.IsFragile ?? false, DispatchedAt: d.DispatchedAt, IsPickup: isPickup, RouteId: d.RouteId, RequiresOtpVerification: d.Parcel?.RequiresOtpVerification ?? false, OtpVerified: d.Parcel?.OtpVerifiedAt is not null);
         });
     }
 

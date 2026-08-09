@@ -6,7 +6,7 @@ import { useTracking } from '@/context/TrackingContext'
 import {
   LayoutDashboard, Package, Truck, Users, FileText,
   BarChart3, Settings, LogOut, Bell, Menu, X,
-  ClipboardCheck, Warehouse, ShieldCheck, MapPin,
+  ClipboardCheck, Warehouse, ShieldCheck, ShieldAlert, MapPin,
   CreditCard, AlertTriangle, ChevronRight, Archive, Search,
   History, RefreshCw, PackageX, RotateCcw, HandCoins
 } from 'lucide-react'
@@ -31,6 +31,7 @@ const NAV = {
     { label: 'Dispatch',          icon: Truck,           to: '/dispatcher/dispatch'  },
     { label: 'Live Map',          icon: MapPin,          to: '/dispatcher/map'       },
     { label: 'Failed',            icon: AlertTriangle,   to: '/dispatcher/failed'    },
+    { label: 'Flag High-Value',   icon: ShieldAlert,     to: '/dispatcher/flag-high-value' },
     { label: 'Maintenance Swaps', icon: RefreshCw,       to: '/dispatcher/swaps'     },
     { label: 'History',           icon: History,         to: '/dispatcher/history'   },
     { label: 'Track',             icon: Search,          to: '/dispatcher/track'     },
@@ -45,6 +46,7 @@ const NAV = {
   Driver: [
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,         to: '/driver/deliveries'    },
+    { label: 'Verify OTP',    icon: ShieldCheck,   to: '/driver/verify-otp'    },
     { label: 'Route',         icon: MapPin,        to: '/driver/route'         },
     { label: 'History',       icon: FileText,      to: '/driver/history'       },
   ],

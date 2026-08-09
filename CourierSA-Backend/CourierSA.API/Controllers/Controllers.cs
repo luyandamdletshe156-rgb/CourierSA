@@ -1,8 +1,10 @@
 using CourierSA.API.Middleware;
 using CourierSA.Application.DTOs.Auth;
 using CourierSA.Application.DTOs.Parcels;
+using CourierSA.Application.DTOs.Rescheduling;
 using CourierSA.Application.DTOs.Returns;
 using CourierSA.Application.DTOs.Routing;
+using CourierSA.Application.DTOs.SecureDelivery;
 using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
@@ -640,5 +642,77 @@ public class ReturnRequestsController : CourierSABaseController
     {
         var result = await _returnService.ReleaseRefundAsync(id, dto, CurrentUserId, ct);
         return Ok(result, $"Refund of R{result.RefundAmountZAR:0.00} released.");
+    }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECURE DELIVERY CONTROLLER — UC3 Flag High-Value Parcel + Generate OTP /
+// UC4 Verify Recipient Identity
+// PUT /api/parcels/{id}/flag-high-value  – dispatcher flags parcel, generates OTP
+// PUT /api/parcels/{id}/verify-otp       – driver verifies OTP before completing delivery
+// ══════════════════════════════════════════════════════════════════════════════
+[Route("api/parcels")]
+[Authorize]
+public class SecureDeliveryController : CourierSABaseController
+{
+    private readonly ISecureDeliveryService _secureDeliveryService;
+
+    public SecureDeliveryController(ISecureDeliveryService secureDeliveryService)
+        => _secureDeliveryService = secureDeliveryService;
+
+    [HttpPut("{id:guid}/flag-high-value")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> FlagHighValue(Guid id, CancellationToken ct)
+    {
+        var result = await _secureDeliveryService.FlagAndGenerateOtpAsync(id, CurrentUserId, ct);
+        return Ok(result, "Parcel flagged as high-value. OTP generated.");
+    }
+
+    [HttpPut("{id:guid}/verify-otp")]
+    [Authorize(Policy = "DriverOnly")]
+    public async Task<IActionResult> VerifyOtp(
+        Guid id, [FromBody] VerifyOtpDto dto, CancellationToken ct)
+    {
+        var result = await _secureDeliveryService.VerifyOtpAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, "Recipient identity verified.");
+    }
+}
+
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RESCHEDULING CONTROLLER — UC1 Reschedule Parcel Collection / UC2 Calculate
+// Rescheduling Fee
+// GET /api/parcels/{id}/reschedule-quote  – preview fee for a proposed new date
+// PUT /api/parcels/{id}/reschedule        – confirm reschedule, apply fee if due
+// ══════════════════════════════════════════════════════════════════════════════
+[Route("api/parcels")]
+[Authorize]
+public class ReschedulingController : CourierSABaseController
+{
+    private readonly IReschedulingService _reschedulingService;
+
+    public ReschedulingController(IReschedulingService reschedulingService)
+        => _reschedulingService = reschedulingService;
+
+    [HttpGet("{id:guid}/reschedule-quote")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> PreviewFee(
+        Guid id, [FromQuery] DateTime proposedDate, CancellationToken ct)
+    {
+        var result = await _reschedulingService.PreviewFeeAsync(id, proposedDate, CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/reschedule")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> Reschedule(
+        Guid id, [FromBody] RescheduleCollectionDto dto, CancellationToken ct)
+    {
+        var result = await _reschedulingService.RescheduleAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, result.FeeCharged
+            ? $"Collection rescheduled. Fee of R{result.FeeZAR:0.00} applied via {result.ChargeMethod}."
+            : "Collection rescheduled — no fee applied.");
     }
 }

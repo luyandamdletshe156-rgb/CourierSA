@@ -1,12 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import { StatusPill, Alert, PageLoader } from '@/components/ui'
-import { parcelApi } from '@/api'
+import { parcelApi, reschedulingApi } from '@/api'
 import { formatDate, formatZAR } from '@/utils'
 import {
   ArrowLeft, Truck, MapPin, Package, CheckCircle,
-  XCircle, Clock, Shield, AlertTriangle
+  XCircle, Clock, Shield, AlertTriangle, CalendarClock, CheckCircle2
 } from 'lucide-react'
 
 // ── Event icon map ────────────────────────────────────────────────────────────
@@ -19,6 +20,7 @@ const EVENT_ICONS = {
   DeliveryFailed:      { Icon: XCircle,     bg: 'bg-[#EF4444]' },
   Cancelled:           { Icon: XCircle,     bg: 'bg-[#94A3B8]' },
   InWarehouse:         { Icon: Package,     bg: 'bg-[#0A3D91]' },
+  CollectionRescheduled: { Icon: CalendarClock, bg: 'bg-[#1E63E9]' },
 }
 
 function Row({ label, value }) {
@@ -49,8 +51,120 @@ function AddressBlock({ title, address }) {
   )
 }
 
+// ── Reschedule collection panel ────────────────────────────────────────────────
+function RescheduleCollectionPanel({ parcel, onRescheduled }) {
+  const [open, setOpen] = useState(false)
+  const [newDate, setNewDate] = useState('')
+  const [quote, setQuote] = useState(null)
+  const [quoteError, setQuoteError] = useState('')
+  const [confirmError, setConfirmError] = useState('')
+  const [result, setResult] = useState(null)
+
+  const previewMutation = useMutation({
+    mutationFn: () => reschedulingApi.previewFee(parcel.id, new Date(newDate).toISOString()),
+    onSuccess: res => { setQuote(res.data); setQuoteError('') },
+    onError: err => { setQuote(null); setQuoteError(err?.message || 'Failed to calculate fee.') },
+  })
+
+  const confirmMutation = useMutation({
+    mutationFn: () => reschedulingApi.reschedule(parcel.id, new Date(newDate).toISOString()),
+    onSuccess: res => { setResult(res.data); setConfirmError(''); onRescheduled?.() },
+    onError: err => setConfirmError(err?.message || 'Failed to reschedule.'),
+  })
+
+  const isEligible = ['PendingApproval', 'Approved'].includes(parcel.status)
+  if (!isEligible) return null
+
+  return (
+    <div className="card">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white bg-[#1E63E9]">
+            <CalendarClock size={15} />
+          </div>
+          <h3 className="text-sm font-bold text-[#172554]">Reschedule collection</h3>
+        </div>
+        <span className="text-xs font-bold text-[#0A3D91]">{open ? 'Hide' : result ? 'View' : 'Change'}</span>
+      </button>
+
+      {open && (
+        <div className="mt-4 pt-4 border-t border-[#D8E4F5] space-y-4">
+          {result ? (
+            <div className="p-4 bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl">
+              <div className="flex items-center gap-2 text-[#047857] font-bold text-sm mb-2">
+                <CheckCircle2 size={16} /> Collection rescheduled
+              </div>
+              <p className="text-sm text-[#64748B]">
+                New collection time: <strong className="text-[#172554]">
+                  {new Date(result.newScheduledPickupDate).toLocaleString('en-ZA')}
+                </strong>
+              </p>
+              {result.feeCharged && (
+                <p className="text-sm text-[#64748B] mt-1">
+                  Fee of {formatZAR(result.feeZAR)} was applied via {result.chargeMethod === 'Wallet' ? 'your wallet' : 'a new invoice'}.
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
+              <Row
+                label="Current scheduled collection"
+                value={parcel.scheduledPickupDate ? formatDate(parcel.scheduledPickupDate, { time: true }) : 'Not yet scheduled'}
+              />
+
+              <div>
+                <label className="label">New collection date & time</label>
+                <input
+                  type="datetime-local" className="input"
+                  value={newDate}
+                  min={new Date().toISOString().slice(0, 16)}
+                  onChange={e => { setNewDate(e.target.value); setQuote(null) }}
+                />
+              </div>
+
+              {quoteError && <Alert type="error" message={quoteError} />}
+
+              {!quote && (
+                <button
+                  onClick={() => previewMutation.mutate()}
+                  disabled={!newDate || previewMutation.isPending}
+                  className="btn-secondary w-full"
+                >
+                  {previewMutation.isPending ? 'Checking…' : 'Check for rescheduling fee'}
+                </button>
+              )}
+
+              {quote && (
+                <>
+                  <div className={`p-3 rounded-xl text-sm ${quote.isFeeApplicable ? 'bg-[#F59E0B]/10 text-[#B45309] border border-[#F59E0B]/20' : 'bg-[#10B981]/10 text-[#047857] border border-[#10B981]/20'}`}>
+                    {quote.isFeeApplicable
+                      ? <>A fee of <strong>{formatZAR(quote.feeZAR)}</strong> applies. {quote.reason}</>
+                      : <>No fee applies. {quote.reason}</>}
+                  </div>
+                  {confirmError && <Alert type="error" message={confirmError} />}
+                  <button
+                    onClick={() => confirmMutation.mutate()}
+                    disabled={confirmMutation.isPending}
+                    className="btn-primary w-full"
+                  >
+                    {confirmMutation.isPending ? 'Confirming…' : 'Confirm reschedule'}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ParcelDetailPage() {
   const { id } = useParams()
+  const qc = useQueryClient()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['parcel', id],
@@ -116,6 +230,9 @@ export default function ParcelDetailPage() {
                 <Row label="Quote amount" value={
                   parcel.quoteAmountZAR ? formatZAR(parcel.quoteAmountZAR) : null
                 } />
+                {parcel.scheduledPickupDate && (
+                  <Row label="Scheduled collection" value={formatDate(parcel.scheduledPickupDate, { time: true })} />
+                )}
               </div>
 
               {(parcel.isFragile || parcel.requiresSignature || parcel.insuranceRequired) && (
@@ -138,6 +255,12 @@ export default function ParcelDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Reschedule collection — UC1/UC2 */}
+            <RescheduleCollectionPanel
+              parcel={parcel}
+              onRescheduled={() => qc.invalidateQueries({ queryKey: ['parcel', id] })}
+            />
 
             {/* Addresses */}
             <div className="card space-y-6">

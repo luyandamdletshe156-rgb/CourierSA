@@ -4,8 +4,10 @@ using CourierSA.Application.DTOs.Invoices;
 using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
+using CourierSA.Application.DTOs.Rescheduling;
 using CourierSA.Application.DTOs.Returns;
 using CourierSA.Application.DTOs.Routing;
+using CourierSA.Application.DTOs.SecureDelivery;
 using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Domain.Entities;
 using System.Security.Claims;
@@ -179,4 +181,16 @@ public interface IReturnService
     Task<ReturnRequestDto?> GetDetailAsync(Guid returnId, CancellationToken ct = default);
     Task<IEnumerable<ReturnRequestDto>> GetMyReturnsAsync(Guid customerUserId, CancellationToken ct = default);
     Task<IEnumerable<ReturnRequestDto>> GetQueueAsync(string? status, CancellationToken ct = default);
+}
+
+public interface ISecureDeliveryService
+{
+    Task<FlagHighValueResultDto> FlagAndGenerateOtpAsync(Guid parcelId, Guid dispatcherUserId, CancellationToken ct = default);
+    Task<VerifyOtpResultDto> VerifyOtpAsync(Guid parcelId, VerifyOtpDto dto, Guid driverUserId, CancellationToken ct = default);
+}
+
+public interface IReschedulingService
+{
+    Task<RescheduleQuoteDto> PreviewFeeAsync(Guid parcelId, DateTime proposedDate, Guid customerUserId, CancellationToken ct = default);
+    Task<RescheduleResultDto> RescheduleAsync(Guid parcelId, RescheduleCollectionDto dto, Guid customerUserId, CancellationToken ct = default);
 }

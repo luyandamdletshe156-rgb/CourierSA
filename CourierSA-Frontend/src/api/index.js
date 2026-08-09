@@ -203,3 +203,15 @@ export const returnApi = {
   inspect:        (id, dto)  => api.put(`/return-requests/${id}/inspect`, dto),
   releaseRefund:  (id, dto)  => api.put(`/return-requests/${id}/release-refund`, dto),
 }
+
+export const secureDeliveryApi = {
+  flagHighValue: id        => api.put(`/parcels/${id}/flag-high-value`),
+  verifyOtp:     (id, otp) => api.put(`/parcels/${id}/verify-otp`, { otp }),
+}
+
+export const reschedulingApi = {
+  previewFee:  (id, proposedDate) =>
+    api.get(`/parcels/${id}/reschedule-quote`, { params: { proposedDate } }),
+  reschedule:  (id, newScheduledPickupDate) =>
+    api.put(`/parcels/${id}/reschedule`, { newScheduledPickupDate }),
+}

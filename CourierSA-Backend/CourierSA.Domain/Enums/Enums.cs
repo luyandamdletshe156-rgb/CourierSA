@@ -76,8 +76,11 @@ public enum TrackingEventType
     DeliveryAttempted, Delivered, DeliveryFailed, ReturnInitiated,
     Returned, Cancelled, AddressCorrected, ExceptionRaised,
     CheckedOut,
-    LostParcelReported,   // NEW
-    LostParcelConfirmed
+    LostParcelReported,   
+    LostParcelConfirmed,
+    HighValueFlagged,   
+    OtpVerified,
+    CollectionRescheduled
 }
 public enum DeliveryStatus
 {

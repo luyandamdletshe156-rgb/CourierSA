@@ -5,10 +5,11 @@ import {
   StatCard, StatusPill, TrackingBadge,
   EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
-import { deliveryApi } from '@/api'
+import { deliveryApi, secureDeliveryApi } from '@/api'
 import { 
   Truck, CheckCircle, XCircle, Navigation, Phone, 
-  MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon
+  MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon,
+  ShieldCheck, ShieldAlert
 } from 'lucide-react'
 
 // ── Groups a list of deliveries by routeId. Items with no routeId (single
@@ -47,6 +48,24 @@ export function DriverDeliveries() {
   const [failReason, setFailReason]         = useState('RecipientAbsent')
   const [failNotes, setFailNotes]           = useState('')
 
+  // ── OTP verification state (UC3/UC4 — high-value delivery security) ────────
+  const [otpInput, setOtpInput]         = useState('')
+  const [otpVerified, setOtpVerified]   = useState(false)
+  const [otpError, setOtpError]         = useState('')
+
+  const openDeliveredModal = (d) => {
+    setDeliveredModal(d)
+    setOtpInput('')
+    setOtpVerified(false)
+    setOtpError('')
+  }
+
+  const verifyOtpMutation = useMutation({
+    mutationFn: (parcelId) => secureDeliveryApi.verifyOtp(parcelId, otpInput.trim()),
+    onSuccess: () => { setOtpVerified(true); setOtpError('') },
+    onError: err => setOtpError(err?.message || 'Incorrect OTP.'),
+  })
+
   const deliveredMutation = useMutation({
     mutationFn: ({ id }) => deliveryApi.markDelivered(id, {
       notes: podNotes,
@@ -78,6 +97,13 @@ export function DriverDeliveries() {
 
   const currentList = activeTab === 'active' ? active : activeTab === 'completed' ? completed : failed
   const { groups, ungrouped } = groupByRoute(currentList)
+
+  const otpSatisfied = deliveredModal && (
+    deliveredModal.isPickup ||
+    !deliveredModal.requiresOtpVerification ||
+    deliveredModal.otpVerified ||
+    otpVerified
+  )
 
   return (
     <AppShell title="My Deliveries">
@@ -177,7 +203,7 @@ export function DriverDeliveries() {
                     stopNumber={i + 1}
                     activeTab={activeTab}
                     onDetail={() => setDetailModal(d)}
-                    onDelivered={() => setDeliveredModal(d)}
+                    onDelivered={() => openDeliveredModal(d)}
                     onFailed={() => setFailedModal(d)}
                   />
                 ))}
@@ -192,7 +218,7 @@ export function DriverDeliveries() {
               d={d}
               activeTab={activeTab}
               onDetail={() => setDetailModal(d)}
-              onDelivered={() => setDeliveredModal(d)}
+              onDelivered={() => openDeliveredModal(d)}
               onFailed={() => setFailedModal(d)}
             />
           ))}
@@ -244,6 +270,17 @@ export function DriverDeliveries() {
               </div>
             )}
 
+            {!detailModal.isPickup && detailModal.requiresOtpVerification && (
+              <div className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 border ${
+                detailModal.otpVerified
+                  ? 'text-[#047857] bg-[#10B981]/10 border-[#10B981]/20'
+                  : 'text-[#B45309] bg-[#F59E0B]/10 border-[#F59E0B]/20'
+              }`}>
+                {detailModal.otpVerified ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
+                {detailModal.otpVerified ? 'Recipient identity verified' : 'High-value — OTP verification required before delivery'}
+              </div>
+            )}
+
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Full {detailModal.isPickup ? 'Pickup' : 'Delivery'} Address</p>
               <p className="bg-gray-50 p-2.5 rounded border border-[#D8E4F5] text-gray-800 font-medium flex items-start gap-2">
@@ -262,6 +299,7 @@ export function DriverDeliveries() {
             )}
 
             <div className="flex justify-between items-center pt-2">
+              {/* FIXED: Missing opening <a tag added here */}
               <a
                 href={`https://maps.google.com/?q=${encodeURIComponent(`${detailModal.deliveryAddress}, ${detailModal.city}`)}`}
                 target="_blank"
@@ -302,6 +340,41 @@ export function DriverDeliveries() {
                 <strong className="text-[#172554] font-bold">{deliveredModal.recipientName}</strong>.
               </div>
 
+              {/* OTP verification gate — UC3/UC4 high-value delivery security */}
+              {!deliveredModal.isPickup && deliveredModal.requiresOtpVerification && !otpSatisfied && (
+                <div className="mb-5 p-4 bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded-xl">
+                  <div className="flex items-center gap-2 text-[#B45309] font-bold text-sm mb-2">
+                    <ShieldAlert size={16} /> High-value parcel — OTP required
+                  </div>
+                  <p className="text-xs text-[#64748B] mb-3">
+                    Ask the recipient for their 4-digit OTP before completing this delivery.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text" maxLength={4} inputMode="numeric"
+                      className="input font-mono text-center text-lg tracking-widest flex-1"
+                      placeholder="0000"
+                      value={otpInput}
+                      onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                    />
+                    <button
+                      className="btn-secondary"
+                      disabled={otpInput.length !== 4 || verifyOtpMutation.isPending}
+                      onClick={() => verifyOtpMutation.mutate(deliveredModal.parcelId)}
+                    >
+                      {verifyOtpMutation.isPending ? 'Verifying…' : 'Verify'}
+                    </button>
+                  </div>
+                  {otpError && <Alert message={otpError} className="mt-2" />}
+                </div>
+              )}
+
+              {!deliveredModal.isPickup && deliveredModal.requiresOtpVerification && otpSatisfied && (
+                <div className="mb-5 flex items-center gap-2 text-sm text-[#047857] bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl px-4 py-2.5">
+                  <ShieldCheck size={15} /> Recipient identity verified
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label htmlFor="notes" className="label">
                   Notes (optional)
@@ -330,7 +403,7 @@ export function DriverDeliveries() {
               </button>
               <button 
                 className="btn-primary"
-                disabled={deliveredMutation.isPending}
+                disabled={deliveredMutation.isPending || !otpSatisfied}
                 onClick={() => deliveredMutation.mutate({ id: deliveredModal.id })}
               >
                 <CheckCircle size={16} />
@@ -456,6 +529,14 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
                 Pickup
               </span>
             )}
+            {!d.isPickup && d.requiresOtpVerification && (
+              <span className={`px-2 py-0.5 text-xs font-semibold rounded-full flex items-center gap-1 ${
+                d.otpVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+              }`}>
+                {d.otpVerified ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
+                {d.otpVerified ? 'OTP verified' : 'OTP required'}
+              </span>
+            )}
             <StatusPill status={d.status} />
             <button
               onClick={onDetail}
@@ -496,6 +577,7 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
         <div className="flex flex-col gap-2 flex-shrink-0">
           {activeTab === 'active' && (
             <>
+              {/* FIXED: Missing opening <a tag added here */}
               <a
                 href={`https://maps.google.com/?q=${encodeURIComponent(`${d.deliveryAddress}, ${d.city}`)}`}
                 target="_blank"
