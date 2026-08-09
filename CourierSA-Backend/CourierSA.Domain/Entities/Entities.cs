@@ -400,3 +400,50 @@ public class ParcelInspection : BaseEntity
 
     public Parcel? Parcel { get; set; }
 }
+
+
+public class LostParcelCase : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public Guid CustomerId { get; set; }   // CustomerProfile.Id — NOT User.Id
+    public string CaseNumber { get; set; } = string.Empty;
+    public LostParcelCaseStatus Status { get; set; } = LostParcelCaseStatus.Reported;
+
+    public string? CustomerNotes { get; set; }
+    public string? InvestigationNotes { get; set; }
+    public Guid? InvestigatedByStaffId { get; set; }   // User.Id, no nav — mirrors ParcelInspection.StaffId
+
+    public DateTime ReportedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ResolvedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
+
+    public Guid? InsuranceClaimId { get; set; }
+
+    public Parcel? Parcel { get; set; }
+    public InsuranceClaim? InsuranceClaim { get; set; }
+}
+
+public class ReturnRequest : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public Guid CustomerId { get; set; }   // CustomerProfile.Id — not User.Id
+    public string RaNumber { get; set; } = string.Empty;
+    public ReturnRequestStatus Status { get; set; } = ReturnRequestStatus.Requested;
+    public string Reason { get; set; } = string.Empty;
+    public Guid CollectionAddressId { get; set; }
+
+    public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ApprovedAt { get; set; }
+    public DateTime? ReceivedAt { get; set; }
+    public Guid? ReceivedByStaffId { get; set; }
+
+    public ReturnItemCondition? InspectionResult { get; set; }
+    public string? InspectionNotes { get; set; }
+
+    public decimal? RefundAmountZAR { get; set; }
+    public DateTime? RefundedAt { get; set; }
+    public Guid? RefundApprovedByStaffId { get; set; }
+
+    public Parcel? Parcel { get; set; }
+    public ParcelAddress? CollectionAddress { get; set; }
+}

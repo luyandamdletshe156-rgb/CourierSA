@@ -1,11 +1,12 @@
 using CourierSA.Application.DTOs.Auth;
 using CourierSA.Application.DTOs.Bulk;
 using CourierSA.Application.DTOs.Invoices;
+using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
-using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.DTOs.Returns;
 using CourierSA.Application.DTOs.Routing;
-
+using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Domain.Entities;
 using System.Security.Claims;
 
@@ -155,4 +156,27 @@ public interface ITrackingHubService
 public interface IInvoiceService
 {
     Task<InvoiceDashboardDto> GetCustomerInvoiceDashboardAsync(Guid userId, CancellationToken ct = default);
+}
+
+public interface ILostParcelService
+{
+    Task<LostParcelCaseDto> ReportAsync(ReportLostParcelDto dto, Guid customerUserId, CancellationToken ct = default);
+    Task<LostParcelCaseDto> InvestigateAsync(Guid caseId, InvestigateLostParcelCaseDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<LostParcelCaseDto> ResolveAsync(Guid caseId, ResolveLostParcelCaseDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<InsuranceClaimDto> SubmitInsuranceClaimAsync(Guid caseId, SubmitInsuranceClaimDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<InsuranceClaimDto> UpdateClaimStatusAsync(Guid claimId, UpdateClaimStatusDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<LostParcelCaseDto?> GetCaseDetailAsync(Guid caseId, CancellationToken ct = default);
+    Task<IEnumerable<LostParcelCaseDto>> GetMyCasesAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<LostParcelCaseDto>> GetQueueAsync(string? status, CancellationToken ct = default);
+}
+
+public interface IReturnService
+{
+    Task<ReturnRequestDto> RequestReturnAsync(RequestReturnDto dto, Guid customerUserId, CancellationToken ct = default);
+    Task<ReturnRequestDto> ReceiveAsync(Guid returnId, Guid staffUserId, CancellationToken ct = default);
+    Task<ReturnRequestDto> InspectAsync(Guid returnId, InspectReturnDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<ReturnRequestDto> ReleaseRefundAsync(Guid returnId, ReleaseRefundDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<ReturnRequestDto?> GetDetailAsync(Guid returnId, CancellationToken ct = default);
+    Task<IEnumerable<ReturnRequestDto>> GetMyReturnsAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<ReturnRequestDto>> GetQueueAsync(string? status, CancellationToken ct = default);
 }

@@ -103,6 +103,8 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPasswordService,     PasswordService>();
         services.AddScoped<IAuthService,         AuthService>();
         services.AddScoped<IParcelService,       ParcelService>();
+        services.AddScoped<ILostParcelService, LostParcelService>();
+        services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<IQuoteService,        QuoteService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IAuditService,        AuditService>();
@@ -111,6 +113,7 @@ public static class InfrastructureServiceExtensions
         services.Configure<BrevoEmailSettings>(configuration.GetSection("BrevoEmailSettings"));
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IBulkCsvService, BulkCsvService>();
+
 
         // ── SignalR ───────────────────────────────────────────────────────────
         services.AddSignalR(opts =>

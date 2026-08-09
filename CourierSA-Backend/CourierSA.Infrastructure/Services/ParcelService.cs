@@ -58,7 +58,7 @@ public class ParcelService : IParcelService
     }
 
     public async Task<ParcelBatchResultDto> BookBatchAsync(
-        CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default)
+    CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default)
     {
         if (dto.Parcels is null || dto.Parcels.Count == 0)
             throw new BadRequestException("Batch must contain at least one parcel.");
@@ -66,8 +66,7 @@ public class ParcelService : IParcelService
         var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
         var bookedParcels = new List<Parcel>();
 
-        await _uow.BeginTransactionAsync(ct);
-        try
+        await _uow.ExecuteInTransactionAsync(async innerCt =>
         {
             foreach (var item in dto.Parcels)
             {
@@ -81,20 +80,16 @@ public class ParcelService : IParcelService
                     CardToken: dto.CardToken
                 );
 
-                var parcel = await BuildAndAddParcelAsync(itemDto, customer, ct);
+                var parcel = await BuildAndAddParcelAsync(itemDto, customer, innerCt);
                 bookedParcels.Add(parcel);
 
-                // Save inside loop so tracking IDs update per iteration
-                await _uow.SaveChangesAsync(ct);
+                // Save inside loop so tracking IDs update per iteration.
+                // Must be the RAW save (no execution-strategy wrapping) — we're already
+                // inside ExecuteInTransactionAsync's strategy.ExecuteAsync(...), and EF Core
+                // forbids nesting a second retrying strategy around a manual transaction.
+                await _uow.SaveChangesRawAsync(innerCt);
             }
-
-            await _uow.CommitTransactionAsync(ct);
-        }
-        catch
-        {
-            await _uow.RollbackTransactionAsync(ct);
-            throw;
-        }
+        }, ct);
 
         var results = new List<ParcelDetailDto>();
         decimal total = 0;
@@ -117,7 +112,6 @@ public class ParcelService : IParcelService
 
         return new ParcelBatchResultDto(results, total);
     }
-
     private async Task<CustomerProfile> GetCustomerProfileOrThrowAsync(Guid customerId, CancellationToken ct)
     {
         return await _uow.Query<CustomerProfile>()

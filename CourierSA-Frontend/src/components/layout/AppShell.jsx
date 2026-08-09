@@ -8,7 +8,7 @@ import {
   BarChart3, Settings, LogOut, Bell, Menu, X,
   ClipboardCheck, Warehouse, ShieldCheck, MapPin,
   CreditCard, AlertTriangle, ChevronRight, Archive, Search,
-  History, RefreshCw
+  History, RefreshCw, PackageX, RotateCcw, HandCoins
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -19,6 +19,8 @@ const NAV = {
     { label: 'Parcels',     icon: Package,         to: '/admin/parcels'     },
     { label: 'Users',       icon: Users,           to: '/admin/users'       },
     { label: 'Vehicles',    icon: Truck,           to: '/admin/vehicles'    },
+    { label: 'Lost Parcels',icon: PackageX,        to: '/admin/lost-parcels'},
+    { label: 'Refunds',     icon: HandCoins,       to: '/admin/returns/refunds' },
     { label: 'Reports',     icon: BarChart3,       to: '/admin/reports'     },
     { label: 'Audit Logs',  icon: ShieldCheck,     to: '/admin/audit-logs'  },
     { label: 'Settings',    icon: Settings,        to: '/admin/settings'    },
@@ -37,6 +39,7 @@ const NAV = {
     { label: 'Dashboard',    icon: LayoutDashboard, to: '/warehouse/dashboard'  },
     { label: 'Inventory',    icon: Archive,         to: '/warehouse/inventory'  },
     { label: 'Processing',   icon: ClipboardCheck,  to: '/warehouse/inspections'},
+    { label: 'Returns',      icon: RotateCcw,       to: '/warehouse/returns'    },
     { label: 'Track Parcel', icon: Search,          to: '/warehouse/track'      },
   ],
   Driver: [
@@ -46,13 +49,15 @@ const NAV = {
     { label: 'History',       icon: FileText,      to: '/driver/history'       },
   ],
   Customer: [
-    { label: 'Dashboard',   icon: LayoutDashboard, to: '/customer/dashboard'   },
-    { label: 'My Parcels',  icon: Package,         to: '/customer/parcels'     },
-    { label: 'Book Parcel', icon: Package,         to: '/customer/book'        },
-    { label: 'Track',       icon: MapPin,          to: '/customer/track'       },
-    { label: 'Wallet',      icon: CreditCard,      to: '/customer/wallet'      },
-    { label: 'Claims',      icon: AlertTriangle,   to: '/customer/claims'      },
-    { label: 'Invoices',    icon: FileText,        to: '/customer/invoices'    },
+    { label: 'Dashboard',    icon: LayoutDashboard, to: '/customer/dashboard'   },
+    { label: 'My Parcels',   icon: Package,         to: '/customer/parcels'     },
+    { label: 'Book Parcel',  icon: Package,         to: '/customer/book'        },
+    { label: 'Track',        icon: MapPin,          to: '/customer/track'       },
+    { label: 'Lost Parcel',  icon: PackageX,        to: '/customer/lost-parcels'},
+    { label: 'Returns',      icon: RotateCcw,       to: '/customer/returns'     },
+    { label: 'Wallet',       icon: CreditCard,      to: '/customer/wallet'      },
+    { label: 'Claims',       icon: AlertTriangle,   to: '/customer/claims'      },
+    { label: 'Invoices',     icon: FileText,        to: '/customer/invoices'    },
   ],
   BusinessClient: [
     { label: 'Dashboard',   icon: LayoutDashboard, to: '/business/dashboard'   },

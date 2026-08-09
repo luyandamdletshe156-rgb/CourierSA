@@ -35,8 +35,9 @@ public enum ParcelStatus
     Delivered = 6,
     FailedDelivery = 7,
     Cancelled = 8,
-    Returned = 9,
-    CheckedOut = 10   // NEW — checked in, inspected, ready for dispatcher
+    CheckedOut = 10,
+    Lost = 11,
+    Returned = 12
 }
 
 public enum ServiceType
@@ -74,7 +75,9 @@ public enum TrackingEventType
     Booked, Approved, Rejected, ReceivedAtWarehouse, OutForDelivery,
     DeliveryAttempted, Delivered, DeliveryFailed, ReturnInitiated,
     Returned, Cancelled, AddressCorrected, ExceptionRaised,
-    CheckedOut   // NEW
+    CheckedOut,
+    LostParcelReported,   // NEW
+    LostParcelConfirmed
 }
 public enum DeliveryStatus
 {
@@ -234,4 +237,37 @@ public enum RouteStatus
     Planned,
     InProgress,
     Completed
+}
+
+public enum LostParcelCaseStatus
+{
+    Reported,
+    UnderInvestigation,
+    Found,
+    ConfirmedLost,
+    Closed
+}
+
+public enum LostParcelResolution
+{
+    Found,
+    ConfirmedLost
+}
+
+public enum ReturnRequestStatus
+{
+    Requested,
+    Approved,
+    Received,
+    ReadyForRefund,
+    InspectionFailed,
+    Refunded,
+    Closed
+}
+
+public enum ReturnItemCondition
+{
+    Acceptable,
+    Damaged,
+    Missing
 }

@@ -3,6 +3,7 @@ using System;
 using CourierSA.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CourierSA.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260808213456_AddLostParcelCaseAndParcelStatusLost")]
+    partial class AddLostParcelCaseAndParcelStatusLost
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1104,80 +1107,6 @@ namespace CourierSA.Infrastructure.Migrations
                     b.ToTable("Quotes", (string)null);
                 });
 
-            modelBuilder.Entity("CourierSA.Domain.Entities.ReturnRequest", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime?>("ApprovedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<Guid>("CollectionAddressId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<Guid>("CustomerId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("InspectionNotes")
-                        .HasColumnType("longtext");
-
-                    b.Property<int?>("InspectionResult")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<Guid>("ParcelId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("RaNumber")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime?>("ReceivedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<Guid?>("ReceivedByStaffId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<decimal?>("RefundAmountZAR")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<Guid?>("RefundApprovedByStaffId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime?>("RefundedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime>("RequestedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CollectionAddressId");
-
-                    b.HasIndex("ParcelId");
-
-                    b.ToTable("ReturnRequests");
-                });
-
             modelBuilder.Entity("CourierSA.Domain.Entities.SortingBin", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1759,25 +1688,6 @@ namespace CourierSA.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Customer");
-                });
-
-            modelBuilder.Entity("CourierSA.Domain.Entities.ReturnRequest", b =>
-                {
-                    b.HasOne("CourierSA.Domain.Entities.ParcelAddress", "CollectionAddress")
-                        .WithMany()
-                        .HasForeignKey("CollectionAddressId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CourierSA.Domain.Entities.Parcel", "Parcel")
-                        .WithMany()
-                        .HasForeignKey("ParcelId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CollectionAddress");
-
-                    b.Navigation("Parcel");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.TrackingEvent", b =>

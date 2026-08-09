@@ -22,6 +22,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<Quote>                    Quotes                   { get; set; }
     public DbSet<ParcelInspection>         ParcelInspections        { get; set; }
     public DbSet<Delivery>                 Deliveries               { get; set; }
+    public DbSet<LostParcelCase> LostParcelCases { get; set; }
+    public DbSet<ReturnRequest> ReturnRequests { get; set; }
 
     // ── Fleet ──────────────────────────────────────────────────────────────────
     public DbSet<Vehicle>                  Vehicles                 { get; set; }
@@ -73,6 +75,13 @@ public class ApplicationDbContext : DbContext
             .HasForeignKey(a => a.ParcelId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<LostParcelCase>()
+           .HasOne(c => c.InsuranceClaim)
+           .WithMany()
+           .HasForeignKey(c => c.InsuranceClaimId)
+           .OnDelete(DeleteBehavior.SetNull);
+
+
         // Global query filters – soft delete
         modelBuilder.Entity<User>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Parcel>().HasQueryFilter(e => !e.IsDeleted);
@@ -80,7 +89,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Vehicle>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Invoice>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<InsuranceClaim>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<LostParcelCase>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<ReturnRequest>().HasQueryFilter(e => !e.IsDeleted);
 
+
+       
         // Precision overrides for money columns (MySQL DECIMAL)
         foreach (var property in modelBuilder.Model.GetEntityTypes()
             .SelectMany(t => t.GetProperties())

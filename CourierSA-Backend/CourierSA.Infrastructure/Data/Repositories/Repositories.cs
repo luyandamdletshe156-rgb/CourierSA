@@ -132,9 +132,31 @@ public class UnitOfWork : IUnitOfWork
     public async Task RollbackTransactionAsync(CancellationToken ct = default)
         => await _context.Database.RollbackTransactionAsync(ct);
 
+    public async Task ExecuteInTransactionAsync(Func<CancellationToken, Task> operation, CancellationToken ct = default)
+    {
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+            try
+            {
+                await operation(ct);
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(ct);
+                throw;
+            }
+        });
+    }
+
+    public Task<int> SaveChangesRawAsync(CancellationToken ct = default)
+        => _context.SaveChangesAsync(ct);
+
     public void Dispose() => _context.Dispose();
 }
-
 // ── Parcel Repository ─────────────────────────────────────────────────────────
 public class ParcelRepository : Repository<Parcel>, IParcelRepository
 {

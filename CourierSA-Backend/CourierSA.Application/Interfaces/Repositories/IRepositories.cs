@@ -65,25 +65,27 @@ public interface IBulkUploadHistoryRepository : IRepository<BulkUploadHistory>
 // ── Unit of Work ──────────────────────────────────────────────────────────────
 public interface IUnitOfWork : IDisposable
 {
-    IParcelRepository              Parcels             { get; }
-    IUserRepository                Users               { get; }
-    IDeliveryRepository            Deliveries          { get; }
-    IRepository<TrackingEvent>     TrackingEvents      { get; }
-    IRepository<Quote>             Quotes              { get; }
-    IRepository<Vehicle>           Vehicles            { get; }
-    IRepository<VehicleInspection> VehicleInspections  { get; }
-    IRepository<WalletTransaction> WalletTransactions  { get; }
-    IInvoiceRepository             Invoices            { get; }
-    IRepository<InsuranceClaim>    InsuranceClaims     { get; }
-    IRepository<Notification>      Notifications       { get; }
-    IAuditLogRepository            AuditLogs           { get; }
-    IBulkUploadHistoryRepository   BulkUploadHistories { get; }
+    IParcelRepository Parcels { get; }
+    IUserRepository Users { get; }
+    IDeliveryRepository Deliveries { get; }
+    IRepository<TrackingEvent> TrackingEvents { get; }
+    IRepository<Quote> Quotes { get; }
+    IRepository<Vehicle> Vehicles { get; }
+    IRepository<VehicleInspection> VehicleInspections { get; }
+    IRepository<WalletTransaction> WalletTransactions { get; }
+    IInvoiceRepository Invoices { get; }
+    IRepository<InsuranceClaim> InsuranceClaims { get; }
+    IRepository<Notification> Notifications { get; }
+    IAuditLogRepository AuditLogs { get; }
+    IBulkUploadHistoryRepository BulkUploadHistories { get; }
 
     // Generic access for services that need arbitrary entity types
     IRepository<T> Query<T>() where T : BaseEntity;
 
-    Task<int>  SaveChangesAsync(CancellationToken ct = default);
-    Task       BeginTransactionAsync(CancellationToken ct = default);
-    Task       CommitTransactionAsync(CancellationToken ct = default);
-    Task       RollbackTransactionAsync(CancellationToken ct = default);
+    Task<int> SaveChangesAsync(CancellationToken ct = default);
+    Task BeginTransactionAsync(CancellationToken ct = default);
+    Task CommitTransactionAsync(CancellationToken ct = default);
+    Task RollbackTransactionAsync(CancellationToken ct = default);
+    Task ExecuteInTransactionAsync(Func<CancellationToken, Task> operation, CancellationToken ct = default);
+    Task<int> SaveChangesRawAsync(CancellationToken ct = default);
 }

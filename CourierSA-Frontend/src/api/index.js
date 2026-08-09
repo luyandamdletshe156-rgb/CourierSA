@@ -183,3 +183,23 @@ export const invoiceApi = {
   get:            id  => api.get(`/invoices/${id}`),
   downloadPdf:    id  => api.get(`/invoices/${id}/pdf`, { responseType: 'blob' }),
 }
+
+export const lostParcelApi = {
+  report:       dto        => api.post('/lost-parcel-cases', dto),
+  mine:         ()         => api.get('/lost-parcel-cases/mine'),
+  queue:        status     => api.get('/lost-parcel-cases', { params: { status } }),
+  get:          id         => api.get(`/lost-parcel-cases/${id}`),
+  investigate:  (id, dto)  => api.put(`/lost-parcel-cases/${id}/investigate`, dto),
+  resolve:      (id, dto)  => api.put(`/lost-parcel-cases/${id}/resolve`, dto),
+  submitClaim:  (id, dto)  => api.post(`/lost-parcel-cases/${id}/insurance-claim`, dto),
+}
+
+export const returnApi = {
+  request:        dto        => api.post('/return-requests', dto),
+  mine:           ()         => api.get('/return-requests/mine'),
+  queue:          status     => api.get('/return-requests', { params: { status } }),
+  get:            id         => api.get(`/return-requests/${id}`),
+  receive:        id         => api.put(`/return-requests/${id}/receive`),
+  inspect:        (id, dto)  => api.put(`/return-requests/${id}/inspect`, dto),
+  releaseRefund:  (id, dto)  => api.put(`/return-requests/${id}/release-refund`, dto),
+}

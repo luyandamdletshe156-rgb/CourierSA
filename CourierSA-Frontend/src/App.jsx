@@ -22,6 +22,8 @@ import WalletPage from '@/pages/customer/WalletPage'
 import ClaimsPage from '@/pages/customer/ClaimsPage'
 import InvoicesPage from '@/pages/customer/InvoicesPage'
 import CustomerTrackPage from '@/pages/customer/CustomerTrackPage'
+import ReportLostParcelPage from '@/pages/customer/ReportLostParcelPage'
+import RequestReturnPage from '@/pages/customer/RequestReturnPage'
 
 // Dispatcher
 import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/DispatcherPages'
@@ -43,6 +45,7 @@ import { WarehouseDashboard } from '@/pages/warehouse/WarehouseDashboard'
 import { WarehouseInventoryPage } from '@/pages/warehouse/WarehouseInventory'
 import { ParcelProcessingPage } from '@/pages/warehouse/ParcelProcessing'
 import { WarehouseTrackPage } from '@/pages/warehouse/WarehouseTrack'
+import ReturnIntakeQueuePage from '@/pages/warehouse/ReturnIntakeQueuePage'
 
 // Admin
 import { AdminDashboard } from '@/pages/admin/AdminDashboard'
@@ -52,6 +55,8 @@ import CreateStaffPage from '@/pages/admin/CreateStaffPage'
 import AdminParcelsPage from '@/pages/admin/AdminParcelsPage'
 import AdminFleetPage from '@/pages/admin/AdminFleetPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
+import LostParcelQueuePage from '@/pages/admin/LostParcelQueuePage'
+import ReturnRefundQueuePage from '@/pages/admin/ReturnRefundQueuePage'
 
 // Business
 import { BusinessDashboard } from '@/pages/business/BusinessDashboard'
@@ -110,6 +115,8 @@ export default function App() {
                     <Route path="/customer/parcels" element={<CustomerParcels />} />
                     <Route path="/customer/book" element={<BookParcelPage />} />
                     <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
+                    <Route path="/customer/lost-parcels" element={<ReportLostParcelPage />} />
+                    <Route path="/customer/returns" element={<RequestReturnPage />} />
                     <Route path="/customer/track" element={<CustomerTrackPage />} />
                     <Route path="/customer/wallet" element={<WalletPage />} />
                     <Route path="/customer/claims" element={<ClaimsPage />} />
@@ -141,6 +148,7 @@ export default function App() {
                 {/* Warehouse */}
                 <Route element={<RequireRole roles={['WarehouseStaff', 'Administrator']} />}>
                   <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+                  <Route path="/warehouse/returns" element={<ReturnIntakeQueuePage />} />
                   <Route path="/warehouse/inventory" element={<WarehouseInventoryPage />} />
                   <Route path="/warehouse/inspections" element={<ParcelProcessingPage />} />
                   <Route path="/warehouse/track" element={<WarehouseTrackPage />} />
@@ -152,6 +160,8 @@ export default function App() {
                   <Route path="/admin/parcels" element={<AdminParcelsPage />} />
                   <Route path="/admin/users" element={<AdminDashboard />} />
                   <Route path="/admin/fleet" element={<AdminFleetPage />} />
+                  <Route path="/admin/lost-parcels" element={<LostParcelQueuePage />} />
+                  <Route path="/admin/returns/refunds" element={<ReturnRefundQueuePage />} />
                   <Route path="/admin/vehicles" element={<VehicleInspectionsPage />} />
                   <Route path="/admin/reports" element={<AdminReportsPage />} />
                   <Route path="/admin/audit-logs" element={<AuditLogPage />} />

@@ -1,17 +1,18 @@
+using CourierSA.API.Middleware;
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.Parcels;
+using CourierSA.Application.DTOs.Returns;
+using CourierSA.Application.DTOs.Routing;
+using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
+using CourierSA.Domain.Entities;
+using CourierSA.Domain.Enums;
+using CourierSA.Domain.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
-using CourierSA.API.Middleware;
-using CourierSA.Domain.Exceptions;
-using CourierSA.Application.Interfaces.Repositories;
-using CourierSA.Application.DTOs.Parcels;
-using CourierSA.Application.DTOs.Sorting;
-using CourierSA.Application.DTOs.Routing;
-using CourierSA.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
-using CourierSA.Domain.Entities;
+using System.Security.Claims;
 
 namespace CourierSA.API.Controllers;
 
@@ -543,5 +544,101 @@ public class NotificationsController : CourierSABaseController
     {
         await _notificationService.MarkAllReadAsync(CurrentUserId, ct);
         return NoContent("All notifications marked as read");
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RETURN REQUESTS CONTROLLER — UC7 Request Return Authorization / UC8 Process
+// Return Intake / UC9 Initiate Customer Refund
+// POST /api/return-requests                    – customer requests a return (UC7)
+// GET  /api/return-requests/mine                – customer's own returns
+// GET  /api/return-requests                     – warehouse/admin queue (?status=)
+// GET  /api/return-requests/{id}                – detail (owner or staff)
+// PUT  /api/return-requests/{id}/receive         – warehouse scans inbound (UC8)
+// PUT  /api/return-requests/{id}/inspect         – warehouse logs inspection (UC8)
+// PUT  /api/return-requests/{id}/release-refund  – admin releases refund (UC9)
+// ══════════════════════════════════════════════════════════════════════════════
+[Route("api/return-requests")]
+[Authorize]
+public class ReturnRequestsController : CourierSABaseController
+{
+    private readonly IReturnService _returnService;
+    private readonly IUnitOfWork _uow;
+
+    public ReturnRequestsController(IReturnService returnService, IUnitOfWork uow)
+    {
+        _returnService = returnService;
+        _uow = uow;
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> Request(
+        [FromBody] RequestReturnDto dto, CancellationToken ct)
+    {
+        var result = await _returnService.RequestReturnAsync(dto, CurrentUserId, ct);
+        return Created(result, $"Return authorized. RA: {result.RaNumber}");
+    }
+
+    [HttpGet("mine")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> GetMine(CancellationToken ct)
+    {
+        var result = await _returnService.GetMyReturnsAsync(CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    [HttpGet]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> GetQueue([FromQuery] string? status, CancellationToken ct)
+    {
+        var result = await _returnService.GetQueueAsync(status, ct);
+        return Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
+    {
+        var isStaff = User.IsInRole("Administrator") || User.IsInRole("WarehouseStaff") || User.IsInRole("Dispatcher");
+
+        if (!isStaff)
+        {
+            var returnRequest = await _uow.Query<ReturnRequest>().GetByIdAsync(id, ct)
+                ?? throw new NotFoundException($"Return {id} not found.");
+            var customer = await _uow.Query<CustomerProfile>().Query()
+                .FirstOrDefaultAsync(c => c.UserId == CurrentUserId, ct);
+            if (customer is null || returnRequest.CustomerId != customer.Id)
+                throw new ForbiddenException("You can only view your own return requests.");
+        }
+
+        var result = await _returnService.GetDetailAsync(id, ct)
+            ?? throw new NotFoundException($"Return {id} not found.");
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/receive")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> Receive(Guid id, CancellationToken ct)
+    {
+        var result = await _returnService.ReceiveAsync(id, CurrentUserId, ct);
+        return Ok(result, "Return received at warehouse");
+    }
+
+    [HttpPut("{id:guid}/inspect")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> Inspect(
+        Guid id, [FromBody] InspectReturnDto dto, CancellationToken ct)
+    {
+        var result = await _returnService.InspectAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, $"Inspection logged: {dto.Result}");
+    }
+
+    [HttpPut("{id:guid}/release-refund")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ReleaseRefund(
+        Guid id, [FromBody] ReleaseRefundDto dto, CancellationToken ct)
+    {
+        var result = await _returnService.ReleaseRefundAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, $"Refund of R{result.RefundAmountZAR:0.00} released.");
     }
 }

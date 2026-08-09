@@ -1,3 +1,4 @@
+using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 
@@ -539,4 +540,50 @@ namespace CourierSA.Application.DTOs.Routing
         DateTime? DispatchedAt,
         List<RouteStopDto> Stops
     );
+}
+
+
+namespace CourierSA.Application.DTOs.LostParcel
+{
+
+    public record ReportLostParcelDto(string TrackingNumber, string? CustomerNotes);
+
+    public record InvestigateLostParcelCaseDto(string Notes);
+
+    public record ResolveLostParcelCaseDto(LostParcelResolution Outcome, string? Notes);
+
+    public record SubmitInsuranceClaimDto(decimal? ClaimAmountOverrideZAR, string? Notes);
+
+    public record UpdateClaimStatusDto(ClaimStatus Status, decimal? ApprovedAmountZAR, string? Notes);
+
+    public record LostParcelCaseDto(
+        Guid Id, string CaseNumber, Guid ParcelId, string TrackingNumber,
+        string Status, string? CustomerNotes, string? InvestigationNotes,
+        DateTime ReportedAt, DateTime? ResolvedAt, DateTime? ClosedAt,
+        Guid? InsuranceClaimId, string? ClaimNumber, string? ClaimStatus);
+
+    public record InsuranceClaimDto(
+        Guid Id, string ClaimNumber, Guid ParcelId, string TrackingNumber,
+        string Type, string Status, decimal ClaimedAmountZAR, decimal? ApprovedAmountZAR,
+        string? Description, string? ResolutionNotes, DateTime CreatedAt);
+}
+
+
+namespace CourierSA.Application.DTOs.Returns
+{
+
+    public record RequestReturnDto(string TrackingNumber, string Reason, CreateAddressDto CollectionAddress);
+
+    public record InspectReturnDto(ReturnItemCondition Result, string? Notes);
+
+    public record ReleaseRefundDto(string? Notes);
+
+    public record ReturnRequestDto(
+        Guid Id, string RaNumber, Guid ParcelId, string TrackingNumber, string Status,
+        string Reason, ParcelAddressDto? CollectionAddress,
+        DateTime RequestedAt, DateTime? ApprovedAt, DateTime? ReceivedAt,
+        string? InspectionResult, string? InspectionNotes,
+        decimal? RefundAmountZAR, DateTime? RefundedAt);
+
+
 }
