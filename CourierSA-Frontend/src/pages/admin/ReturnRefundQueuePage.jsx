@@ -11,14 +11,21 @@ export default function ReturnRefundQueuePage() {
   const [error, setError] = useState('')
   const qc = useQueryClient()
 
-  const { data: returns, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['return-requests', 'queue', 'ReadyForRefund'],
     queryFn: () => returnApi.queue('ReadyForRefund'),
   })
 
+  // FIX: Extract the actual array from the Axios response's data property,
+  // falling back to an empty array so .map() and .length always work safely.
+  const returns = data?.data || []
+
   const releaseMutation = useMutation({
     mutationFn: id => returnApi.releaseRefund(id, {}),
-    onSuccess: () => { setError(''); qc.invalidateQueries({ queryKey: ['return-requests', 'queue', 'ReadyForRefund'] }) },
+    onSuccess: () => { 
+      setError(''); 
+      qc.invalidateQueries({ queryKey: ['return-requests', 'queue', 'ReadyForRefund'] }) 
+    },
     onError: err => setError(err?.message || 'Failed to release refund.'),
   })
 
@@ -28,7 +35,9 @@ export default function ReturnRefundQueuePage() {
         {error && <Alert type="error" message={error} />}
 
         {isLoading && <p className="text-sm text-[#64748B]">Loading…</p>}
-        {!isLoading && (!returns || returns.length === 0) && (
+        
+        {/* We can now safely check returns.length because it's guaranteed to be an array */}
+        {!isLoading && returns.length === 0 && (
           <div className="card text-center py-12 text-[#64748B]">
             <Wallet size={28} className="mx-auto mb-2 text-[#94A3B8]" />
             No returns are awaiting refund right now.
@@ -36,7 +45,8 @@ export default function ReturnRefundQueuePage() {
         )}
 
         <div className="space-y-3">
-          {returns?.map(r => (
+          {/* We no longer strictly need the ?. operator here since returns is guaranteed to be an array, but it's fine to leave it */}
+          {returns.map(r => (
             <div key={r.id} className="card flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-[#172554]">{r.raNumber}</p>
