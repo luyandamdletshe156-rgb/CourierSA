@@ -5,6 +5,7 @@ using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
 using CourierSA.Infrastructure.Services.Email;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -148,18 +149,24 @@ public class AuthService : IAuthService
     private readonly IPasswordService _passwordService;
     private readonly IAuditService    _audit;
     private readonly IEmailService _emailService;
+    // field, near the other private readonly fields
+    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork      uow,
         ITokenService    tokenService,
         IPasswordService passwordService,
         IAuditService    audit,
-        IEmailService    emailService)
+        IEmailService    emailService,
+         ILogger<AuthService> logger)
 
     {
         _uow             = uow;
         _tokenService    = tokenService;
         _passwordService = passwordService;
+        _audit           = audit;
+        _emailService    = emailService;
+        _logger          = logger;
         _audit           = audit;
         _emailService    = emailService;
     }
@@ -395,38 +402,35 @@ public class AuthService : IAuthService
             UpdatedAt = DateTime.UtcNow
         };
 
-        await _uow.BeginTransactionAsync(ct);
         try
         {
-            await _uow.Users.AddAsync(user, ct);
-            await _uow.SaveChangesAsync(ct);
-
-            if (dto.Role == UserRole.Driver)
+            await _uow.ExecuteInTransactionAsync(async ct =>
             {
-                var driverProfile = new DriverProfile
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = user.Id,
-                    LicenseNumber = dto.LicenseNumber!.Trim(),
-                    LicenseExpiry = dto.LicenseExpiry!.Value,
-                    Status = DriverStatus.OffDuty,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                await _uow.Query<DriverProfile>().AddAsync(driverProfile, ct);
+                await _uow.Users.AddAsync(user, ct);
                 await _uow.SaveChangesAsync(ct);
-            }
 
-            await _uow.CommitTransactionAsync(ct);
+                if (dto.Role == UserRole.Driver)
+                {
+                    var driverProfile = new DriverProfile
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = user.Id,
+                        LicenseNumber = dto.LicenseNumber,
+                        LicenseExpiry = dto.LicenseExpiry!.Value,
+                        Status = DriverStatus.OffDuty,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    await _uow.Query<DriverProfile>().AddAsync(driverProfile, ct);
+                    await _uow.SaveChangesAsync(ct);
+                }
+            }, ct);
         }
         catch (Exception ex)
         {
-            await _uow.RollbackTransactionAsync(ct);
-            Console.WriteLine($"[STAFF_CREATE] Failed creating {dto.Role} account for {dto.Email}: {ex}");
-            throw new BadRequestException(
-                $"Could not create the {dto.Role} account. No account was created — please try again.");
+            _logger.LogError(ex, "[STAFF_CREATE] Failed creating {Role} account for {Email}", dto.Role, dto.Email);
+            throw new BadRequestException($"Could not create the {dto.Role} account. No account was created — please try again.");
         }
-
         // Email send stays OUTSIDE the transaction — a failed email shouldn't roll back a valid account.
         // If this throws, the account still exists correctly; just log it rather than losing the whole operation.
         try

@@ -44,7 +44,7 @@ public record CreateStaffUserDto(
 );
 
 public record ChangePasswordDto(string CurrentPassword, string NewPassword);
-
+public record UpdateDriverStatusDto(DriverStatus Status);
 
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
@@ -20,6 +20,9 @@ export function CustomerDashboard() {
   const parcels = data?.data?.items ?? []
   const total   = data?.data?.totalCount ?? 0
 
+  // ⚠️ WARNING: These stats only calculate based on the 5 parcels loaded on this page!
+  // To get accurate total stats across the user's entire account, you should create 
+  // a dedicated endpoint (e.g., parcelApi.getStats()) that does this count on the backend.
   const stats = {
     total:     total,
     pending:   parcels.filter(p => p.status === 'PendingApproval').length,
@@ -43,9 +46,9 @@ export function CustomerDashboard() {
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="Total parcels"  value={stats.total}     icon={Package}     color="bg-[#0A3D91]"  />
-        <StatCard label="Pending"        value={stats.pending}   icon={Clock}       color="bg-[#F59E0B]"  />
-        <StatCard label="In transit"     value={stats.transit}   icon={Package}     color="bg-[#1E63E9]"  />
-        <StatCard label="Delivered"      value={stats.delivered} icon={CheckCircle} color="bg-[#10B981]"  />
+        <StatCard label="Pending (Recent)" value={stats.pending}   icon={Clock}       color="bg-[#F59E0B]"  />
+        <StatCard label="In transit (Recent)" value={stats.transit}   icon={Package}     color="bg-[#1E63E9]"  />
+        <StatCard label="Delivered (Recent)" value={stats.delivered} icon={CheckCircle} color="bg-[#10B981]"  />
       </div>
 
       {/* Recent parcels */}
@@ -106,12 +109,24 @@ export function CustomerDashboard() {
 export function CustomerParcels() {
   const [page, setPage]     = useState(1)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const pageSize = 10
 
+  // Delay the search by 500ms so we don't hit the API on every single keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1) // Always reset to page 1 when doing a new search!
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['parcels', { page, pageSize }],
-    queryFn:  () => parcelApi.list({ page, pageSize }),
-    keepPreviousData: true,
+    // Include debouncedSearch in the queryKey so it refetches when search changes
+    queryKey: ['parcels', { page, pageSize, search: debouncedSearch }],
+    // Pass the search term to your API
+    queryFn:  () => parcelApi.list({ page, pageSize, search: debouncedSearch }),
+    keepPreviousData: true, 
   })
 
   const parcels = data?.data?.items ?? []
@@ -135,7 +150,7 @@ export function CustomerParcels() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
           <input
             className="input pl-9"
-            placeholder="Search by tracking number…"
+            placeholder="Search by tracking number, city, or status…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -147,8 +162,8 @@ export function CustomerParcels() {
 
         {isLoading ? <PageLoader /> : parcels.length === 0 ? (
           <EmptyState
-            title="No parcels found"
-            description="Your booked parcels will appear here."
+            title={debouncedSearch ? "No matching parcels" : "No parcels found"}
+            description={debouncedSearch ? "Try a different search term." : "Your booked parcels will appear here."}
           />
         ) : (
           <>
@@ -191,7 +206,9 @@ export function CustomerParcels() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} />
+            {total > pageSize && (
+               <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} />
+            )}
           </>
         )}
       </div>

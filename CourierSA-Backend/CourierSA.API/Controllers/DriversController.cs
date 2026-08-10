@@ -167,4 +167,53 @@ public class DriversController : CourierSABaseController
         await _db.SaveChangesAsync(ct);
         return NoContent("Location updated");
     }
+
+
+
+
+    // ══════════════════════════════════════════════════════════════════
+    // DRIVER SELF-SERVICE (driver's own status — Available / OffDuty)
+    // ══════════════════════════════════════════════════════════════════
+    [Route("api/driver-portal")]
+    [Authorize(Roles = "Driver")]
+    public class DriverPortalController : CourierSABaseController
+    {
+        private readonly ApplicationDbContext _db;
+        public DriverPortalController(ApplicationDbContext db) => _db = db;
+
+        [HttpGet("me")]
+        public async Task<IActionResult> GetMyStatus(CancellationToken ct)
+        {
+            var driver = await _db.DriverProfiles
+                .FirstOrDefaultAsync(d => d.UserId == CurrentUserId, ct)
+                ?? throw new NotFoundException("Driver profile not found.");
+
+            return Ok(new { driverId = driver.Id, status = driver.Status.ToString() });
+        }
+
+        [HttpPut("status")]
+        public async Task<IActionResult> UpdateMyStatus(
+            [FromBody] UpdateDriverStatusDto dto, CancellationToken ct)
+        {
+            var driver = await _db.DriverProfiles
+                .FirstOrDefaultAsync(d => d.UserId == CurrentUserId, ct)
+                ?? throw new NotFoundException("Driver profile not found.");
+
+            if (driver.Status == DriverStatus.Suspended)
+                throw new BadRequestException("Your account is suspended — contact an administrator.");
+
+            if (driver.Status == DriverStatus.OnDelivery)
+                throw new BadRequestException("Cannot change status while a delivery is in progress.");
+
+            if (dto.Status != DriverStatus.Available && dto.Status != DriverStatus.OffDuty)
+                throw new BadRequestException("Drivers can only set their own status to Available or Off Duty.");
+
+            driver.Status = dto.Status;
+            driver.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            return Ok(new { status = driver.Status.ToString() });
+        }
+    }
+
 }

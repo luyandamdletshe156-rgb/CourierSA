@@ -165,13 +165,14 @@ export const adminApi = {
 }
 
 export const driverApi = {
-  all:        ()         => api.get('/drivers'), // Shared directory
-  locations:  ()         => api.get('/drivers/locations'),
-  available:  ()         => api.get('/drivers/available'),
+  all:            () => api.get('/drivers'),
+  locations:      () => api.get('/drivers/locations'),
+  available:      () => api.get('/drivers/available'),
   updateLocation: (driverId, lat, lng) =>
     api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
+  myStatus:       ()       => api.get('/driver-portal/me'),
+  updateMyStatus: (status) => api.put('/driver-portal/status', { status }),
 }
-
 export const dispatcherApi = {
   vehicles:       ()       => api.get('/dispatcher/vehicles'),
   reassignDriver: (id, driverId) => api.put(`/dispatcher/vehicles/${id}/reassign`, { driverId }),

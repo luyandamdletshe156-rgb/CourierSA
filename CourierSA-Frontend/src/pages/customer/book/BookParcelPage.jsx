@@ -585,7 +585,8 @@ function AddParcelToCartForm({ onAdded }) {
         <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 1 ? 'bg-[#0A3D91] text-white' : 'bg-[#DCEEFF]/40 text-[#0A3D91]')}>1</div>
         <span className="text-xs font-bold text-[#64748B]">Addresses</span>
         <div className="flex-1 h-0.5 bg-[#D8E4F5]" />
-        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-[#0A3D91]' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
+        {/* FIXED: 'text-[#0A3D91]' on active state replaced with 'text-white' to prevent the number from being invisible */}
+        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-white' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
         <span className="text-xs font-bold text-[#64748B]">Parcel details</span>
       </div>
       {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}

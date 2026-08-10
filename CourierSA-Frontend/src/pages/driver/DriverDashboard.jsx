@@ -1,18 +1,36 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { StatCard, StatusPill, TrackingBadge, PageLoader, EmptyState } from '@/components/ui'
-import { deliveryApi } from '@/api'
+import { deliveryApi, driverApi } from '@/api'
 import { useAuth } from '@/context/AuthContext'
 import { Truck, CheckCircle, XCircle, Navigation, MapPin, Phone, Clock, ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export function DriverDashboard() {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  // -- Queries --
   const { data, isLoading } = useQuery({
     queryKey: ['driver-deliveries'],
-    queryFn:  deliveryApi.myDeliveries,
+    queryFn: deliveryApi.myDeliveries,
     refetchInterval: 30000,
   })
+
+  const { data: statusData } = useQuery({
+    queryKey: ['driver-status'],
+    queryFn: driverApi.myStatus, // Adjust the API function based on your setup
+  })
+
+  // -- Mutations --
+  const toggleStatus = useMutation({
+    mutationFn: driverApi.toggleStatus, // Adjust the API function based on your setup
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver-status'] })
+    }
+  })
+
+  const myStatus = statusData?.data?.status || user?.status || 'Available'
 
   const deliveries = data?.data ?? []
   const active    = deliveries.filter(d => d.status !== 'Delivered' && d.status !== 'Failed')
@@ -39,10 +57,24 @@ export function DriverDashboard() {
             </p>
           </div>
           <div className="hidden sm:block text-right">
-            <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1.5 rounded-full text-xs font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              On Duty
-            </div>
+            <button
+              onClick={() => toggleStatus.mutate()}
+              disabled={toggleStatus.isPending || myStatus === 'OnDelivery' || myStatus === 'Suspended'}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition ${
+                myStatus === 'Available'
+                  ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
+                  : 'bg-white/10 text-white/70 border-white/20'
+              } disabled:opacity-50`}
+            >
+              <span className={`w-2 h-2 rounded-full ${myStatus === 'Available' ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'}`}></span>
+              {myStatus === 'OnDelivery' 
+                ? 'On Delivery' 
+                : myStatus === 'Suspended' 
+                ? 'Suspended' 
+                : myStatus === 'Available' 
+                ? 'Available — tap to go off duty' 
+                : 'Off Duty — tap to go available'}
+            </button>
           </div>
         </div>
       </div>
