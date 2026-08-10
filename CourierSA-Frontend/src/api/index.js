@@ -82,8 +82,8 @@ export const parcelApi = {
   inspections:   ()        => api.get('/parcels/inspections'),
   dispatch:   (id, driverId) =>
                          api.put(`/parcels/${id}/dispatch`, { driverId }),
-  dispatchRoute: (parcelIds, driverId) =>
-                         api.post('/parcels/dispatch-route', { parcelIds, driverId }),
+  dispatchRoute: ({ parcelIds, driverId }) =>
+  api.post('/parcels/dispatch-route', { parcelIds, driverId }),
   bulkUpload: file   => {
     const form = new FormData()
     form.append('file', file)
