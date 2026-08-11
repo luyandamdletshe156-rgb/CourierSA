@@ -35,8 +35,12 @@ public class LostParcelService : ILostParcelService
         if (parcel.Status is ParcelStatus.Lost or ParcelStatus.Delivered or ParcelStatus.Cancelled)
             throw new BadRequestException($"Parcel cannot be reported lost while in status '{parcel.Status}'.");
 
+        // FIX (Issue A): Explicitly check for active/open case statuses (Reported or UnderInvestigation)
+        // rather than checking != Closed, preventing cases marked 'Found' from permanently blocking re-reports.
         var alreadyOpen = await _uow.Query<LostParcelCase>().Query()
-            .AnyAsync(c => c.ParcelId == parcel.Id && c.Status != LostParcelCaseStatus.Closed, ct);
+            .AnyAsync(c => c.ParcelId == parcel.Id &&
+                          (c.Status == LostParcelCaseStatus.Reported || c.Status == LostParcelCaseStatus.UnderInvestigation), ct);
+
         if (alreadyOpen)
             throw new BadRequestException("An open lost-parcel case already exists for this parcel.");
 
@@ -107,9 +111,14 @@ public class LostParcelService : ILostParcelService
         var parcel = await _uow.Parcels.GetByIdAsync(lostCase.ParcelId, ct)
             ?? throw new NotFoundException("Linked parcel not found.");
 
-        lostCase.InvestigationNotes = string.IsNullOrWhiteSpace(dto.Notes)
-            ? lostCase.InvestigationNotes
-            : $"{lostCase.InvestigationNotes}\n{dto.Notes}";
+        // FIX (Issue C): Safely concatenate notes without leaving a leading newline if previous notes were null or empty.
+        if (!string.IsNullOrWhiteSpace(dto.Notes))
+        {
+            lostCase.InvestigationNotes = string.IsNullOrWhiteSpace(lostCase.InvestigationNotes)
+                ? dto.Notes
+                : $"{lostCase.InvestigationNotes}\n{dto.Notes}";
+        }
+
         lostCase.ResolvedAt = DateTime.UtcNow;
         lostCase.UpdatedAt = DateTime.UtcNow;
 
@@ -232,9 +241,10 @@ public class LostParcelService : ILostParcelService
 
     public async Task<IEnumerable<LostParcelCaseDto>> GetMyCasesAsync(Guid customerUserId, CancellationToken ct = default)
     {
+        // FIX (Issue B): Throw NotFoundException if CustomerProfile doesn't exist to provide clear API/error feedback
         var customer = await _uow.Query<CustomerProfile>().Query()
-            .FirstOrDefaultAsync(c => c.UserId == customerUserId, ct);
-        if (customer is null) return [];
+            .FirstOrDefaultAsync(c => c.UserId == customerUserId, ct)
+            ?? throw new NotFoundException("Customer profile not found.");
 
         var cases = await _uow.Query<LostParcelCase>().Query()
             .AsNoTracking()

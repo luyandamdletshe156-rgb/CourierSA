@@ -11,9 +11,10 @@ import { ParcelCartProvider, useParcelCart } from '@/context/ParcelCartContext'
 import CartSummaryPanel from './CartSummaryPanel'
 import {
   MapPin, Package, Calculator, CheckCircle,
-  ChevronRight, ChevronLeft, Info, Shield,
+  ChevronRight, ChevronLeft, Shield,
   AlertTriangle, Truck, Zap, Clock, TrendingDown,
-  Calendar, Flame, Wallet, PlusCircle, ShoppingCart,
+  Calendar, Flame, Wallet, PlusCircle, ShoppingCart, RefreshCw,
+  CheckCircle2, ArrowRight, RotateCcw
 } from 'lucide-react'
 import { SA_PROVINCES, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -202,6 +203,9 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   const isEmergency = watch('isEmergency')
   const declaredVal = Number(watch('declaredValueZAR')) || 0
 
+  // FIX: Get local YYYY-MM-DD date for min date setting
+  const todayLocal = new Date().toLocaleDateString('en-CA')
+
   const isHighRisk = isFragile || declaredVal >= 2000
   useEffect(() => {
     if (isHighRisk) setValue('insuranceRequired', true, { shouldValidate: true })
@@ -265,7 +269,7 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label flex items-center gap-1.5"><Calendar size={14} /> Schedule collection</label>
-            <input type="date" className="input" {...register('scheduledPickupDate')} min={new Date().toISOString().split('T')[0]} disabled={isEmergency} />
+            <input type="date" className="input" {...register('scheduledPickupDate')} min={todayLocal} disabled={isEmergency} />
             <p className="text-xs text-[#94A3B8] mt-1.5">{isEmergency ? 'Not available for emergency escalations — collection is immediate.' : 'Leave blank for ASAP collection'}</p>
           </div>
           <div>
@@ -326,7 +330,7 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   )
 }
 
-// ── Payment method picker (shared by single + cart checkout) ──────────────────
+// ── Payment method picker ──────────────────────────────────────────────────────
 function PaymentMethodPicker({ paymentMethod, setPaymentMethod, amount, walletBalance, walletLoading }) {
   const canPayWallet = !walletLoading && walletBalance >= amount
 
@@ -334,12 +338,12 @@ function PaymentMethodPicker({ paymentMethod, setPaymentMethod, amount, walletBa
     <div className="card">
       <h3 className="text-sm font-bold text-[#172554] mb-4">Payment</h3>
       <div className="space-y-3">
-        <label className="flex items-center gap-3">
+        <label className="flex items-center gap-3 cursor-pointer">
           <input type="radio" name="paymentMethod" checked={paymentMethod === 'Card'} onChange={() => setPaymentMethod('Card')} />
           Pay by card
         </label>
 
-        <label className={clsx('flex items-center gap-3', !canPayWallet && 'opacity-60')}>
+        <label className={clsx('flex items-center gap-3 cursor-pointer', !canPayWallet && 'opacity-60')}>
           <input type="radio" name="paymentMethod" checked={paymentMethod === 'Wallet'} disabled={!canPayWallet} onChange={() => setPaymentMethod('Wallet')} />
           <span className="flex items-center gap-1.5"><Wallet size={14} /> Pay from wallet</span>
           <span className="text-xs text-[#64748B] ml-auto">
@@ -347,7 +351,7 @@ function PaymentMethodPicker({ paymentMethod, setPaymentMethod, amount, walletBa
           </span>
         </label>
 
-        <label className="flex items-center gap-3">
+        <label className="flex items-center gap-3 cursor-pointer">
           <input type="radio" name="paymentMethod" checked={paymentMethod === 'CashOnCollection'} onChange={() => setPaymentMethod('CashOnCollection')} />
           Cash on collection
         </label>
@@ -358,66 +362,117 @@ function PaymentMethodPicker({ paymentMethod, setPaymentMethod, amount, walletBa
 
 // ── Step 3: Quote (single booking) ─────────────────────────────────────────────
 function Step3Quote({ onNext, onBack }) {
-  const { watch } = useFormContext(); const formData = watch()
-  const [quote, setQuote] = useState(null); const [quoteError, setQuoteError] = useState('')
+  const { watch } = useFormContext()
+  const formData = watch()
+  const [quote, setQuote] = useState(null)
+  const [quoteError, setQuoteError] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('CashOnCollection')
   const { balance: walletBalance, isLoading: walletLoading } = useWallet()
 
   const quoteMutation = useMutation({
     mutationFn: (dto) => quoteApi.calculate(dto),
-    onSuccess: (res) => setQuote(res.data),
-    onError:   (err) => setQuoteError(err?.response?.data?.message || err?.message || 'Failed to calculate quote.'),
+    onSuccess: (res) => {
+      const q = res?.data?.data ?? res?.data ?? res
+      setQuote(q)
+    },
+    onError: (err) => setQuoteError(err?.response?.data?.message || err?.message || 'Failed to calculate quote.'),
   })
 
+  // FIX: Send isFragile, requiresSignature, and isEmergency to quote calculation
   const fetchQuote = () => {
     setQuoteError('')
     quoteMutation.mutate({
-      originProvince: toProvinceEnum(formData.pickupAddress?.province), destinationProvince: toProvinceEnum(formData.deliveryAddress?.province),
-      weightKg: Number(formData.weightKg), serviceType: formData.serviceType,
+      originProvince: toProvinceEnum(formData.pickupAddress?.province),
+      destinationProvince: toProvinceEnum(formData.deliveryAddress?.province),
+      weightKg: Number(formData.weightKg),
+      serviceType: formData.serviceType,
       declaredValueZAR: formData.declaredValueZAR ? Number(formData.declaredValueZAR) : null,
       insuranceRequired: formData.insuranceRequired ?? false,
+      isFragile: formData.isFragile ?? false,
+      requiresSignature: formData.requiresSignature ?? false,
+      isEmergency: formData.isEmergency ?? false,
     })
   }
 
+  useEffect(() => {
+    fetchQuote()
+  }, [])
+
+  const baseRate = quote?.baseRateZAR ?? quote?.basePriceZAR ?? quote?.baseRate ?? 0
+  const insurancePremium = quote?.insuranceFeeZAR ?? quote?.insurancePremiumZAR ?? quote?.insuranceFee ?? 0
+  const vat = quote?.vatAmountZAR ?? quote?.vatZAR ?? quote?.vatAmount ?? 0
+  const total = quote?.totalAmountZAR ?? quote?.totalZAR ?? quote?.totalAmount ?? quote?.amountZAR ?? 0
+  const deliveryDate = quote?.estimatedDeliveryDate ?? quote?.estimatedDelivery
+
   return (
     <div className="space-y-5">
-      {!quote && (
-        <div className="card text-center py-12">
-          <button type="button" onClick={fetchQuote} disabled={quoteMutation.isPending} className="btn-primary px-8 mx-auto">
-            {quoteMutation.isPending ? 'Calculating…' : 'Calculate quote'}
-          </button>
-          {quoteError && <Alert type="error" message={quoteError} className="mt-4" />}
+      {quoteMutation.isPending && (
+        <div className="card text-center py-12 text-[#64748B] flex flex-col items-center gap-2">
+          <RefreshCw size={24} className="animate-spin text-[#0A3D91]" />
+          <p className="text-sm font-medium">Calculating your quote options…</p>
         </div>
       )}
 
-      {quote && (
+      {quoteError && (
+        <div className="card text-center py-8">
+          <Alert type="error" message={quoteError} className="mb-4" />
+          <button type="button" onClick={fetchQuote} className="btn-primary px-8 mx-auto">
+            Retry quote calculation
+          </button>
+        </div>
+      )}
+
+      {quote && !quoteMutation.isPending && (
         <>
           <div className="card">
             <h3 className="text-sm font-bold text-[#172554] mb-4 border-b border-[#D8E4F5] pb-3">Quote Summary</h3>
             
-            <div className="space-y-1 mb-2">
-              {quote.breakdown?.map((item, index) => (
-                <div key={index} className={clsx("flex justify-between py-2 text-sm", item.isTotal && "border-t border-[#D8E4F5] mt-2 pt-3")}>
-                  <div className="flex flex-col">
-                    <span className={clsx(item.isTotal ? "font-bold text-[#172554] text-base" : "text-[#64748B]")}>
-                      {item.label}
+            {quote.breakdown && quote.breakdown.length > 0 ? (
+              <div className="space-y-1 mb-2">
+                {quote.breakdown.map((item, index) => (
+                  <div key={index} className={clsx("flex justify-between py-2 text-sm", item.isTotal && "border-t border-[#D8E4F5] mt-2 pt-3")}>
+                    <div className="flex flex-col">
+                      <span className={clsx(item.isTotal ? "font-bold text-[#172554] text-base" : "text-[#64748B]")}>
+                        {item.label}
+                      </span>
+                      {item.description && (
+                        <span className="text-[11px] text-[#94A3B8] mt-0.5">{item.description}</span>
+                      )}
+                    </div>
+                    <span className={clsx(item.isTotal ? "font-bold text-[#1E63E9] text-base" : "font-semibold text-[#172554]")}>
+                      {formatZAR(item.amountZAR ?? item.amount ?? 0)}
                     </span>
-                    {item.description && (
-                      <span className="text-[11px] text-[#94A3B8] mt-0.5">{item.description}</span>
-                    )}
                   </div>
-                  <span className={clsx(item.isTotal ? "font-bold text-[#1E63E9] text-base" : "font-semibold text-[#172554]")}>
-                    {formatZAR(item.amountZAR)}
-                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3 mb-2 text-sm">
+                <div className="flex justify-between py-1 text-[#64748B]">
+                  <span>Base rate</span>
+                  <span className="font-semibold text-[#172554]">{formatZAR(baseRate)}</span>
                 </div>
-              ))}
-            </div>
+                {insurancePremium > 0 && (
+                  <div className="flex justify-between py-1 text-[#64748B]">
+                    <span>Insurance premium</span>
+                    <span className="font-semibold text-[#172554]">{formatZAR(insurancePremium)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between py-1 text-[#64748B]">
+                  <span>VAT (15%)</span>
+                  <span className="font-semibold text-[#172554]">{formatZAR(vat)}</span>
+                </div>
+                <div className="flex justify-between py-3 border-t border-[#D8E4F5] mt-2 text-base font-bold text-[#172554]">
+                  <span>Total</span>
+                  <span className="text-[#1E63E9]">{formatZAR(total)}</span>
+                </div>
+              </div>
+            )}
 
-            {quote.estimatedDeliveryDate && (
+            {deliveryDate && (
               <div className="mt-4 pt-3 border-t border-[#D8E4F5] flex justify-between text-sm bg-[#F6FAFF] p-3 rounded-lg">
                  <span className="text-[#64748B]">Estimated delivery</span>
                  <span className="font-bold text-[#0A3D91]">
-                   {new Date(quote.estimatedDeliveryDate).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                   {new Date(deliveryDate).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
                  </span>
               </div>
             )}
@@ -425,12 +480,12 @@ function Step3Quote({ onNext, onBack }) {
 
           <PaymentMethodPicker
             paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
-            amount={quote.totalAmountZAR} walletBalance={walletBalance} walletLoading={walletLoading}
+            amount={total} walletBalance={walletBalance} walletLoading={walletLoading}
           />
 
           {paymentMethod === 'Card' && (
             <div className="card">
-              <CardPaymentForm amount={quote.totalAmountZAR} submitLabel="Continue" onSubmit={(token) => onNext({ quote, paymentMethod, cardToken: token })} />
+              <CardPaymentForm amount={total} submitLabel="Continue" onSubmit={(token) => onNext({ quote, paymentMethod, cardToken: token })} />
             </div>
           )}
         </>
@@ -439,7 +494,9 @@ function Step3Quote({ onNext, onBack }) {
       <div className="flex justify-between pt-2">
         <button type="button" onClick={onBack} className="btn-secondary"><ChevronLeft size={16} /> Back</button>
         {paymentMethod !== 'Card' && (
-          <button type="button" onClick={() => onNext({ quote, paymentMethod })} disabled={!quote} className="btn-primary">Review <ChevronRight size={16} /></button>
+          <button type="button" onClick={() => onNext({ quote, paymentMethod })} disabled={!quote || quoteMutation.isPending} className="btn-primary">
+            Review <ChevronRight size={16} />
+          </button>
         )}
       </div>
     </div>
@@ -510,10 +567,16 @@ function SingleParcelFlow() {
   const [bookError, setBookError] = useState('')
 
   const methods = useForm({ defaultValues: { isFragile: false, isEmergency: false, insuranceRequired: false } })
+
+  // FIX: Auto scroll to top when changing steps
+  const changeStep = (nextStep) => {
+    setStep(nextStep)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   
   const bookMutation = useMutation({ 
     mutationFn: (dto) => parcelApi.book(dto), 
-    onSuccess: (res) => setSuccess(res.data), 
+    onSuccess: (res) => setSuccess(res.data?.data ?? res.data), 
     onError: (err) => setBookError(err?.response?.data?.message || err?.message || 'Failed to book parcel.') 
   })
 
@@ -536,11 +599,35 @@ function SingleParcelFlow() {
     })
   }
 
+  const handleReset = () => {
+    methods.reset({ isFragile: false, isEmergency: false, insuranceRequired: false })
+    setQuoteData(null)
+    setSuccess(null)
+    setBookError('')
+    changeStep(1)
+  }
+
+  // FIX: Enhanced Success View with Action Buttons
   if (success) {
     return (
-      <div className="card text-center py-12">
-        <h2 className="text-2xl font-bold">Booking confirmed!</h2>
-        <p className="mt-2 text-xl font-mono">{success.trackingNumber}</p>
+      <div className="card text-center py-12 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+          <CheckCircle2 size={28} />
+        </div>
+        <h2 className="text-2xl font-bold text-[#172554]">Booking confirmed!</h2>
+        <p className="text-sm text-[#64748B]">Your parcel tracking number:</p>
+        <p className="text-xl font-mono font-bold text-[#0A3D91] bg-blue-50 py-2 px-4 rounded-xl inline-block border border-blue-200">
+          {success.trackingNumber}
+        </p>
+
+        <div className="flex justify-center gap-3 pt-4">
+          <button onClick={handleReset} className="btn-secondary text-xs px-5 py-2.5 flex items-center gap-2">
+            <RotateCcw size={14} /> Book another parcel
+          </button>
+          <a href="/customer/parcels" className="btn-primary text-xs px-5 py-2.5 flex items-center gap-2">
+            View My Parcels <ArrowRight size={14} />
+          </a>
+        </div>
       </div>
     )
   }
@@ -548,10 +635,10 @@ function SingleParcelFlow() {
   return (
     <FormProvider {...methods}>
       <StepIndicator currentStep={step} />
-      {step === 1 && <Step1Addresses onNext={() => setStep(2)} />}
-      {step === 2 && <Step2ParcelDetails onNext={() => setStep(3)} onBack={() => setStep(1)} />}
-      {step === 3 && <Step3Quote onNext={(d) => { setQuoteData(d); setStep(4) }} onBack={() => setStep(2)} />}
-      {step === 4 && <Step4Confirm onBack={() => setStep(3)} onSubmit={handleSubmit} isSubmitting={bookMutation.isPending} error={bookError} />}
+      {step === 1 && <Step1Addresses onNext={() => changeStep(2)} />}
+      {step === 2 && <Step2ParcelDetails onNext={() => changeStep(3)} onBack={() => changeStep(1)} />}
+      {step === 3 && <Step3Quote onNext={(d) => { setQuoteData(d); changeStep(4) }} onBack={() => changeStep(2)} />}
+      {step === 4 && <Step4Confirm onBack={() => changeStep(3)} onSubmit={handleSubmit} isSubmitting={bookMutation.isPending} error={bookError} />}
     </FormProvider>
   )
 }
@@ -585,7 +672,6 @@ function AddParcelToCartForm({ onAdded }) {
         <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 1 ? 'bg-[#0A3D91] text-white' : 'bg-[#DCEEFF]/40 text-[#0A3D91]')}>1</div>
         <span className="text-xs font-bold text-[#64748B]">Addresses</span>
         <div className="flex-1 h-0.5 bg-[#D8E4F5]" />
-        {/* FIXED: 'text-[#0A3D91]' on active state replaced with 'text-white' to prevent the number from being invisible */}
         <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold', step === 2 ? 'bg-[#0A3D91] text-white' : 'bg-[#F6FAFF] text-[#94A3B8] border border-[#D8E4F5]')}>2</div>
         <span className="text-xs font-bold text-[#64748B]">Parcel details</span>
       </div>
@@ -603,21 +689,33 @@ function CartCheckoutView({ onBookedSuccess }) {
   const [bookError, setBookError] = useState('')
   const { balance: walletBalance, isLoading: walletLoading } = useWallet()
 
-  const total = quotes?.reduce((sum, q) => sum + (q?.totalAmountZAR ?? 0), 0) ?? 0
+  // FIX: Reset quotes if cart item is removed to prevent quote/item count mismatch
+  const handleRemoveItem = (index) => {
+    removeItem(index)
+    setQuotes(null)
+  }
+
+  const total = quotes?.reduce((sum, q) => sum + (q?.totalAmountZAR ?? q?.totalZAR ?? 0), 0) ?? 0
 
   const quoteAllMutation = useMutation({
     mutationFn: async () => Promise.all(items.map(item => quoteApi.calculate({
-      originProvince: item.pickupAddress?.province, destinationProvince: item.deliveryAddress?.province,
-      weightKg: item.weightKg, serviceType: item.serviceType,
-      declaredValueZAR: item.declaredValueZAR, insuranceRequired: item.insuranceRequired ?? false,
-    }).then(r => r.data))),
+      originProvince: toProvinceEnum(item.pickupAddress?.province),
+      destinationProvince: toProvinceEnum(item.deliveryAddress?.province),
+      weightKg: item.weightKg,
+      serviceType: item.serviceType,
+      declaredValueZAR: item.declaredValueZAR,
+      insuranceRequired: item.insuranceRequired ?? false,
+      isFragile: item.isFragile ?? false,
+      requiresSignature: item.requiresSignature ?? false,
+      isEmergency: item.isEmergency ?? false,
+    }).then(r => r.data?.data ?? r.data))),
     onSuccess: (results) => { setQuotes(results); setQuoteError('') },
     onError: (err) => setQuoteError(err?.response?.data?.message || err?.message || 'Failed to calculate quotes.'),
   })
 
   const bookBatchMutation = useMutation({
     mutationFn: (dto) => parcelApi.bookBatch(dto),
-    onSuccess: (res) => { clearCart(); onBookedSuccess(res.data) },
+    onSuccess: (res) => { clearCart(); onBookedSuccess(res.data?.data ?? res.data) },
     onError: (err) => setBookError(err?.response?.data?.message || err?.message || 'Failed to book batch parcels.'),
   })
 
@@ -641,7 +739,7 @@ function CartCheckoutView({ onBookedSuccess }) {
 
   return (
     <div className="space-y-5">
-      <CartSummaryPanel items={items} quotes={quotes} onRemove={removeItem} />
+      <CartSummaryPanel items={items} quotes={quotes} onRemove={handleRemoveItem} />
 
       {items.length > 0 && !quotes && (
         <div className="card text-center py-8">
@@ -689,9 +787,20 @@ function CartFlow() {
 
   if (success) {
     return (
-      <div className="card text-center py-12">
-        <h2 className="text-2xl font-bold">{success.parcels?.length ?? 0} parcels booked!</h2>
-        <p className="mt-2 text-sm text-[#64748B]">Tracking numbers have been sent to your account and email.</p>
+      <div className="card text-center py-12 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+          <CheckCircle2 size={28} />
+        </div>
+        <h2 className="text-2xl font-bold text-[#172554]">{success.parcels?.length ?? 0} parcels booked!</h2>
+        <p className="text-sm text-[#64748B]">Tracking numbers have been assigned to your account and sent via email.</p>
+        <div className="flex justify-center gap-3 pt-2">
+          <button onClick={() => { setSuccess(null); setView('add') }} className="btn-secondary text-xs px-5 py-2.5 flex items-center gap-2">
+            <RotateCcw size={14} /> Book more parcels
+          </button>
+          <a href="/customer/parcels" className="btn-primary text-xs px-5 py-2.5 flex items-center gap-2">
+            View My Parcels <ArrowRight size={14} />
+          </a>
+        </div>
       </div>
     )
   }

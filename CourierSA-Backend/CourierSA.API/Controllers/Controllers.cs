@@ -757,26 +757,33 @@ public class ReschedulingController : CourierSABaseController
 // ══════════════════════════════════════════════════════════════════════════════
 // LOST PARCELS CONTROLLER — UC5 Report Lost Parcel / UC6 Insurance Claim
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// LOST PARCELS CONTROLLER — UC5 Report Lost Parcel / UC6 Insurance Claim
+// ══════════════════════════════════════════════════════════════════════════════
 [Route("api/lost-parcels")]
 [Authorize]
 public class LostParcelsController : CourierSABaseController
 {
     private readonly ILostParcelService _lostParcelService;
+    private readonly IUnitOfWork _uow;
 
-    public LostParcelsController(ILostParcelService lostParcelService)
+    public LostParcelsController(ILostParcelService lostParcelService, IUnitOfWork uow)
     {
         _lostParcelService = lostParcelService;
+        _uow = uow;
     }
 
+    /// <summary>POST /api/lost-parcels – Customer reports a parcel as lost</summary>
     [HttpPost]
     [Authorize(Policy = "CustomerOrBiz")]
     public async Task<IActionResult> ReportLost(
         [FromBody] ReportLostParcelDto dto, CancellationToken ct)
     {
         var result = await _lostParcelService.ReportAsync(dto, CurrentUserId, ct);
-        return Created($"/api/lost-parcels/{result.Id}", result);
+        return Created(result, $"Lost parcel report submitted. Case: {result.CaseNumber}");
     }
 
+    /// <summary>GET /api/lost-parcels/mine – Customer views their own reported cases</summary>
     [HttpGet("mine")]
     [Authorize(Policy = "CustomerOrBiz")]
     public async Task<IActionResult> GetMyCases(CancellationToken ct)
@@ -785,6 +792,7 @@ public class LostParcelsController : CourierSABaseController
         return Ok(results);
     }
 
+    /// <summary>GET /api/lost-parcels/queue – Staff queue for investigating reported cases</summary>
     [HttpGet("queue")]
     [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
     public async Task<IActionResult> GetQueue([FromQuery] string? status, CancellationToken ct)
@@ -793,49 +801,70 @@ public class LostParcelsController : CourierSABaseController
         return Ok(results);
     }
 
+    /// <summary>GET /api/lost-parcels/{id} – View case detail with ownership verification</summary>
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetCaseDetail(Guid id, CancellationToken ct)
     {
-        var result = await _lostParcelService.GetCaseDetailAsync(id, ct);
-        if (result == null) return NotFound("Lost parcel case not found.");
+        var result = await _lostParcelService.GetCaseDetailAsync(id, ct)
+            ?? throw new NotFoundException($"Lost parcel case {id} not found.");
 
-        var isStaff = User.IsInRole("Administrator") || User.IsInRole("Dispatcher") || User.IsInRole("CustomerSupport");
+        var isStaff = User.IsInRole("Administrator") ||
+                      User.IsInRole("Dispatcher") ||
+                      User.IsInRole("CustomerSupport");
+
+        // FIX: Verify ownership if caller is not staff
+        if (!isStaff)
+        {
+            var customer = await _uow.Query<CustomerProfile>().Query()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.UserId == CurrentUserId, ct);
+
+            var lostCase = await _uow.Query<LostParcelCase>().GetByIdAsync(id, ct);
+
+            if (customer is null || lostCase?.CustomerId != customer.Id)
+                throw new ForbiddenException("You can only view details of your own reported lost parcel cases.");
+        }
+
         return Ok(result);
     }
 
+    /// <summary>PUT /api/lost-parcels/{id}/investigate – Staff begins investigation</summary>
     [HttpPut("{id:guid}/investigate")]
     [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
     public async Task<IActionResult> Investigate(
         Guid id, [FromBody] InvestigateLostParcelCaseDto dto, CancellationToken ct)
     {
         var result = await _lostParcelService.InvestigateAsync(id, dto, CurrentUserId, ct);
-        return Ok(result);
+        return Ok(result, $"Investigation started for case {result.CaseNumber}.");
     }
 
+    /// <summary>PUT /api/lost-parcels/{id}/resolve – Staff resolves investigation (Found or Confirmed Lost)</summary>
     [HttpPut("{id:guid}/resolve")]
     [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
     public async Task<IActionResult> Resolve(
         Guid id, [FromBody] ResolveLostParcelCaseDto dto, CancellationToken ct)
     {
         var result = await _lostParcelService.ResolveAsync(id, dto, CurrentUserId, ct);
-        return Ok(result);
+        return Ok(result, $"Case {result.CaseNumber} resolved as {result.Status}.");
     }
 
+    /// <summary>POST /api/lost-parcels/{id}/insurance-claim – Admin files insurance claim</summary>
     [HttpPost("{id:guid}/insurance-claim")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> SubmitClaim(
         Guid id, [FromBody] SubmitInsuranceClaimDto dto, CancellationToken ct)
     {
         var result = await _lostParcelService.SubmitInsuranceClaimAsync(id, dto, CurrentUserId, ct);
-        return Created($"/api/lost-parcels/claims/{result.Id}", result);
+        return Created(result, $"Insurance claim {result.ClaimNumber} submitted.");
     }
 
+    /// <summary>PUT /api/lost-parcels/claims/{claimId}/status – Admin updates claim approval/payout</summary>
     [HttpPut("claims/{claimId:guid}/status")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateClaimStatus(
         Guid claimId, [FromBody] UpdateClaimStatusDto dto, CancellationToken ct)
     {
         var result = await _lostParcelService.UpdateClaimStatusAsync(claimId, dto, CurrentUserId, ct);
-        return Ok(result);
+        return Ok(result, $"Insurance claim status updated to {result.Status}.");
     }
 }
