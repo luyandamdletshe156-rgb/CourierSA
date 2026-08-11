@@ -33,6 +33,7 @@ import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmen
 import { DispatcherHistoryPage } from '@/pages/dispatcher/DispatcherHistoryPage'
 import { MaintenanceSwapsPage } from '@/pages/dispatcher/MaintenanceSwapsPage'
 import { DispatcherTrackPage } from '@/pages/dispatcher/DispatcherTrackPage'
+import FlagHighValuePage from '@/pages/dispatcher/FlagHighValuePage'
 
 // Driver
 import { DriverDashboard } from '@/pages/driver/DriverDashboard'
@@ -131,6 +132,7 @@ export default function App() {
                   <Route path="/dispatcher/dispatch" element={<DispatchQueue />} />
                   <Route path="/dispatcher/map" element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed" element={<FailedDeliveriesPage />} />
+                  <Route path="/dispatcher/flag-high-value" element={<FlagHighValuePage />} />
                   <Route path="/dispatcher/reassign" element={<DispatcherReassignmentPage />} />
                   <Route path="/dispatcher/swaps" element={<MaintenanceSwapsPage />} />
                   <Route path="/dispatcher/history" element={<DispatcherHistoryPage />} />
