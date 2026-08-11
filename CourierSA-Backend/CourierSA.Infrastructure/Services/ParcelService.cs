@@ -531,6 +531,9 @@ public class ParcelService : IParcelService
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId, null, new { Status = parcel.Status.ToString(), driverId }, dispatcherId, null, ct);
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
 
+        try { await _notificationService.SendRouteAssignedAsync(driver.UserId, parcel.TrackingNumber, stopCount: 1, ct); }
+        catch (Exception ex) { Console.WriteLine($"[NOTIFY] Driver assignment notification failed for {parcel.TrackingNumber}: {ex.Message}"); }
+
         // Email the OTP only after the dispatch itself is safely committed.
         if (otpFlagResult is { Otp: not null })
         {
@@ -684,6 +687,13 @@ public class ParcelService : IParcelService
         await _audit.LogAsync("ROUTE_DISPATCHED", "DeliveryRoute", route.Id,
             null, new { ParcelCount = parcels.Count, Zone = primaryZone?.ToString(), DriverId = driver.Id },
             dispatcherId, null, ct);
+
+        try
+        {
+            var routeSummary = primaryZone?.ToString() ?? $"{parcels.Count}-stop route";
+            await _notificationService.SendRouteAssignedAsync(driver.UserId, routeSummary, stops.Count, ct);
+        }
+        catch (Exception ex) { Console.WriteLine($"[NOTIFY] Driver route assignment notification failed for route {route.Id}: {ex.Message}"); }
 
         foreach (var parcel in parcels)
         {

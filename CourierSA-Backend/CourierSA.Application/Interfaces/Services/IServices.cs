@@ -113,6 +113,9 @@ public interface INotificationService
     Task MarkAllReadAsync(Guid userId, CancellationToken ct = default);
     Task SendParcelDamagedAsync(Guid userId, string trackingNumber, string stage, CancellationToken ct = default);
 
+    // ➕ ADDED: DRIVER ROUTE/PARCEL ASSIGNMENT NOTIFICATION
+    Task SendRouteAssignedAsync(Guid driverUserId, string summary, int stopCount, CancellationToken ct = default);
+
     // ➕ ADDED: CANCELLATION OTP NOTIFICATION METHOD SIGNATURE
     Task SendCancellationOtpAsync(Guid userId, string trackingNumber, string otp, CancellationToken ct = default);
 }

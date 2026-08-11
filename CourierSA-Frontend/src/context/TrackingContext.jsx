@@ -4,8 +4,12 @@ import { useAuth } from './AuthContext'
 
 const TrackingContext = createContext(null)
 
-// Your Live Azure API URL
-const API_BASE_URL = 'https://couriersa2-api-epccfjgagfbwa5cp.southafricanorth-01.azurewebsites.net'
+// Resolve the API origin the same way src/api/index.js does, so dev/staging/prod
+// all point SignalR at the same backend as REST calls without a code edit.
+// VITE_API_BASE_URL is typically something like "https://<api-host>/api" — strip
+// the trailing /api to get the hub's origin.
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE_URL = RAW_API_BASE.replace(/\/api\/?$/, '')
 
 export function TrackingProvider({ children }) {
   const { isAuthenticated } = useAuth()

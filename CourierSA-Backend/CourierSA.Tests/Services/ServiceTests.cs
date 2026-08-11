@@ -234,6 +234,7 @@ public class ParcelServiceStateMachineTests
         var auditMock = new Mock<IAuditService>();
         var bulkMock = new Mock<IBulkCsvService>();
         var hubMock = new Mock<ITrackingHubService>();
+        var secureDeliveryMock = new Mock<ISecureDeliveryService>();
 
         var svc = new ParcelService(uow, quoteMock.Object, barcodeMock.Object,
                                     notifyMock.Object, auditMock.Object, hubMock.Object);

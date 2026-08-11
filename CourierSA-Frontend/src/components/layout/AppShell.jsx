@@ -3,9 +3,10 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar, LiveDot } from '@/components/ui'
 import { useTracking } from '@/context/TrackingContext'
+import NotificationBell from './NotificationBell'
 import {
   LayoutDashboard, Package, Truck, Users, FileText,
-  BarChart3, Settings, LogOut, Bell, Menu, X,
+  BarChart3, Settings, LogOut, Menu, X,
   ClipboardCheck, MapPin, CreditCard, AlertTriangle, 
   RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search
 } from 'lucide-react'
@@ -140,8 +141,17 @@ export default function AppShell({ children, title }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-          <button onClick={() => setSidebarOpen(true)} className="lg:hidden"><Menu size={20} /></button>
-          <h1 className="text-sm font-bold text-gray-800">{title}</h1>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden"><Menu size={20} /></button>
+            <h1 className="text-sm font-bold text-gray-800">{title}</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-gray-500">
+              <LiveDot active={connected} />
+              {connected ? 'Live' : 'Connecting…'}
+            </div>
+            <NotificationBell />
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>

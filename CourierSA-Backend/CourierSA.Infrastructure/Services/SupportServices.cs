@@ -239,6 +239,32 @@ public class NotificationService : INotificationService
         await _emailService.SendAsync(user.Email, subject, html, ct);
     }
 
+    // ➕ ADDED: DRIVER ROUTE/PARCEL ASSIGNMENT NOTIFICATION
+    public async Task SendRouteAssignedAsync(
+        Guid driverUserId, string summary, int stopCount, CancellationToken ct = default)
+    {
+        var title = stopCount > 1 ? "New Route Assigned" : "New Delivery Assigned";
+        var body = stopCount > 1
+            ? $"You've been assigned a {stopCount}-stop route: {summary}."
+            : $"You've been assigned a new delivery: {summary}.";
+
+        await PersistAsync(driverUserId, NotificationType.SystemAlert, title, body, ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(driverUserId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, summary, title,
+            stopCount > 1
+                ? $"you've been dispatched a new {stopCount}-stop route. Open your Driver Dashboard to view stop details and start your route."
+                : "you've been dispatched a new delivery. Open your Driver Dashboard to view the details and get started.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorInfo,
+            "https://couriersa2frontend.z1.web.core.windows.net/driver/deliveries");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
+    }
+
     // ➕ ADDED: CANCELLATION OTP EMAIL & IN-APP NOTIFICATION METHOD
     public async Task SendCancellationOtpAsync(
         Guid userId, string trackingNumber, string otp, CancellationToken ct = default)
