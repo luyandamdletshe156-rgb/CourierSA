@@ -434,10 +434,16 @@ export function DispatchQueue() {
                 onChange={(e) => setSelectedDriverId(e.target.value)}
                 disabled={selectedParcelIds.length === 0}
               >
-                <option value="">Choose Driver...</option>
+                {/* FIX: Prevent duplicate placeholder from populating the list */}
+                <option value="" disabled hidden>Choose Driver...</option>
+                
                 {drivers.map((d, index) => {
                   const actualId = d?.id || d?.driverId || d?.userId;
-                  const actualName = d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`;
+                  
+                  // FIX: Properly handle mapping driver's first and last name so it doesn't default to the ID fallback
+                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—") 
+                    ? `${d.firstName} ${d.lastName}` 
+                    : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`);
                   
                   return (
                     <option key={actualId || index} value={actualId || ''}>

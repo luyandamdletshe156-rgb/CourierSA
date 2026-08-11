@@ -10,13 +10,6 @@ using CourierSA.Domain.Enums;
 
 namespace CourierSA.API.Controllers;
 
-/// <summary>
-/// Provides dispatcher and admin endpoints for fleet visibility.
-///
-/// GET /api/drivers             — full directory for Admin/Dispatcher vehicle assignment
-/// GET /api/drivers/locations  — snapshot of every driver's last known position
-/// GET /api/drivers/available  — drivers with status=Available
-/// </summary>
 [Route("api/drivers")]
 [Authorize(Policy = "DispatcherOrAdmin")]
 public class DriversController : CourierSABaseController
@@ -35,13 +28,17 @@ public class DriversController : CourierSABaseController
         var drivers = await _db.DriverProfiles
             .AsNoTracking()
             .Include(d => d.User)
-            .Where(d => !d.IsDeleted)
+            .Where(d => !d.IsDeleted) // FIX: Ensure deleted drivers don't show up
             .OrderBy(d => d.User!.FirstName)
             .Select(d => new DriverDirectoryItemDto(
                 d.Id,
-                d.User != null ? d.User.FirstName : string.Empty,
-                d.User != null ? d.User.LastName : string.Empty,
-                d.Status.ToString(),
+                d.User != null ? d.User.FirstName : "—",
+                d.User != null ? d.User.LastName : "—",
+                // FIX: Apply self-healing logic here too so the dispatcher dropdown 
+                // accurately reflects "Available" drivers even if they are stuck OnDelivery with 0 tasks.
+                (d.Status == DriverStatus.OnDelivery && !d.Deliveries.Any(del => del.Status != DeliveryStatus.Delivered && del.Status != DeliveryStatus.Failed))
+                    ? DriverStatus.Available.ToString()
+                    : d.Status.ToString(),
                 d.LicenseNumber
             ))
             .ToListAsync(ct);
@@ -58,6 +55,7 @@ public class DriversController : CourierSABaseController
     {
         var drivers = await _db.DriverProfiles
             .AsNoTracking()
+            .Where(d => !d.IsDeleted) // FIX: Missing check added to prevent ghosts on map
             .Include(d => d.User)
             // Include DeliveryAddress for Final deliveries
             .Include(d => d.Deliveries
@@ -131,18 +129,19 @@ public class DriversController : CourierSABaseController
         var available = await _db.DriverProfiles
             .AsNoTracking()
             .Include(d => d.User)
-            // Self-healing filter: Include drivers explicitly marked Available,
-            // OR drivers marked OnDelivery in DB who have 0 active deliveries left.
-            .Where(d => d.Status == DriverStatus.Available ||
+            // FIX: Match the IsDeleted and self-healing logic perfectly with the Map endpoint
+            .Where(d => !d.IsDeleted &&
+                       (d.Status == DriverStatus.Available ||
                        (d.Status == DriverStatus.OnDelivery &&
                         !d.Deliveries.Any(del => del.Status != DeliveryStatus.Delivered &&
-                                                 del.Status != DeliveryStatus.Failed)))
+                                                 del.Status != DeliveryStatus.Failed))))
             .Select(d => new
             {
                 driverId = d.Id,
-                firstName = d.User!.FirstName,
-                lastName = d.User.LastName,
-                phone = d.User.PhoneNumber,
+                userId = d.UserId, // FIX: Included userId so the frontend map doesn't crash
+                firstName = d.User != null ? d.User.FirstName : "—", // Null-safe checks
+                lastName = d.User != null ? d.User.LastName : "—",
+                phone = d.User != null ? d.User.PhoneNumber : null,
                 status = DriverStatus.Available.ToString(),
             })
             .ToListAsync(ct);
@@ -167,9 +166,6 @@ public class DriversController : CourierSABaseController
         await _db.SaveChangesAsync(ct);
         return NoContent("Location updated");
     }
-
-
-
 
     // ══════════════════════════════════════════════════════════════════
     // DRIVER SELF-SERVICE (driver's own status — Available / OffDuty)
@@ -215,5 +211,4 @@ public class DriversController : CourierSABaseController
             return Ok(new { status = driver.Status.ToString() });
         }
     }
-
 }

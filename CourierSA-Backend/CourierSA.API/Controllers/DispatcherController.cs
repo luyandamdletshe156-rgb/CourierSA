@@ -1,4 +1,5 @@
 ﻿using CourierSA.Application.DTOs.Vehicles;
+using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
 using CourierSA.Infrastructure.Data;
