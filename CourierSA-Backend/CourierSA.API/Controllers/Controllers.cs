@@ -1,5 +1,6 @@
 using CourierSA.API.Middleware;
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Rescheduling;
 using CourierSA.Application.DTOs.Returns;
@@ -134,7 +135,6 @@ public class ParcelsController : CourierSABaseController
     public async Task<IActionResult> GetMyParcels(
         [FromQuery] ParcelFilterDto filter, CancellationToken ct)
     {
-        // 🔴 FIX: If Admin or Staff, return all platform parcels
         if (User.IsInRole("Administrator") ||
             User.IsInRole("Dispatcher") ||
             User.IsInRole("WarehouseStaff"))
@@ -143,7 +143,6 @@ public class ParcelsController : CourierSABaseController
             return Ok(queueResult);
         }
 
-        // For regular customers, return only their own scoped parcels
         var result = await _parcelService.GetPagedAsync(filter, CurrentUserId, ct);
         return Ok(result);
     }
@@ -215,7 +214,6 @@ public class ParcelsController : CourierSABaseController
         return Ok(result);
     }
 
-
     /// <summary>PUT /api/parcels/{id}/checkout – Warehouse staff checks parcel out, ready for dispatch</summary>
     [HttpPut("{id:guid}/checkout")]
     [Authorize(Policy = "WarehouseOrAdmin")]
@@ -243,9 +241,6 @@ public class ParcelsController : CourierSABaseController
         var result = await _parcelService.GetInspectionsAsync(ct);
         return Ok(result);
     }
-
-
-
 
     /// <summary>PUT /api/parcels/{id}/dispatch – Dispatcher assigns driver</summary>
     [HttpPut("{id:guid}/dispatch")]
@@ -300,7 +295,6 @@ public class ParcelsController : CourierSABaseController
         return Ok(result);
     }
 
-
     /// <summary>POST /api/parcels/dispatch-route – Dispatcher assigns multiple same-zone parcels to one driver</summary>
     [HttpPost("dispatch-route")]
     [Authorize(Policy = "DispatcherOrAdmin")]
@@ -311,7 +305,37 @@ public class ParcelsController : CourierSABaseController
         return Created(result, $"Route dispatched with {result.Stops.Count} stop(s).");
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // ➕ CUSTOMER CANCELLATION ENDPOINTS
+    // ══════════════════════════════════════════════════════════════════════════════
 
+    /// <summary>GET /api/parcels/{id}/cancel-quote – Customer previews cancellation fee & OTP rules</summary>
+    [HttpGet("{id:guid}/cancel-quote")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> PreviewCancelFee(Guid id, CancellationToken ct)
+    {
+        var result = await _parcelService.PreviewCancelFeeAsync(id, CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    /// <summary>PUT /api/parcels/{id}/request-cancel-otp – Send 4-digit OTP for warehouse cancellation</summary>
+    [HttpPut("{id:guid}/request-cancel-otp")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> RequestCancelOtp(Guid id, CancellationToken ct)
+    {
+        await _parcelService.SendCancellationOtpAsync(id, CurrentUserId, ct);
+        return Ok(new { message = "Cancellation verification OTP code sent to your registered email." });
+    }
+
+    /// <summary>PUT /api/parcels/{id}/cancel – Customer confirms parcel cancellation (OTP required if in warehouse)</summary>
+    [HttpPut("{id:guid}/cancel")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> CancelParcel(
+        Guid id, [FromBody] CancelParcelDto dto, CancellationToken ct)
+    {
+        var result = await _parcelService.CancelByCustomerAsync(id, dto, CurrentUserId, ct);
+        return Ok(result);
+    }
 }
 
 // ── Tracking Controller (public) ──────────────────────────────────────────────
@@ -552,13 +576,6 @@ public class NotificationsController : CourierSABaseController
 // ══════════════════════════════════════════════════════════════════════════════
 // RETURN REQUESTS CONTROLLER — UC7 Request Return Authorization / UC8 Process
 // Return Intake / UC9 Initiate Customer Refund
-// POST /api/return-requests                    – customer requests a return (UC7)
-// GET  /api/return-requests/mine                – customer's own returns
-// GET  /api/return-requests                     – warehouse/admin queue (?status=)
-// GET  /api/return-requests/{id}                – detail (owner or staff)
-// PUT  /api/return-requests/{id}/receive         – warehouse scans inbound (UC8)
-// PUT  /api/return-requests/{id}/inspect         – warehouse logs inspection (UC8)
-// PUT  /api/return-requests/{id}/release-refund  – admin releases refund (UC9)
 // ══════════════════════════════════════════════════════════════════════════════
 [Route("api/return-requests")]
 [Authorize]
@@ -654,7 +671,7 @@ public class ReturnRequestsController : CourierSABaseController
 public class SecureDeliveryController : CourierSABaseController
 {
     private readonly ISecureDeliveryService _secureDeliveryService;
-    private readonly IParcelService _parcelService; // Added for the new queries
+    private readonly IParcelService _parcelService;
 
     public SecureDeliveryController(ISecureDeliveryService secureDeliveryService, IParcelService parcelService)
     {
@@ -678,8 +695,6 @@ public class SecureDeliveryController : CourierSABaseController
         var result = await _secureDeliveryService.VerifyOtpAsync(id, dto, CurrentUserId, ct);
         return Ok(result, "Recipient identity verified.");
     }
-
-    // --- NEW ENDPOINTS ---
 
     [HttpPut("{id:guid}/resend-otp")]
     [Authorize(Policy = "DispatcherOrAdmin")]
@@ -706,12 +721,8 @@ public class SecureDeliveryController : CourierSABaseController
     }
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
-// RESCHEDULING CONTROLLER — UC1 Reschedule Parcel Collection / UC2 Calculate
-// Rescheduling Fee
-// GET /api/parcels/{id}/reschedule-quote  – preview fee for a proposed new date
-// PUT /api/parcels/{id}/reschedule        – confirm reschedule, apply fee if due
+// RESCHEDULING CONTROLLER — UC1 Reschedule Parcel Collection / UC2 Calculate Fee
 // ══════════════════════════════════════════════════════════════════════════════
 [Route("api/parcels")]
 [Authorize]
@@ -740,5 +751,91 @@ public class ReschedulingController : CourierSABaseController
         return Ok(result, result.FeeCharged
             ? $"Collection rescheduled. Fee of R{result.FeeZAR:0.00} applied via {result.ChargeMethod}."
             : "Collection rescheduled — no fee applied.");
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOST PARCELS CONTROLLER — UC5 Report Lost Parcel / UC6 Insurance Claim
+// ══════════════════════════════════════════════════════════════════════════════
+[Route("api/lost-parcels")]
+[Authorize]
+public class LostParcelsController : CourierSABaseController
+{
+    private readonly ILostParcelService _lostParcelService;
+
+    public LostParcelsController(ILostParcelService lostParcelService)
+    {
+        _lostParcelService = lostParcelService;
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> ReportLost(
+        [FromBody] ReportLostParcelDto dto, CancellationToken ct)
+    {
+        var result = await _lostParcelService.ReportAsync(dto, CurrentUserId, ct);
+        return Created($"/api/lost-parcels/{result.Id}", result);
+    }
+
+    [HttpGet("mine")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> GetMyCases(CancellationToken ct)
+    {
+        var results = await _lostParcelService.GetMyCasesAsync(CurrentUserId, ct);
+        return Ok(results);
+    }
+
+    [HttpGet("queue")]
+    [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
+    public async Task<IActionResult> GetQueue([FromQuery] string? status, CancellationToken ct)
+    {
+        var results = await _lostParcelService.GetQueueAsync(status, ct);
+        return Ok(results);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetCaseDetail(Guid id, CancellationToken ct)
+    {
+        var result = await _lostParcelService.GetCaseDetailAsync(id, ct);
+        if (result == null) return NotFound("Lost parcel case not found.");
+
+        var isStaff = User.IsInRole("Administrator") || User.IsInRole("Dispatcher") || User.IsInRole("CustomerSupport");
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/investigate")]
+    [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
+    public async Task<IActionResult> Investigate(
+        Guid id, [FromBody] InvestigateLostParcelCaseDto dto, CancellationToken ct)
+    {
+        var result = await _lostParcelService.InvestigateAsync(id, dto, CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/resolve")]
+    [Authorize(Roles = "Dispatcher, Administrator, CustomerSupport")]
+    public async Task<IActionResult> Resolve(
+        Guid id, [FromBody] ResolveLostParcelCaseDto dto, CancellationToken ct)
+    {
+        var result = await _lostParcelService.ResolveAsync(id, dto, CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/insurance-claim")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> SubmitClaim(
+        Guid id, [FromBody] SubmitInsuranceClaimDto dto, CancellationToken ct)
+    {
+        var result = await _lostParcelService.SubmitInsuranceClaimAsync(id, dto, CurrentUserId, ct);
+        return Created($"/api/lost-parcels/claims/{result.Id}", result);
+    }
+
+    [HttpPut("claims/{claimId:guid}/status")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> UpdateClaimStatus(
+        Guid claimId, [FromBody] UpdateClaimStatusDto dto, CancellationToken ct)
+    {
+        var result = await _lostParcelService.UpdateClaimStatusAsync(claimId, dto, CurrentUserId, ct);
+        return Ok(result);
     }
 }

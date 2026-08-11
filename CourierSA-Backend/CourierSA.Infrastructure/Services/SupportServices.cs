@@ -20,25 +20,25 @@ public class AuditService : IAuditService
     public async Task LogAsync(
         string action,
         string entityType,
-        Guid?  entityId,
+        Guid? entityId,
         object? oldValues,
         object? newValues,
-        Guid?   performedByUserId,
+        Guid? performedByUserId,
         string? ipAddress,
         CancellationToken ct = default)
     {
         var entry = new AuditLog
         {
-            Id          = Guid.NewGuid(),
-            Action      = action,
-            EntityType  = entityType,
-            EntityId    = entityId,
-            OldValues   = oldValues is null ? null : JsonSerializer.Serialize(oldValues),
-            NewValues   = newValues is null ? null : JsonSerializer.Serialize(newValues),
-            UserId      = performedByUserId,
-            IpAddress   = ipAddress,
-            CreatedAt   = DateTime.UtcNow,
-            UpdatedAt   = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            Action = action,
+            EntityType = entityType,
+            EntityId = entityId,
+            OldValues = oldValues is null ? null : JsonSerializer.Serialize(oldValues),
+            NewValues = newValues is null ? null : JsonSerializer.Serialize(newValues),
+            UserId = performedByUserId,
+            IpAddress = ipAddress,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _uow.AuditLogs.AddAsync(entry, ct);
@@ -46,11 +46,6 @@ public class AuditService : IAuditService
     }
 }
 
-// ── Notification Service ──────────────────────────────────────────────────────
-/// <summary>
-/// Persists in-app notifications and triggers email/SMS via injected channel services.
-/// Keeps the domain events decoupled from transport layer details.
-/// </summary>
 // ── Notification Service ──────────────────────────────────────────────────────
 /// <summary>
 /// Persists in-app notifications and triggers email via IEmailService.
@@ -184,8 +179,6 @@ public class NotificationService : INotificationService
             "Wallet Credited",
             $"Your wallet has been credited with R{amount:N2}.",
             ct: ct);
-
-        // In-app only — no email for wallet top-ups to avoid noise; extend here if desired.
     }
 
     public async Task SendSystemAlertAsync(
@@ -225,6 +218,49 @@ public class NotificationService : INotificationService
         await _uow.SaveChangesAsync(ct);
     }
 
+    public async Task SendParcelDamagedAsync(
+        Guid userId, string trackingNumber, string stage, CancellationToken ct = default)
+    {
+        await PersistAsync(userId, NotificationType.SystemAlert,
+            "Parcel Condition Flagged",
+            $"Your parcel {trackingNumber} was flagged during {stage} inspection. We're reviewing it and will be in touch.",
+            ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Condition Flagged",
+            $"during {stage.ToLower()} inspection, our warehouse team flagged a condition issue with your parcel. If you have insurance on this shipment, a claim has been opened automatically — visit the Support Hub for details.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorWarning,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
+    }
+
+    // ➕ ADDED: CANCELLATION OTP EMAIL & IN-APP NOTIFICATION METHOD
+    public async Task SendCancellationOtpAsync(
+        Guid userId, string trackingNumber, string otp, CancellationToken ct = default)
+    {
+        await PersistAsync(userId, NotificationType.SystemAlert,
+            "Parcel Cancellation Verification Code",
+            $"Your verification code to cancel parcel {trackingNumber} is {otp}. This code expires in 10 minutes.",
+            ct: ct);
+
+        var user = await _uow.Users.GetByIdAsync(userId, ct);
+        if (user is null) return;
+
+        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
+            user.FirstName, trackingNumber, "Cancellation OTP Code",
+            $"your 4-digit verification code to cancel parcel {trackingNumber} is <strong>{otp}</strong>. This code is valid for 10 minutes.",
+            CourierSA.Infrastructure.Services.Email.EmailContent.ColorWarning,
+            $"{TrackBaseUrl}/{trackingNumber}");
+
+        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
+        await _emailService.SendAsync(user.Email, subject, html, ct);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
     private async Task PersistAsync(
         Guid userId,
@@ -253,28 +289,6 @@ public class NotificationService : INotificationService
         await _uow.Notifications.AddAsync(notification, ct);
         await _uow.SaveChangesAsync(ct);
     }
-
-    public async Task SendParcelDamagedAsync(
-    Guid userId, string trackingNumber, string stage, CancellationToken ct = default)
-    {
-        await PersistAsync(userId, NotificationType.SystemAlert,
-            "Parcel Condition Flagged",
-            $"Your parcel {trackingNumber} was flagged during {stage} inspection. We're reviewing it and will be in touch.",
-            ct: ct);
-
-        var user = await _uow.Users.GetByIdAsync(userId, ct);
-        if (user is null) return;
-
-        var (subject, content) = CourierSA.Infrastructure.Services.Email.EmailContent.StatusUpdate(
-            user.FirstName, trackingNumber, "Condition Flagged",
-            $"during {stage.ToLower()} inspection, our warehouse team flagged a condition issue with your parcel. If you have insurance on this shipment, a claim has been opened automatically — visit the Support Hub for details.",
-            CourierSA.Infrastructure.Services.Email.EmailContent.ColorWarning,
-            $"{TrackBaseUrl}/{trackingNumber}");
-
-        var html = CourierSA.Infrastructure.Services.Email.EmailTemplateBuilder.Build(subject, content);
-        await _emailService.SendAsync(user.Email, subject, html, ct);
-    }
-
 }
 
 // ── Barcode Service (ZXing.Net) ───────────────────────────────────────────────
@@ -287,16 +301,14 @@ public class BarcodeService : IBarcodeService
     public async Task<string> GenerateAsync(
         string trackingNumber, CancellationToken ct = default)
     {
-        // Uses ZXing.Net.Bindings.SkiaSharp – install via NuGet:
-        // ZXing.Net.Bindings.SkiaSharp 0.16.x
         var writer = new ZXing.SkiaSharp.BarcodeWriter
         {
-            Format  = ZXing.BarcodeFormat.CODE_128,
+            Format = ZXing.BarcodeFormat.CODE_128,
             Options = new ZXing.Common.EncodingOptions
             {
-                Width    = 400,
-                Height   = 100,
-                Margin   = 10,
+                Width = 400,
+                Height = 100,
+                Margin = 10,
                 PureBarcode = false
             }
         };
@@ -315,9 +327,9 @@ public class BarcodeService : IBarcodeService
     {
         var writer = new ZXing.SkiaSharp.BarcodeWriter
         {
-            Format  = ZXing.BarcodeFormat.CODE_128,
+            Format = ZXing.BarcodeFormat.CODE_128,
             Options = new ZXing.Common.EncodingOptions
-                { Width = 400, Height = 100, Margin = 10 }
+            { Width = 400, Height = 100, Margin = 10 }
         };
         var bitmap = writer.Write(trackingNumber);
         using var ms = new System.IO.MemoryStream();
@@ -327,10 +339,6 @@ public class BarcodeService : IBarcodeService
 }
 
 // ── Local File Storage Service ────────────────────────────────────────────────
-/// <summary>
-/// Saves files to local disk under wwwroot/uploads.
-/// Swap this for an Azure Blob / S3 implementation without changing callers.
-/// </summary>
 public class LocalStorageService : IStorageService
 {
     private readonly string _basePath;

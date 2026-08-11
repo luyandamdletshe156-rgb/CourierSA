@@ -253,6 +253,10 @@ public class ReturnService : IReturnService
         return await MapToDtoAsync(returnRequest, parcel?.TrackingNumber ?? "—", ct);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // OPTIMIZED BULK FETCHING METHODS (NO N+1 QUERIES)
+    // ══════════════════════════════════════════════════════════════════════════════
+
     public async Task<IEnumerable<ReturnRequestDto>> GetMyReturnsAsync(Guid customerUserId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>().Query()
@@ -265,13 +269,7 @@ public class ReturnService : IReturnService
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
 
-        var results = new List<ReturnRequestDto>();
-        foreach (var r in returns)
-        {
-            var parcel = await _uow.Parcels.GetByIdAsync(r.ParcelId, ct);
-            results.Add(await MapToDtoAsync(r, parcel?.TrackingNumber ?? "—", ct));
-        }
-        return results;
+        return await MapReturnsBulkAsync(returns, ct);
     }
 
     public async Task<IEnumerable<ReturnRequestDto>> GetQueueAsync(string? status, CancellationToken ct = default)
@@ -282,14 +280,46 @@ public class ReturnService : IReturnService
 
         var returns = await query.OrderByDescending(r => r.CreatedAt).Take(200).ToListAsync(ct);
 
+        return await MapReturnsBulkAsync(returns, ct);
+    }
+
+    private async Task<List<ReturnRequestDto>> MapReturnsBulkAsync(List<ReturnRequest> returns, CancellationToken ct)
+    {
+        if (!returns.Any()) return new List<ReturnRequestDto>();
+
+        // 1. Fetch all related Parcels in one go (just what we need)
+        var parcelIds = returns.Select(r => r.ParcelId).Distinct().ToList();
+        var parcels = await _uow.Query<Parcel>().Query()
+            .AsNoTracking()
+            .Where(p => parcelIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.TrackingNumber, ct);
+
+        // 2. Fetch all related Addresses in one go
+        var addressIds = returns.Select(r => r.CollectionAddressId).Distinct().ToList();
+        var addresses = await _uow.Query<ParcelAddress>().Query()
+            .AsNoTracking()
+            .Where(a => addressIds.Contains(a.Id))
+            .ToDictionaryAsync(a => a.Id, ct);
+
+        // 3. Map in memory instantly
         var results = new List<ReturnRequestDto>();
         foreach (var r in returns)
         {
-            var parcel = await _uow.Parcels.GetByIdAsync(r.ParcelId, ct);
-            results.Add(await MapToDtoAsync(r, parcel?.TrackingNumber ?? "—", ct));
+            var trackingNumber = parcels.GetValueOrDefault(r.ParcelId, "—");
+            var address = addresses.GetValueOrDefault(r.CollectionAddressId);
+
+            results.Add(new ReturnRequestDto(
+                r.Id, r.RaNumber, r.ParcelId, trackingNumber, r.Status.ToString(), r.Reason,
+                MapAddressDto(address), r.RequestedAt, r.ApprovedAt, r.ReceivedAt,
+                r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt));
         }
+
         return results;
     }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PRIVATE HELPERS
+    // ══════════════════════════════════════════════════════════════════════════════
 
     private async Task VoidInvoiceAsync(Guid parcelId, CancellationToken ct)
     {

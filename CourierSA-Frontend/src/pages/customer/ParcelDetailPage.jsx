@@ -3,23 +3,24 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import { StatusPill, Alert, PageLoader } from '@/components/ui'
+import CancelParcelModal from '@/components/modals/CancelParcelModal' // ➕ IMPORTED CANCELLATION MODAL
 import { parcelApi, reschedulingApi } from '@/api'
 import { formatDate, formatZAR } from '@/utils'
 import {
   ArrowLeft, Truck, MapPin, Package, CheckCircle,
-  XCircle, Clock, Shield, AlertTriangle, CalendarClock, CheckCircle2
+  XCircle, Clock, Shield, AlertTriangle, CalendarClock, CheckCircle2, Ban
 } from 'lucide-react'
 
 // ── Event icon map ────────────────────────────────────────────────────────────
 const EVENT_ICONS = {
-  Booked:              { Icon: Package,     bg: 'bg-[#94A3B8]' },
-  Approved:            { Icon: CheckCircle, bg: 'bg-[#1E63E9]' },
-  ReceivedAtWarehouse: { Icon: Package,     bg: 'bg-[#0A3D91]' },
-  OutForDelivery:      { Icon: Truck,       bg: 'bg-[#1E63E9]' },
-  Delivered:           { Icon: CheckCircle, bg: 'bg-[#10B981]' },
-  DeliveryFailed:      { Icon: XCircle,     bg: 'bg-[#EF4444]' },
-  Cancelled:           { Icon: XCircle,     bg: 'bg-[#94A3B8]' },
-  InWarehouse:         { Icon: Package,     bg: 'bg-[#0A3D91]' },
+  Booked:                { Icon: Package,       bg: 'bg-[#94A3B8]' },
+  Approved:              { Icon: CheckCircle,   bg: 'bg-[#1E63E9]' },
+  ReceivedAtWarehouse:   { Icon: Package,       bg: 'bg-[#0A3D91]' },
+  OutForDelivery:        { Icon: Truck,         bg: 'bg-[#1E63E9]' },
+  Delivered:             { Icon: CheckCircle,   bg: 'bg-[#10B981]' },
+  DeliveryFailed:        { Icon: XCircle,       bg: 'bg-[#EF4444]' },
+  Cancelled:             { Icon: Ban,           bg: 'bg-[#EF4444]' }, // ➕ Red icon for cancellation
+  InWarehouse:           { Icon: Package,       bg: 'bg-[#0A3D91]' },
   CollectionRescheduled: { Icon: CalendarClock, bg: 'bg-[#1E63E9]' },
 }
 
@@ -165,6 +166,7 @@ function RescheduleCollectionPanel({ parcel, onRescheduled }) {
 export default function ParcelDetailPage() {
   const { id } = useParams()
   const qc = useQueryClient()
+  const [cancelModalOpen, setCancelModalOpen] = useState(false) // ➕ CANCELLATION MODAL STATE
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['parcel', id],
@@ -172,6 +174,9 @@ export default function ParcelDetailPage() {
   })
 
   const parcel = data?.data
+
+  // ➕ Check if parcel status allows cancellation
+  const canCancel = ['PendingApproval', 'Approved', 'AwaitingCheckIn', 'InWarehouse', 'CheckedOut'].includes(parcel?.status)
 
   return (
     <AppShell title="Parcel details">
@@ -203,10 +208,23 @@ export default function ParcelDetailPage() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <span className="tracking-number text-lg px-3 py-1.5">{parcel.trackingNumber}</span>
-                  <div className="mt-3">
+                  
+                  {/* Status & Cancel Action */}
+                  <div className="mt-3 flex items-center gap-3 flex-wrap">
                     <StatusPill status={parcel.status?.replace(/\s/g, '')} />
+                    
+                    {/* ➕ CANCEL PARCEL BUTTON */}
+                    {canCancel && (
+                      <button
+                        onClick={() => setCancelModalOpen(true)}
+                        className="btn-danger btn-sm"
+                      >
+                        Cancel parcel
+                      </button>
+                    )}
                   </div>
                 </div>
+
                 <div className="text-right">
                   <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-1">Service</p>
                   <p className="text-sm font-bold text-[#172554] capitalize">{parcel.serviceType}</p>
@@ -302,6 +320,13 @@ export default function ParcelDetailPage() {
             </div>
           </div>
         )}
+
+        {/* ➕ CANCELLATION MODAL */}
+        <CancelParcelModal
+          open={cancelModalOpen}
+          onClose={() => setCancelModalOpen(false)}
+          parcel={parcel}
+        />
       </div>
     </AppShell>
   )

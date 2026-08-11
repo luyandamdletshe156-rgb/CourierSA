@@ -65,9 +65,14 @@ public interface IParcelService
     Task<ParcelInspectionDto> LogInspectionAsync(Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default);
     Task<IEnumerable<ParcelInspectionDto>> GetInspectionsAsync(CancellationToken ct = default);
 
-    // --- NEW SECURE DELIVERY QUERIES ---
+    // --- SECURE DELIVERY QUERIES ---
     Task<IEnumerable<ParcelSummaryDto>> GetOtpPendingParcelsAsync(CancellationToken ct = default);
     Task<IEnumerable<ParcelSummaryDto>> GetHighValueEligibleParcelsAsync(CancellationToken ct = default);
+
+    // ➕ ADDED: CANCELLATION METHOD SIGNATURES
+    Task<CancelParcelQuoteDto> PreviewCancelFeeAsync(Guid parcelId, Guid customerUserId, CancellationToken ct = default);
+    Task SendCancellationOtpAsync(Guid parcelId, Guid customerUserId, CancellationToken ct = default);
+    Task<CancelParcelResultDto> CancelByCustomerAsync(Guid parcelId, CancelParcelDto dto, Guid customerUserId, CancellationToken ct = default);
 }
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
@@ -107,6 +112,9 @@ public interface INotificationService
     Task MarkReadAsync(Guid notificationId, CancellationToken ct = default);
     Task MarkAllReadAsync(Guid userId, CancellationToken ct = default);
     Task SendParcelDamagedAsync(Guid userId, string trackingNumber, string stage, CancellationToken ct = default);
+
+    // ➕ ADDED: CANCELLATION OTP NOTIFICATION METHOD SIGNATURE
+    Task SendCancellationOtpAsync(Guid userId, string trackingNumber, string otp, CancellationToken ct = default);
 }
 
 // ── Audit ─────────────────────────────────────────────────────────────────────
@@ -191,7 +199,6 @@ public interface ISecureDeliveryService
     Task<FlagHighValueResultDto> FlagAndGenerateOtpAsync(Guid parcelId, Guid dispatcherUserId, CancellationToken ct = default);
     Task<VerifyOtpResultDto> VerifyOtpAsync(Guid parcelId, VerifyOtpDto dto, Guid driverUserId, CancellationToken ct = default);
 
-    // --- NEW SECURE DELIVERY METHODS ---
     Task<FlagHighValueResultDto> AutoFlagOnDispatchAsync(Parcel parcel);
     Task SendOtpEmailForParcelAsync(Parcel parcel, string otpCode);
     Task ResendOtpAsync(Guid parcelId, CancellationToken ct = default);

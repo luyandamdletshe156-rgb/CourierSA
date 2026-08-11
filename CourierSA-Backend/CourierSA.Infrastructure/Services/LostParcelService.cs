@@ -226,6 +226,10 @@ public class LostParcelService : ILostParcelService
         return await MapToDtoAsync(lostCase, parcel?.TrackingNumber ?? "—", ct);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // OPTIMIZED QUERY METHODS (No N+1 Issue)
+    // ══════════════════════════════════════════════════════════════════════════════
+
     public async Task<IEnumerable<LostParcelCaseDto>> GetMyCasesAsync(Guid customerUserId, CancellationToken ct = default)
     {
         var customer = await _uow.Query<CustomerProfile>().Query()
@@ -238,36 +242,69 @@ public class LostParcelService : ILostParcelService
             .OrderByDescending(c => c.CreatedAt)
             .ToListAsync(ct);
 
-        var results = new List<LostParcelCaseDto>();
-        foreach (var c in cases)
-        {
-            var parcel = await _uow.Parcels.GetByIdAsync(c.ParcelId, ct);
-            results.Add(await MapToDtoAsync(c, parcel?.TrackingNumber ?? "—", ct));
-        }
-        return results;
+        return await MapCasesBulkAsync(cases, ct);
     }
 
     public async Task<IEnumerable<LostParcelCaseDto>> GetQueueAsync(string? status, CancellationToken ct = default)
     {
         var query = _uow.Query<LostParcelCase>().Query().AsNoTracking().AsQueryable();
+
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<LostParcelCaseStatus>(status, true, out var statusEnum))
             query = query.Where(c => c.Status == statusEnum);
 
         var cases = await query.OrderByDescending(c => c.CreatedAt).Take(200).ToListAsync(ct);
 
+        return await MapCasesBulkAsync(cases, ct);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PRIVATE MAPPING HELPER METHODS
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Prevents N+1 database queries by fetching all required Parcels and Claims in a single batch.
+    /// </summary>
+    private async Task<List<LostParcelCaseDto>> MapCasesBulkAsync(List<LostParcelCase> cases, CancellationToken ct)
+    {
+        if (!cases.Any()) return new List<LostParcelCaseDto>();
+
+        // 1. Bulk Fetch Parcels (Just tracking numbers for speed)
+        var parcelIds = cases.Select(c => c.ParcelId).Distinct().ToList();
+        var parcels = await _uow.Query<Parcel>().Query()
+            .AsNoTracking()
+            .Where(p => parcelIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.TrackingNumber, ct);
+
+        // 2. Bulk Fetch Claims (If any exist)
+        var claimIds = cases.Where(c => c.InsuranceClaimId != null)
+                            .Select(c => c.InsuranceClaimId!.Value).Distinct().ToList();
+        var claims = new Dictionary<Guid, InsuranceClaim>();
+        if (claimIds.Any())
+        {
+            claims = await _uow.Query<InsuranceClaim>().Query()
+                .AsNoTracking()
+                .Where(ic => claimIds.Contains(ic.Id))
+                .ToDictionaryAsync(ic => ic.Id, ct);
+        }
+
+        // 3. Map synchronously without hitting the DB in a loop
         var results = new List<LostParcelCaseDto>();
         foreach (var c in cases)
         {
-            var parcel = await _uow.Parcels.GetByIdAsync(c.ParcelId, ct);
-            results.Add(await MapToDtoAsync(c, parcel?.TrackingNumber ?? "—", ct));
+            var trackingNumber = parcels.GetValueOrDefault(c.ParcelId, "—");
+            var claim = c.InsuranceClaimId.HasValue ? claims.GetValueOrDefault(c.InsuranceClaimId.Value) : null;
+
+            results.Add(new LostParcelCaseDto(
+                c.Id, c.CaseNumber, c.ParcelId, trackingNumber, c.Status.ToString(),
+                c.CustomerNotes, c.InvestigationNotes, c.ReportedAt, c.ResolvedAt, c.ClosedAt,
+                c.InsuranceClaimId, claim?.ClaimNumber, claim?.Status.ToString()
+            ));
         }
+
         return results;
     }
 
-    private async Task<LostParcelCase> GetCaseOrThrowAsync(Guid id, CancellationToken ct)
-        => await _uow.Query<LostParcelCase>().GetByIdAsync(id, ct)
-           ?? throw new NotFoundException($"Lost parcel case {id} not found.");
-
+    /// <summary>Single item mapping (for Report, Update, etc)</summary>
     private async Task<LostParcelCaseDto> MapToDtoAsync(LostParcelCase c, string trackingNumber, CancellationToken ct)
     {
         InsuranceClaim? claim = c.InsuranceClaimId is null
@@ -283,4 +320,8 @@ public class LostParcelService : ILostParcelService
     private static InsuranceClaimDto MapClaimToDto(InsuranceClaim c, string trackingNumber)
         => new(c.Id, c.ClaimNumber, c.ParcelId, trackingNumber, c.Type.ToString(), c.Status.ToString(),
                c.ClaimedAmountZAR, c.ApprovedAmountZAR, c.Description, c.ResolutionNotes, c.CreatedAt);
+
+    private async Task<LostParcelCase> GetCaseOrThrowAsync(Guid id, CancellationToken ct)
+        => await _uow.Query<LostParcelCase>().GetByIdAsync(id, ct)
+           ?? throw new NotFoundException($"Lost parcel case {id} not found.");
 }

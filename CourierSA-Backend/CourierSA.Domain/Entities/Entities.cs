@@ -6,26 +6,26 @@ namespace CourierSA.Domain.Entities;
 // ── Base Entity ───────────────────────────────────────────────────────────────
 public abstract class BaseEntity
 {
-    public Guid     Id         { get; set; } = Guid.NewGuid();
-    public DateTime CreatedAt  { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt  { get; set; } = DateTime.UtcNow;
-    public bool     IsDeleted  { get; set; } = false;
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
 }
 
 // ── User ──────────────────────────────────────────────────────────────────────
 public class User : BaseEntity
 {
-    public string    FirstName            { get; set; } = string.Empty;
-    public string    LastName             { get; set; } = string.Empty;
-    public string    Email                { get; set; } = string.Empty;
-    public string    PhoneNumber          { get; set; } = string.Empty;
-    public string    PasswordHash         { get; set; } = string.Empty;
-    public UserRole  Role                 { get; set; }
-    public UserStatus Status              { get; set; } = UserStatus.Active;
-    public int       FailedLoginAttempts  { get; set; }
-    public DateTime? LastLoginAt          { get; set; }
-    public string?   RefreshToken         { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string PhoneNumber { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public UserRole Role { get; set; }
+    public UserStatus Status { get; set; } = UserStatus.Active;
+    public int FailedLoginAttempts { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+    public string? RefreshToken { get; set; }
     public DateTime? RefreshTokenExpiryTime { get; set; }
 
     public string? PasswordResetToken { get; set; }
@@ -36,72 +36,72 @@ public class User : BaseEntity
 
     // Nav
     public CustomerProfile? CustomerProfile { get; set; }
-    public DriverProfile?   DriverProfile   { get; set; }
-    public ICollection<Notification>    Notifications    { get; set; } = [];
-    public ICollection<AuditLog>        AuditLogs        { get; set; } = [];
+    public DriverProfile? DriverProfile { get; set; }
+    public ICollection<Notification> Notifications { get; set; } = [];
+    public ICollection<AuditLog> AuditLogs { get; set; } = [];
     public ICollection<WalletTransaction> WalletTransactions { get; set; } = [];
 }
 
 // ── Customer Profile ──────────────────────────────────────────────────────────
 public class CustomerProfile : BaseEntity
 {
-    public Guid        UserId              { get; set; }
-    public AccountType AccountType         { get; set; }
-    public string?     CompanyName         { get; set; }
-    public string?     VatNumber           { get; set; }
-    public string?     DefaultPickupAddress { get; set; }
-    public decimal     WalletBalanceZAR    { get; set; }
+    public Guid UserId { get; set; }
+    public AccountType AccountType { get; set; }
+    public string? CompanyName { get; set; }
+    public string? VatNumber { get; set; }
+    public string? DefaultPickupAddress { get; set; }
+    public decimal WalletBalanceZAR { get; set; }
 
-    public User?               User     { get; set; }
-    public ICollection<Parcel> Parcels  { get; set; } = [];
-    public ICollection<Quote>  Quotes   { get; set; } = [];
+    public User? User { get; set; }
+    public ICollection<Parcel> Parcels { get; set; } = [];
+    public ICollection<Quote> Quotes { get; set; } = [];
     public ICollection<Invoice> Invoices { get; set; } = [];
 }
 
 // ── Driver Profile ────────────────────────────────────────────────────────────
 public class DriverProfile : BaseEntity
 {
-    public Guid         UserId             { get; set; }
-    public string       LicenseNumber      { get; set; } = string.Empty;
-    public DateTime     LicenseExpiry      { get; set; }
-    public DriverStatus Status             { get; set; } = DriverStatus.Available;
-    public decimal?     CurrentLatitude    { get; set; }
-    public decimal?     CurrentLongitude   { get; set; }
-    public int          TotalDeliveries    { get; set; }
-    public int          SuccessfulDeliveries { get; set; }
+    public Guid UserId { get; set; }
+    public string LicenseNumber { get; set; } = string.Empty;
+    public DateTime LicenseExpiry { get; set; }
+    public DriverStatus Status { get; set; } = DriverStatus.Available;
+    public decimal? CurrentLatitude { get; set; }
+    public decimal? CurrentLongitude { get; set; }
+    public int TotalDeliveries { get; set; }
+    public int SuccessfulDeliveries { get; set; }
 
-    public User?                       User               { get; set; }
-    public ICollection<Delivery>       Deliveries         { get; set; } = [];
+    public User? User { get; set; }
+    public ICollection<Delivery> Deliveries { get; set; } = [];
     public ICollection<VehicleInspection> VehicleInspections { get; set; } = [];
 }
 
 // ── Parcel ────────────────────────────────────────────────────────────────────
 public class Parcel : BaseEntity
 {
-    public string       TrackingNumber      { get; set; } = string.Empty;
-    public Guid         CustomerId          { get; set; }
-    public ParcelStatus Status              { get; set; } = ParcelStatus.PendingApproval;
-    public ServiceType  ServiceType         { get; set; }
-    public decimal      WeightKg            { get; set; }
-    public ParcelDimensions? Dimensions     { get; set; }
-    public decimal?     DeclaredValueZAR    { get; set; }
-    public string?      Description         { get; set; }
-    public string?      SpecialInstructions { get; set; }
-    public bool         IsFragile           { get; set; }
+    public string TrackingNumber { get; set; } = string.Empty;
+    public Guid CustomerId { get; set; }
+    public ParcelStatus Status { get; set; } = ParcelStatus.PendingApproval;
+    public ServiceType ServiceType { get; set; }
+    public decimal WeightKg { get; set; }
+    public ParcelDimensions? Dimensions { get; set; }
+    public decimal? DeclaredValueZAR { get; set; }
+    public string? Description { get; set; }
+    public string? SpecialInstructions { get; set; }
+    public bool IsFragile { get; set; }
     public bool IsEmergency { get; set; } = false;
     public DateTime? ScheduledPickupDate { get; set; }
-    public bool         RequiresSignature   { get; set; }
-    public bool         InsuranceRequired   { get; set; }
-    public Guid         PickupAddressId     { get; set; }
-    public Guid         DeliveryAddressId   { get; set; }
-    public decimal?     QuoteAmountZAR      { get; set; }
-    public string?      BarcodeImagePath    { get; set; }
-    public DateTime?    EstimatedDeliveryDate { get; set; }
+    public bool RequiresSignature { get; set; }
+    public bool InsuranceRequired { get; set; }
+    public Guid PickupAddressId { get; set; }
+    public Guid DeliveryAddressId { get; set; }
+    public decimal? QuoteAmountZAR { get; set; }
+    public string? BarcodeImagePath { get; set; }
+    public DateTime? EstimatedDeliveryDate { get; set; }
     public SortingZone? Zone { get; set; }
 
-    public CustomerProfile? Customer        { get; set; }
-    public ParcelAddress?   PickupAddress   { get; set; }
-    public ParcelAddress?   DeliveryAddress { get; set; }
+    public CustomerProfile? Customer { get; set; }
+    public ParcelAddress? PickupAddress { get; set; }
+    public ParcelAddress? DeliveryAddress { get; set; }
     public ICollection<Delivery> Deliveries { get; set; } = [];
 
     // Most recent delivery leg — replaces the old one-to-one ActiveDelivery.
@@ -111,57 +111,60 @@ public class Parcel : BaseEntity
         Deliveries.OrderByDescending(d => d.CreatedAt).FirstOrDefault();
 
     public ICollection<TrackingEvent> TrackingEvents { get; set; } = [];
-    public ICollection<ParcelInspection> Inspections { get; set; } = [];   // NEW
+    public ICollection<ParcelInspection> Inspections { get; set; } = [];
 
-    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;   // ← add
-    public bool IsPaid { get; set; }                                     // ← add
-    public DateTime? PaidAt { get; set; }                                     // ← add
+    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.CashOnCollection;
+    public bool IsPaid { get; set; }
+    public DateTime? PaidAt { get; set; }
     public bool RequiresOtpVerification { get; set; }
     public string? OtpCodeHash { get; set; }
     public DateTime? OtpGeneratedAt { get; set; }
     public DateTime? OtpVerifiedAt { get; set; }
 
+    // ➕ CANCELLATION OTP PROPERTIES (ADDED TO FIX COMPILER ERRORS)
+    public string? CancellationOtp { get; set; }
+    public DateTime? CancellationOtpExpiresAt { get; set; }
+
     public DateTime? OriginalScheduledPickupDate { get; set; }   // captured on first reschedule only
     public int RescheduleCount { get; set; }
     public decimal? LastRescheduleFeeZAR { get; set; }
-
 }
 
 public class ParcelDimensions
 {
     public decimal LengthCm { get; set; }
-    public decimal WidthCm  { get; set; }
+    public decimal WidthCm { get; set; }
     public decimal HeightCm { get; set; }
 }
 
 // ── Parcel Address ────────────────────────────────────────────────────────────
 public class ParcelAddress : BaseEntity
 {
-    public string     RecipientName       { get; set; } = string.Empty;
-    public string     RecipientPhone      { get; set; } = string.Empty;
-    public string?    RecipientEmail      { get; set; }
-    public string     StreetAddress       { get; set; } = string.Empty;
-    public string?    Suburb              { get; set; }
-    public string     City                { get; set; } = string.Empty;
-    public SaProvince Province            { get; set; }
-    public string     PostalCode          { get; set; } = string.Empty;
-    public string     Country             { get; set; } = "South Africa";
-    public string?    SpecialInstructions { get; set; }
-    public decimal?   Latitude            { get; set; }
-    public decimal?   Longitude           { get; set; }
+    public string RecipientName { get; set; } = string.Empty;
+    public string RecipientPhone { get; set; } = string.Empty;
+    public string? RecipientEmail { get; set; }
+    public string StreetAddress { get; set; } = string.Empty;
+    public string? Suburb { get; set; }
+    public string City { get; set; } = string.Empty;
+    public SaProvince Province { get; set; }
+    public string PostalCode { get; set; } = string.Empty;
+    public string Country { get; set; } = "South Africa";
+    public string? SpecialInstructions { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
 }
 
 // ── Tracking Event ────────────────────────────────────────────────────────────
 public class TrackingEvent : BaseEntity
 {
-    public Guid              ParcelId          { get; set; }
-    public TrackingEventType EventType         { get; set; }
-    public string?           Location          { get; set; }
-    public string?           Description       { get; set; }
-    public decimal?          Latitude          { get; set; }
-    public decimal?          Longitude         { get; set; }
-    public DateTime          OccurredAt        { get; set; } = DateTime.UtcNow;
-    public Guid?             RecordedByStaffId { get; set; }
+    public Guid ParcelId { get; set; }
+    public TrackingEventType EventType { get; set; }
+    public string? Location { get; set; }
+    public string? Description { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
+    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+    public Guid? RecordedByStaffId { get; set; }
 
     public Parcel? Parcel { get; set; }
 }
@@ -169,17 +172,17 @@ public class TrackingEvent : BaseEntity
 // ── Delivery ──────────────────────────────────────────────────────────────────
 public class Delivery : BaseEntity
 {
-    public Guid           ParcelId                 { get; set; }
-    public Guid           DriverId                 { get; set; }
-    public DeliveryStatus Status                   { get; set; } = DeliveryStatus.Assigned;
-    public FailureReason? FailureReason            { get; set; }
-    public string?        AttemptNotes             { get; set; }
-    public string?        ProofOfDeliveryImagePath { get; set; }
-    public string?        RecipientSignaturePath   { get; set; }
-    public DateTime?      DispatchedAt             { get; set; }
-    public DateTime?      DeliveredAt              { get; set; }
+    public Guid ParcelId { get; set; }
+    public Guid DriverId { get; set; }
+    public DeliveryStatus Status { get; set; } = DeliveryStatus.Assigned;
+    public FailureReason? FailureReason { get; set; }
+    public string? AttemptNotes { get; set; }
+    public string? ProofOfDeliveryImagePath { get; set; }
+    public string? RecipientSignaturePath { get; set; }
+    public DateTime? DispatchedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
 
-    public Parcel?       Parcel { get; set; }
+    public Parcel? Parcel { get; set; }
     public DriverProfile? Driver { get; set; }
 
     public Guid? RouteId { get; set; }
@@ -189,19 +192,19 @@ public class Delivery : BaseEntity
 // ── Quote ─────────────────────────────────────────────────────────────────────
 public class Quote : BaseEntity
 {
-    public Guid        CustomerId          { get; set; }
-    public Guid?       ParcelId            { get; set; }
-    public QuoteStatus Status              { get; set; } = QuoteStatus.Pending;
-    public ServiceType ServiceType         { get; set; }
-    public SaProvince  OriginProvince      { get; set; }
-    public SaProvince  DestinationProvince { get; set; }
-    public decimal     WeightKg            { get; set; }
-    public decimal     BaseAmountZAR       { get; set; }
-    public decimal?    SurchargeZAR        { get; set; }
-    public decimal?    InsurancePremiumZAR { get; set; }
-    public decimal     TotalAmountZAR      { get; set; }
-    public decimal     VatAmountZAR        { get; set; }
-    public DateTime    ExpiresAt           { get; set; }
+    public Guid CustomerId { get; set; }
+    public Guid? ParcelId { get; set; }
+    public QuoteStatus Status { get; set; } = QuoteStatus.Pending;
+    public ServiceType ServiceType { get; set; }
+    public SaProvince OriginProvince { get; set; }
+    public SaProvince DestinationProvince { get; set; }
+    public decimal WeightKg { get; set; }
+    public decimal BaseAmountZAR { get; set; }
+    public decimal? SurchargeZAR { get; set; }
+    public decimal? InsurancePremiumZAR { get; set; }
+    public decimal TotalAmountZAR { get; set; }
+    public decimal VatAmountZAR { get; set; }
+    public DateTime ExpiresAt { get; set; }
 
     public CustomerProfile? Customer { get; set; }
     public bool InsuranceRequired { get; set; }
@@ -210,14 +213,14 @@ public class Quote : BaseEntity
 // ── Vehicle ───────────────────────────────────────────────────────────────────
 public class Vehicle : BaseEntity
 {
-    public string        RegistrationNumber  { get; set; } = string.Empty;
-    public string?       Make                { get; set; }
-    public string?       Model               { get; set; }
-    public int           Year                { get; set; }
-    public VehicleType   VehicleType         { get; set; }
-    public VehicleStatus Status              { get; set; }
-    public decimal       PayloadCapacityKg   { get; set; }
-    public Guid?         AssignedDriverId    { get; set; }
+    public string RegistrationNumber { get; set; } = string.Empty;
+    public string? Make { get; set; }
+    public string? Model { get; set; }
+    public int Year { get; set; }
+    public VehicleType VehicleType { get; set; }
+    public VehicleStatus Status { get; set; }
+    public decimal PayloadCapacityKg { get; set; }
+    public Guid? AssignedDriverId { get; set; }
 
     public ICollection<VehicleInspection> Inspections { get; set; } = [];
 }
@@ -225,29 +228,29 @@ public class Vehicle : BaseEntity
 // ── Vehicle Inspection ────────────────────────────────────────────────────────
 public class VehicleInspection : BaseEntity
 {
-    public Guid             VehicleId  { get; set; }
-    public Guid             DriverId   { get; set; }
-    public InspectionType   Type       { get; set; }
-    public InspectionResult Result     { get; set; }
-    public int?             OdometerKm { get; set; }
-    public string?          Notes      { get; set; }
-    public string?          PhotoPaths { get; set; }
+    public Guid VehicleId { get; set; }
+    public Guid DriverId { get; set; }
+    public InspectionType Type { get; set; }
+    public InspectionResult Result { get; set; }
+    public int? OdometerKm { get; set; }
+    public string? Notes { get; set; }
+    public string? PhotoPaths { get; set; }
 
-    public Vehicle?      Vehicle { get; set; }
-    public DriverProfile? Driver  { get; set; }
+    public Vehicle? Vehicle { get; set; }
+    public DriverProfile? Driver { get; set; }
 }
 
 // ── Wallet Transaction ────────────────────────────────────────────────────────
 public class WalletTransaction : BaseEntity
 {
-    public Guid                  UserId              { get; set; }
-    public WalletTransactionType Type                { get; set; }
-    public decimal               AmountZAR           { get; set; }
-    public decimal               BalanceAfterZAR     { get; set; }
-    public Guid?                 ReferenceId         { get; set; }
-    public string?               ReferenceType       { get; set; }
-    public string?               Description         { get; set; }
-    public string?               ExternalPaymentRef  { get; set; }
+    public Guid UserId { get; set; }
+    public WalletTransactionType Type { get; set; }
+    public decimal AmountZAR { get; set; }
+    public decimal BalanceAfterZAR { get; set; }
+    public Guid? ReferenceId { get; set; }
+    public string? ReferenceType { get; set; }
+    public string? Description { get; set; }
+    public string? ExternalPaymentRef { get; set; }
 
     public User? User { get; set; }
 }
@@ -255,43 +258,43 @@ public class WalletTransaction : BaseEntity
 // ── Invoice ───────────────────────────────────────────────────────────────────
 public class Invoice : BaseEntity
 {
-    public Guid          CustomerId    { get; set; }
+    public Guid CustomerId { get; set; }
     public Guid ParcelId { get; set; }
-    public string        InvoiceNumber { get; set; } = string.Empty;
-    public InvoiceStatus Status        { get; set; }
-    public decimal       SubtotalZAR   { get; set; }
-    public decimal       VatZAR        { get; set; }
-    public decimal       TotalZAR      { get; set; }
-    public decimal       PaidAmountZAR { get; set; }
-    public DateTime      DueDate       { get; set; }
-    public DateTime?     PaidAt        { get; set; }
-    public string?       PdfPath       { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public InvoiceStatus Status { get; set; }
+    public decimal SubtotalZAR { get; set; }
+    public decimal VatZAR { get; set; }
+    public decimal TotalZAR { get; set; }
+    public decimal PaidAmountZAR { get; set; }
+    public DateTime DueDate { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? PdfPath { get; set; }
 
-    public CustomerProfile?          Customer  { get; set; }
+    public CustomerProfile? Customer { get; set; }
     public ICollection<InvoiceLineItem> LineItems { get; set; } = [];
 }
 
 public class InvoiceLineItem : BaseEntity
 {
-    public string  Description { get; set; } = string.Empty;
-    public int     Quantity    { get; set; } = 1;
-    public decimal UnitPrice   { get; set; }
-    public decimal TotalPrice  => Quantity * UnitPrice;
+    public string Description { get; set; } = string.Empty;
+    public int Quantity { get; set; } = 1;
+    public decimal UnitPrice { get; set; }
+    public decimal TotalPrice => Quantity * UnitPrice;
 }
 
 // ── Insurance Claim ───────────────────────────────────────────────────────────
 public class InsuranceClaim : BaseEntity
 {
-    public Guid        ParcelId          { get; set; }
-    public Guid        CustomerId        { get; set; }
-    public string      ClaimNumber       { get; set; } = string.Empty;
-    public ClaimType   Type              { get; set; }
-    public ClaimStatus Status            { get; set; } = ClaimStatus.Submitted;
-    public decimal     ClaimedAmountZAR  { get; set; }
-    public decimal?    ApprovedAmountZAR { get; set; }
-    public string?     Description       { get; set; }
-    public string?     ResolutionNotes   { get; set; }
-    public string?     SupportingDocumentPaths { get; set; }
+    public Guid ParcelId { get; set; }
+    public Guid CustomerId { get; set; }
+    public string ClaimNumber { get; set; } = string.Empty;
+    public ClaimType Type { get; set; }
+    public ClaimStatus Status { get; set; } = ClaimStatus.Submitted;
+    public decimal ClaimedAmountZAR { get; set; }
+    public decimal? ApprovedAmountZAR { get; set; }
+    public string? Description { get; set; }
+    public string? ResolutionNotes { get; set; }
+    public string? SupportingDocumentPaths { get; set; }
 
     public Parcel? Parcel { get; set; }
 }
@@ -299,16 +302,15 @@ public class InsuranceClaim : BaseEntity
 // ── Address Correction ────────────────────────────────────────────────────────
 public class AddressCorrectionRequest : BaseEntity
 {
-    public Guid               ParcelId           { get; set; }
-    public Guid               RequestedByUserId  { get; set; }
-    public CorrectionStatus   Status             { get; set; }
-    public string?            OriginalAddress    { get; set; }
-    public string?            CorrectedAddress   { get; set; }
-    public string?            Reason             { get; set; }
-    public string?            ReviewNotes        { get; set; }
-    public Guid?              ReviewedByUserId   { get; set; }
+    public Guid ParcelId { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public CorrectionStatus Status { get; set; }
+    public string? OriginalAddress { get; set; }
+    public string? CorrectedAddress { get; set; }
+    public string? Reason { get; set; }
+    public string? ReviewNotes { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
 }
-
 
 // ── Postal Code Zone Rule ─────────────────────────────────────────────────────
 public class PostalCodeZoneRule : BaseEntity
@@ -349,15 +351,15 @@ public class ParcelSortingAssignment : BaseEntity
 // ── Notification ──────────────────────────────────────────────────────────────
 public class Notification : BaseEntity
 {
-    public Guid                 UserId        { get; set; }
-    public NotificationType     Type          { get; set; }
-    public NotificationChannel  Channel       { get; set; }
-    public string               Title         { get; set; } = string.Empty;
-    public string               Body          { get; set; } = string.Empty;
-    public bool                 IsRead        { get; set; }
-    public DateTime?            ReadAt        { get; set; }
-    public Guid?                ReferenceId   { get; set; }
-    public string?              ReferenceType { get; set; }
+    public Guid UserId { get; set; }
+    public NotificationType Type { get; set; }
+    public NotificationChannel Channel { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public bool IsRead { get; set; }
+    public DateTime? ReadAt { get; set; }
+    public Guid? ReferenceId { get; set; }
+    public string? ReferenceType { get; set; }
 
     public User? User { get; set; }
 }
@@ -365,14 +367,14 @@ public class Notification : BaseEntity
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 public class AuditLog : BaseEntity
 {
-    public string  Action     { get; set; } = string.Empty;
-    public string  EntityType { get; set; } = string.Empty;
-    public Guid?   EntityId   { get; set; }
-    public string? OldValues  { get; set; }
-    public string? NewValues  { get; set; }
-    public Guid?   UserId     { get; set; }
-    public string? IpAddress  { get; set; }
-    public string? UserAgent  { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public Guid? EntityId { get; set; }
+    public string? OldValues { get; set; }
+    public string? NewValues { get; set; }
+    public Guid? UserId { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
 
     public User? User { get; set; }
 }
@@ -395,13 +397,12 @@ public class ParcelInspection : BaseEntity
     public Guid ParcelId { get; set; }
     public ParcelInspectionStage Stage { get; set; }
     public ParcelInspectionResult Result { get; set; } = ParcelInspectionResult.Pass;
-    public Guid StaffId { get; set; }   // User.Id — no nav, mirrors ParcelSortingAssignment.ConfirmedByStaffId
+    public Guid StaffId { get; set; }
 
-    // Exterior-only checklist — never opens sealed parcels
     public bool PackagingIntact { get; set; }
     public bool NoMoistureDamage { get; set; }
     public bool WeightMatchesDeclared { get; set; }
-    public bool? FragileHandlingOk { get; set; }   // null = not fragile, N/A
+    public bool? FragileHandlingOk { get; set; }
     public bool SealIntact { get; set; }
 
     public string? Notes { get; set; }
@@ -410,17 +411,16 @@ public class ParcelInspection : BaseEntity
     public Parcel? Parcel { get; set; }
 }
 
-
 public class LostParcelCase : BaseEntity
 {
     public Guid ParcelId { get; set; }
-    public Guid CustomerId { get; set; }   // CustomerProfile.Id — NOT User.Id
+    public Guid CustomerId { get; set; }
     public string CaseNumber { get; set; } = string.Empty;
     public LostParcelCaseStatus Status { get; set; } = LostParcelCaseStatus.Reported;
 
     public string? CustomerNotes { get; set; }
     public string? InvestigationNotes { get; set; }
-    public Guid? InvestigatedByStaffId { get; set; }   // User.Id, no nav — mirrors ParcelInspection.StaffId
+    public Guid? InvestigatedByStaffId { get; set; }
 
     public DateTime ReportedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
@@ -435,7 +435,7 @@ public class LostParcelCase : BaseEntity
 public class ReturnRequest : BaseEntity
 {
     public Guid ParcelId { get; set; }
-    public Guid CustomerId { get; set; }   // CustomerProfile.Id — not User.Id
+    public Guid CustomerId { get; set; }
     public string RaNumber { get; set; } = string.Empty;
     public ReturnRequestStatus Status { get; set; } = ReturnRequestStatus.Requested;
     public string Reason { get; set; } = string.Empty;

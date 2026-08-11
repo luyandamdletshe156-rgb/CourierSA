@@ -283,6 +283,34 @@ public record BulkRowResultDto(
     List<string> Errors
 );
 
+
+public record CancelParcelQuoteDto(
+    Guid ParcelId,
+    string TrackingNumber,
+    string CurrentStatus,
+    bool IsEligible,
+    bool IsFeeApplicable,
+    bool RequiresCancellationOtp, // 👈 True if parcel is in warehouse
+    decimal CancellationFeeZAR,
+    decimal QuoteAmountZAR,
+    decimal EstimatedRefundZAR,
+    string Reason
+);
+
+public record CancelParcelDto(
+    string Reason,
+    string? Otp // 👈 Required ONLY when RequiresCancellationOtp is true
+);
+
+public record CancelParcelResultDto(
+    Guid ParcelId,
+    string TrackingNumber,
+    decimal RefundAmountZAR,
+    decimal CancellationFeeZAR,
+    string ChargeMethod,
+    string Message
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace CourierSA.Application.DTOs.Quotes

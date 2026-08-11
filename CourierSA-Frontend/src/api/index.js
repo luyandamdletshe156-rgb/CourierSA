@@ -74,6 +74,12 @@ export const parcelApi = {
   bookBatch:  dto    => api.post('/parcels/batch', dto),
   approve:    id     => api.put(`/parcels/${id}/approve`),
   reject:     (id, reason) => api.put(`/parcels/${id}/reject`, { reason }),
+
+  // ➕ ADDED: CUSTOMER PARCEL CANCELLATION ENDPOINTS
+  cancelPreview:    id        => api.get(`/parcels/${id}/cancel-quote`),
+  requestCancelOtp: id        => api.put(`/parcels/${id}/request-cancel-otp`),
+  cancel:           (id, dto) => api.put(`/parcels/${id}/cancel`, dto), // dto: { reason, otp }
+
   checkIn:          (id, sortingBinId) =>
                          api.put(`/parcels/${id}/checkin`, { sortingBinId }),
   sortingSuggestion:(id) => api.get(`/parcels/${id}/sorting-suggestion`),
@@ -174,12 +180,12 @@ export const driverApi = {
   updateMyStatus: (status) => api.put('/driver-portal/status', { status }),
   toggleStatus:   (status) => api.put('/driver-portal/status', { status }),
 }
+
 export const dispatcherApi = {
   vehicles:       ()       => api.get('/dispatcher/vehicles'),
   reassignDriver: (id, driverId) => api.put(`/dispatcher/vehicles/${id}/reassign`, { driverId }),
 }
 
-// ➕ ADD THIS AT THE BOTTOM OF YOUR API FILE
 export const invoiceApi = {
   list:        params => api.get('/invoices', { params }),
   get:            id  => api.get(`/invoices/${id}`),
@@ -187,13 +193,13 @@ export const invoiceApi = {
 }
 
 export const lostParcelApi = {
-  report:       dto        => api.post('/lost-parcel-cases', dto),
-  mine:         ()         => api.get('/lost-parcel-cases/mine'),
-  queue:        status     => api.get('/lost-parcel-cases', { params: { status } }),
-  get:          id         => api.get(`/lost-parcel-cases/${id}`),
-  investigate:  (id, dto)  => api.put(`/lost-parcel-cases/${id}/investigate`, dto),
-  resolve:      (id, dto)  => api.put(`/lost-parcel-cases/${id}/resolve`, dto),
-  submitClaim:  (id, dto)  => api.post(`/lost-parcel-cases/${id}/insurance-claim`, dto),
+  report:       dto        => api.post('/lost-parcels', dto),
+  mine:         ()         => api.get('/lost-parcels/mine'),
+  queue:        status     => api.get('/lost-parcels/queue', { params: { status } }),
+  get:          id         => api.get(`/lost-parcels/${id}`),
+  investigate:  (id, dto)  => api.put(`/lost-parcels/${id}/investigate`, dto),
+  resolve:      (id, dto)  => api.put(`/lost-parcels/${id}/resolve`, dto),
+  submitClaim:  (id, dto)  => api.post(`/lost-parcels/${id}/insurance-claim`, dto),
 }
 
 export const returnApi = {

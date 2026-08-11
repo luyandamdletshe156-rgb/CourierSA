@@ -8,6 +8,7 @@ using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
+using CourierSA.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 
 namespace CourierSA.Infrastructure.Services;
@@ -21,6 +22,11 @@ public class ParcelService : IParcelService
     private readonly IAuditService _audit;
     private readonly ITrackingHubService _hubService;
     private readonly ISecureDeliveryService _secureDelivery;
+    private IQuoteService object1;
+    private IBarcodeService object2;
+    private INotificationService object3;
+    private IAuditService object4;
+    private ITrackingHubService object5;
 
     public ParcelService(
         IUnitOfWork uow,
@@ -38,6 +44,16 @@ public class ParcelService : IParcelService
         _audit = audit;
         _hubService = hubService;
         _secureDelivery = secureDelivery;
+    }
+
+    public ParcelService(UnitOfWork uow, IQuoteService object1, IBarcodeService object2, INotificationService object3, IAuditService object4, ITrackingHubService object5)
+    {
+        _uow = uow;
+        this.object1 = object1;
+        this.object2 = object2;
+        this.object3 = object3;
+        this.object4 = object4;
+        this.object5 = object5;
     }
 
     public async Task<ParcelDetailDto> BookAsync(
@@ -965,4 +981,205 @@ public class ParcelService : IParcelService
         var allTerminal = await _uow.Deliveries.Query().Where(d => d.RouteId == routeId.Value).AllAsync(d => d.Status == DeliveryStatus.Delivered || d.Status == DeliveryStatus.Failed, ct);
         if (allTerminal) { route.Status = RouteStatus.Completed; route.CompletedAt = DateTime.UtcNow; route.UpdatedAt = DateTime.UtcNow; }
     }
+
+
+    private const decimal WarehouseCancellationFeeZAR = 50.00m; // Fee for warehouse cancellation
+
+    public async Task<CancelParcelQuoteDto> PreviewCancelFeeAsync(
+        Guid parcelId, Guid customerUserId, CancellationToken ct = default)
+    {
+        var customer = await GetCustomerProfileOrThrowAsync(customerUserId, ct);
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+
+        if (parcel.CustomerId != customer.Id)
+            throw new ForbiddenException("This parcel does not belong to you.");
+
+        if (parcel.Status is ParcelStatus.OutForDelivery or ParcelStatus.Delivered or ParcelStatus.FailedDelivery or ParcelStatus.Cancelled or ParcelStatus.Lost or ParcelStatus.Returned)
+        {
+            return new CancelParcelQuoteDto(
+                parcel.Id, parcel.TrackingNumber, parcel.Status.ToString(),
+                IsEligible: false, IsFeeApplicable: false, RequiresCancellationOtp: false, CancellationFeeZAR: 0m,
+                QuoteAmountZAR: parcel.QuoteAmountZAR ?? 0m, EstimatedRefundZAR: 0m,
+                Reason: parcel.Status == ParcelStatus.OutForDelivery
+                    ? "Parcels mid-route (Out for Delivery) cannot be cancelled."
+                    : $"Parcels with status '{parcel.Status}' cannot be cancelled."
+            );
+        }
+
+        bool isWarehouseStatus = parcel.Status is ParcelStatus.AwaitingCheckIn or ParcelStatus.InWarehouse or ParcelStatus.CheckedOut;
+        decimal fee = isWarehouseStatus ? WarehouseCancellationFeeZAR : 0m;
+        decimal quoteAmount = parcel.QuoteAmountZAR ?? 0m;
+        decimal estimatedRefund = Math.Max(0m, quoteAmount - fee);
+
+        string explanation = isWarehouseStatus
+            ? $"Parcel is at the warehouse. Security OTP verification & handling fee of R{fee:0.00} are required to cancel."
+            : "Free cancellation — parcel has not yet been collected or checked into warehouse (No OTP required).";
+
+        return new CancelParcelQuoteDto(
+            parcel.Id, parcel.TrackingNumber, parcel.Status.ToString(),
+            IsEligible: true, IsFeeApplicable: isWarehouseStatus, RequiresCancellationOtp: isWarehouseStatus, CancellationFeeZAR: fee,
+            QuoteAmountZAR: quoteAmount, EstimatedRefundZAR: estimatedRefund,
+            Reason: explanation
+        );
+    }
+
+    /// <summary>Generate and send a 4-digit OTP for warehouse parcel cancellation</summary>
+    public async Task SendCancellationOtpAsync(Guid parcelId, Guid customerUserId, CancellationToken ct = default)
+    {
+        var customer = await GetCustomerProfileOrThrowAsync(customerUserId, ct);
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+
+        if (parcel.CustomerId != customer.Id)
+            throw new ForbiddenException("This parcel does not belong to you.");
+
+        bool isWarehouseStatus = parcel.Status is ParcelStatus.AwaitingCheckIn or ParcelStatus.InWarehouse or ParcelStatus.CheckedOut;
+        if (!isWarehouseStatus)
+            throw new BadRequestException("OTP verification is only required for parcels currently at the warehouse.");
+
+        // Generate random 4-digit OTP
+        var random = new Random();
+        var otp = random.Next(1000, 9999).ToString("D4");
+
+        parcel.CancellationOtp = otp;
+        parcel.CancellationOtpExpiresAt = DateTime.UtcNow.AddMinutes(10);
+        parcel.UpdatedAt = DateTime.UtcNow;
+
+        await _uow.SaveChangesAsync(ct);
+
+        // Send OTP email/SMS notification
+        try
+        {
+            await _notificationService.SendCancellationOtpAsync(customer.UserId, parcel.TrackingNumber, otp, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[NOTIFY] SendCancellationOtpAsync failed: {ex.Message}");
+        }
+    }
+
+    public async Task<CancelParcelResultDto> CancelByCustomerAsync(
+        Guid parcelId, CancelParcelDto dto, Guid customerUserId, CancellationToken ct = default)
+    {
+        var customer = await GetCustomerProfileOrThrowAsync(customerUserId, ct);
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+
+        if (parcel.CustomerId != customer.Id)
+            throw new ForbiddenException("This parcel does not belong to you.");
+
+        if (parcel.Status is ParcelStatus.OutForDelivery or ParcelStatus.Delivered or ParcelStatus.FailedDelivery or ParcelStatus.Cancelled or ParcelStatus.Lost or ParcelStatus.Returned)
+            throw new BadRequestException($"Cannot cancel parcel in status '{parcel.Status}'.");
+
+        bool isWarehouseStatus = parcel.Status is ParcelStatus.AwaitingCheckIn or ParcelStatus.InWarehouse or ParcelStatus.CheckedOut;
+
+        // 🔒 OTP VERIFICATION GATE (WAREHOUSE PARCELS ONLY)
+        if (isWarehouseStatus)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Otp))
+                throw new BadRequestException("Verification OTP is required to cancel a parcel that is at the warehouse.");
+
+            if (parcel.CancellationOtp == null || parcel.CancellationOtpExpiresAt == null || parcel.CancellationOtpExpiresAt < DateTime.UtcNow)
+                throw new BadRequestException("Verification OTP has expired or was not requested. Please click 'Send Verification Code'.");
+
+            if (parcel.CancellationOtp.Trim() != dto.Otp.Trim())
+                throw new BadRequestException("Invalid cancellation verification OTP code.");
+
+            // Clear OTP after successful use
+            parcel.CancellationOtp = null;
+            parcel.CancellationOtpExpiresAt = null;
+        }
+
+        decimal cancellationFee = isWarehouseStatus ? WarehouseCancellationFeeZAR : 0m;
+        decimal totalQuote = parcel.QuoteAmountZAR ?? 0m;
+        decimal netRefundAmount = Math.Max(0m, totalQuote - cancellationFee);
+
+        var previousStatus = parcel.Status;
+        parcel.Status = ParcelStatus.Cancelled;
+        parcel.UpdatedAt = DateTime.UtcNow;
+
+        string chargeMethod = "None";
+
+        // Release Bin assignment if stored
+        var assignment = await _uow.Query<ParcelSortingAssignment>().Query()
+            .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null && a.ReleasedAt == null, ct);
+        if (assignment?.ConfirmedBinId != null)
+        {
+            var bin = await _uow.Query<SortingBin>().GetByIdAsync(assignment.ConfirmedBinId.Value, ct);
+            if (bin != null && bin.CurrentCount > 0)
+            {
+                bin.CurrentCount -= 1;
+                bin.UpdatedAt = DateTime.UtcNow;
+            }
+            assignment.ReleasedAt = DateTime.UtcNow;
+            assignment.UpdatedAt = DateTime.UtcNow;
+        }
+
+        // Process Refund
+        if (parcel.IsPaid)
+        {
+            if (parcel.PaymentMethod == PaymentMethod.Wallet)
+            {
+                customer.WalletBalanceZAR += netRefundAmount;
+                customer.UpdatedAt = DateTime.UtcNow;
+
+                var walletTx = new WalletTransaction
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = customer.UserId,
+                    Type = WalletTransactionType.Refund,
+                    AmountZAR = netRefundAmount,
+                    BalanceAfterZAR = customer.WalletBalanceZAR,
+                    ReferenceId = parcel.Id,
+                    ReferenceType = "ParcelCancellation",
+                    Description = isWarehouseStatus
+                        ? $"Refund for cancelled warehouse parcel {parcel.TrackingNumber} (R{cancellationFee:0.00} handling fee deducted)"
+                        : $"Full refund for cancelled uncollected parcel {parcel.TrackingNumber}",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _uow.Query<WalletTransaction>().AddAsync(walletTx, ct);
+                chargeMethod = "Wallet";
+            }
+            else
+            {
+                await FlagInvoiceForManualRefundAsync(parcel, $"Customer cancelled parcel. Reason: {dto.Reason}", customerUserId, ct);
+                chargeMethod = "ManualRefundPending";
+            }
+            parcel.IsPaid = false;
+        }
+        else
+        {
+            await VoidInvoiceAsync(parcel, ct);
+        }
+
+        // Tracking Event
+        var trackingEvent = AddTrackingEvent(
+            parcel,
+            TrackingEventType.Cancelled,
+            isWarehouseStatus
+                ? $"Warehouse parcel cancelled by customer following OTP verification. Handling fee of R{cancellationFee:0.00} applied."
+                : $"Uncollected parcel cancelled by customer. Reason: {dto.Reason}."
+        );
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("PARCEL_CANCELLED_BY_CUSTOMER", "Parcel", parcel.Id,
+            new { PreviousStatus = previousStatus.ToString() },
+            new { Reason = dto.Reason, CancellationFee = cancellationFee, NetRefund = netRefundAmount, UsedOtp = isWarehouseStatus },
+            customerUserId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Cancelled", ct: ct);
+
+        return new CancelParcelResultDto(
+            parcel.Id,
+            parcel.TrackingNumber,
+            netRefundAmount,
+            cancellationFee,
+            chargeMethod,
+            isWarehouseStatus
+                ? $"Parcel cancelled. Refund of R{netRefundAmount:0.00} issued (R{cancellationFee:0.00} warehouse fee deducted)."
+                : "Parcel cancelled successfully. Full refund issued."
+        );
+    }
+
 }
