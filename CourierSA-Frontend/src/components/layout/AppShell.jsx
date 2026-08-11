@@ -45,6 +45,26 @@ const NAV = {
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,           to: '/driver/deliveries'  },
     { label: 'History',       icon: FileText,        to: '/driver/history'     },
+  ],
+  Dispatcher: [
+    { label: 'Dashboard',    icon: LayoutDashboard, to: '/dispatcher/dashboard'    },
+    { label: 'Dispatch Queue', icon: ClipboardCheck, to: '/dispatcher/dispatch'    },
+    { label: 'Live Map',     icon: MapPin,          to: '/dispatcher/map'          },
+    { label: 'Track',        icon: Search,          to: '/dispatcher/track'        },
+    { label: 'Reassign',     icon: RefreshCw,       to: '/dispatcher/reassign'      },
+    { label: 'Failed Deliveries', icon: AlertTriangle, to: '/dispatcher/failed'     },
+    { label: 'Flag High Value', icon: AlertTriangle, to: '/dispatcher/flag-high-value' },
+    { label: 'Maintenance Swaps', icon: Truck,       to: '/dispatcher/swaps'        },
+    { label: 'History',      icon: FileText,        to: '/dispatcher/history'      },
+  ],
+  BusinessClient: [
+    { label: 'Dashboard',    icon: LayoutDashboard, to: '/business/dashboard'    },
+    { label: 'My Parcels',   icon: Package,         to: '/business/parcels'      },
+    { label: 'Book Parcel',  icon: Package,         to: '/business/book'         },
+    { label: 'Bulk Upload',  icon: Archive,         to: '/business/bulk-upload'  },
+    { label: 'Invoices',     icon: FileText,        to: '/business/invoices'     },
+    { label: 'Reports',      icon: BarChart3,       to: '/business/reports'      },
+    { label: 'Wallet',       icon: CreditCard,      to: '/business/wallet'       },
   ]
 }
 
@@ -52,14 +72,18 @@ const ROLE_LABELS = {
   Administrator: 'Administrator', 
   WarehouseStaff: 'Warehouse', 
   Customer: 'Customer', 
-  Driver: 'Driver' 
+  Driver: 'Driver',
+  Dispatcher: 'Dispatcher',
+  BusinessClient: 'Business Client'
 }
 
 const ROLE_COLORS = { 
   Administrator: 'bg-purple-500', 
   WarehouseStaff: 'bg-teal-500', 
   Customer: 'bg-blue-600', 
-  Driver: 'bg-amber-500' 
+  Driver: 'bg-amber-500',
+  Dispatcher: 'bg-indigo-500',
+  BusinessClient: 'bg-cyan-600'
 }
 
 export default function AppShell({ children, title }) {
