@@ -22,15 +22,16 @@ export function DriverDashboard() {
     queryFn: driverApi.myStatus, // Adjust the API function based on your setup
   })
 
+  const myStatus = statusData?.data?.status || user?.status || 'Available'
+  const nextStatus = myStatus === 'Available' ? 'OffDuty' : 'Available'
+
   // -- Mutations --
   const toggleStatus = useMutation({
-    mutationFn: driverApi.toggleStatus, // Adjust the API function based on your setup
+    mutationFn: (status) => driverApi.toggleStatus(status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['driver-status'] })
     }
   })
-
-  const myStatus = statusData?.data?.status || user?.status || 'Available'
 
   const deliveries = data?.data ?? []
   const active    = deliveries.filter(d => d.status !== 'Delivered' && d.status !== 'Failed')
@@ -58,7 +59,7 @@ export function DriverDashboard() {
           </div>
           <div className="hidden sm:block text-right">
             <button
-              onClick={() => toggleStatus.mutate()}
+              onClick={() => toggleStatus.mutate(nextStatus)}
               disabled={toggleStatus.isPending || myStatus === 'OnDelivery' || myStatus === 'Suspended'}
               className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition ${
                 myStatus === 'Available'

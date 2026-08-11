@@ -172,6 +172,7 @@ export const driverApi = {
     api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
   myStatus:       ()       => api.get('/driver-portal/me'),
   updateMyStatus: (status) => api.put('/driver-portal/status', { status }),
+  toggleStatus:   (status) => api.put('/driver-portal/status', { status }),
 }
 export const dispatcherApi = {
   vehicles:       ()       => api.get('/dispatcher/vehicles'),
