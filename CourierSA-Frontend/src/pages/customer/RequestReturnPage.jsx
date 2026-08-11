@@ -57,7 +57,7 @@ export default function RequestReturnPage() {
     queryFn: () => returnApi.mine(),
   })
 
-  // 2. Fetch My Parcels (using parcelApi)
+  // 2. Fetch My Parcels
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
     queryFn: () => parcelApi.list(),
@@ -70,13 +70,12 @@ export default function RequestReturnPage() {
     ? returnsData.data
     : []
 
-  const rawParcels = Array.isArray(parcelsData)
-    ? parcelsData
-    : Array.isArray(parcelsData?.items)
-    ? parcelsData.items
-    : Array.isArray(parcelsData?.data)
-    ? parcelsData.data
-    : []
+  // FIX: Unwraps nested { data: { items: [...] } } returned by paged API
+  const rawParcels =
+    parcelsData?.data?.items ??
+    parcelsData?.items ??
+    parcelsData?.data ??
+    (Array.isArray(parcelsData) ? parcelsData : [])
 
   // Filter Delivered parcels that don't already have an open return request
   const existingReturnTrackingNumbers = new Set(returnsList.map(r => r.trackingNumber))

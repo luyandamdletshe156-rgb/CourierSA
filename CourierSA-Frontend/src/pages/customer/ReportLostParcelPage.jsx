@@ -37,7 +37,7 @@ export default function ReportLostParcelPage() {
     queryFn: () => lostParcelApi.mine(),
   })
 
-  // 2. Fetch Customer's Parcels (using parcelApi)
+  // 2. Fetch Customer's Parcels
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
     queryFn: () => parcelApi.list(),
@@ -50,13 +50,12 @@ export default function ReportLostParcelPage() {
     ? casesData.data
     : []
 
-  const rawParcels = Array.isArray(parcelsData)
-    ? parcelsData
-    : Array.isArray(parcelsData?.items)
-    ? parcelsData.items
-    : Array.isArray(parcelsData?.data)
-    ? parcelsData.data
-    : []
+  // FIX: Unwraps nested { data: { items: [...] } } returned by paged API
+  const rawParcels =
+    parcelsData?.data?.items ??
+    parcelsData?.items ??
+    parcelsData?.data ??
+    (Array.isArray(parcelsData) ? parcelsData : [])
 
   // 3. Filter Eligible Parcels:
   // - Exclude statuses: Delivered, Cancelled, Lost
