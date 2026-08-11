@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
-import { returnApi, parcelsApi } from '@/api'
+import { returnApi, parcelApi } from '@/api'
 import { RotateCcw, Package, CheckCircle2, ChevronDown, ChevronUp, RefreshCw, FileText, Copy } from 'lucide-react'
 import { SA_PROVINCES, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -57,10 +57,10 @@ export default function RequestReturnPage() {
     queryFn: () => returnApi.mine(),
   })
 
-  // 2. Fetch My Parcels (for dropdown selection)
+  // 2. Fetch My Parcels (using parcelApi)
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
-    queryFn: () => parcelsApi.list(),
+    queryFn: () => parcelApi.list(),
   })
 
   // Defensive unwrapping for API response envelopes
@@ -252,7 +252,7 @@ export default function RequestReturnPage() {
                   <button
                     type="button"
                     onClick={handleAutoFillAddress}
-                    className="text-xs text-[#0A3D91] font-semibold flex items-center gap-1.5 hover:underline bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200"
+                    className="text-xs text-[#0A3D91] font-semibold flex items-center gap-1.5 hover:underline bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shrink-0"
                   >
                     <Copy size={13} /> Copy Original Delivery Address
                   </button>

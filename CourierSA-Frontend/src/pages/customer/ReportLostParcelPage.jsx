@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
-import { lostParcelApi, parcelsApi } from '@/api'
+import { lostParcelApi, parcelApi } from '@/api'
 import { PackageX, Search, CheckCircle2, FileText, ChevronDown, ChevronUp, RefreshCw, Package } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -37,10 +37,10 @@ export default function ReportLostParcelPage() {
     queryFn: () => lostParcelApi.mine(),
   })
 
-  // 2. Fetch Customer's Parcels
+  // 2. Fetch Customer's Parcels (using parcelApi)
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
-    queryFn: () => parcelsApi.list(),
+    queryFn: () => parcelApi.list(),
   })
 
   // Defensive unwrapping for API response envelopes
