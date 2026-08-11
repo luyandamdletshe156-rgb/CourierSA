@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import { Alert } from '@/components/ui'
-import StatusBadge from '@/components/ui/StatusBadge'
+import { Alert, StatusBadge } from '@/components/ui'
 import { returnApi } from '@/api'
-import { PackageCheck, ChevronDown, ChevronUp, RefreshCw, PackageX } from 'lucide-react'
+import { PackageCheck, ChevronDown, ChevronUp, RefreshCw, PackageX, ClipboardCheck, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 
 const STATUS_FILTERS = ['Approved', 'Received', 'ReadyForRefund', 'InspectionFailed', 'Refunded', '']
@@ -26,37 +25,40 @@ function InspectForm({ returnId, onDone }) {
   })
 
   return (
-    <div className="space-y-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
-      <label className="text-xs font-semibold text-[#475569]">Physical Inspection Result</label>
-      <div className="flex gap-4 flex-wrap">
+    <div className="space-y-4 bg-[#F8FAFC] p-5 rounded-2xl border border-[#E2E8F0]">
+      <label className="text-xs font-bold text-[#475569] uppercase tracking-wider">Physical Inspection Result</label>
+      
+      {/* Visual Radio Selection */}
+      <div className="grid grid-cols-3 gap-3">
         {['Acceptable', 'Damaged', 'Missing'].map(opt => (
-          <label key={opt} className="flex items-center gap-2 text-xs font-medium text-[#1E293B] cursor-pointer">
-            <input
-              type="radio"
-              name={`inspect-${returnId}`}
-              checked={result === opt}
-              onChange={() => setResult(opt)}
-              className="text-[#0A3D91]"
-            />{' '}
-            {opt}
+          <label key={opt} className={clsx(
+            'flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer transition-all',
+            result === opt ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white border-[#E2E8F0] text-[#64748B] hover:border-[#0A3D91]/30'
+          )}>
+            <input type="radio" name={`inspect-${returnId}`} checked={result === opt} onChange={() => setResult(opt)} className="hidden" />
+            <span className="text-xs font-bold">{opt}</span>
           </label>
         ))}
       </div>
+
       <textarea
         rows={3}
-        className="input w-full p-2.5 border rounded-lg text-xs"
-        placeholder="Enter physical inspection notes (condition, packaging, seal)..."
+        className="input w-full p-3 border border-[#CBD5E1] rounded-xl text-sm"
+        placeholder="Log physical condition (packaging, seal, contents)..."
         value={notes}
         onChange={e => setNotes(e.target.value)}
       />
+      
       {error && <Alert type="error" message={error} />}
+      
       <div className="flex justify-end">
         <button
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          className="btn-primary text-xs px-4 py-2"
+          className="btn-primary text-xs px-6 py-2.5 rounded-xl flex items-center gap-2"
         >
-          {mutation.isPending ? 'Saving…' : 'Log Inspection'}
+          {mutation.isPending ? <RefreshCw className="animate-spin" size={14} /> : <ClipboardCheck size={14} />}
+          {mutation.isPending ? 'Logging…' : 'Finalize Inspection'}
         </button>
       </div>
     </div>
@@ -73,11 +75,12 @@ export default function ReturnIntakeQueuePage() {
     queryFn: () => returnApi.queue(status || undefined),
   })
 
-  // CRITICAL FIX: Safely unwrap data from response envelopes
   const returnsList = Array.isArray(data)
     ? data
     : Array.isArray(data?.data)
     ? data.data
+    : Array.isArray(data?.data?.data)
+    ? data.data.data
     : []
 
   const receiveMutation = useMutation({
@@ -86,8 +89,9 @@ export default function ReturnIntakeQueuePage() {
   })
 
   return (
-    <AppShell title="Return Intake">
+    <AppShell title="Warehouse Return Intake">
       <div className="max-w-3xl mx-auto space-y-6">
+        
         {/* Status Filters */}
         <div className="flex gap-2 flex-wrap">
           {STATUS_FILTERS.map(s => (
@@ -95,7 +99,7 @@ export default function ReturnIntakeQueuePage() {
               key={s || 'all'}
               onClick={() => setStatus(s)}
               className={clsx(
-                'px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all',
+                'px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-2',
                 status === s
                   ? 'bg-[#0A3D91] text-white border-[#0A3D91]'
                   : 'bg-white text-[#64748B] border-[#D8E4F5] hover:border-[#0A3D91]'
@@ -106,26 +110,23 @@ export default function ReturnIntakeQueuePage() {
           ))}
         </div>
 
-        {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-12 text-[#64748B] gap-2 text-sm">
-            <RefreshCw size={18} className="animate-spin text-[#0A3D91]" /> Loading return queue…
+            <RefreshCw size={18} className="animate-spin text-[#0A3D91]" /> Loading queue…
           </div>
         )}
 
-        {/* Query Error State */}
         {isError && (
           <Alert
             type="error"
-            message={error?.response?.data?.message || error?.message || 'Failed to load return requests.'}
+            message={error?.response?.data?.message || error?.message || 'Failed to load return queue.'}
           />
         )}
 
-        {/* Empty State */}
         {!isLoading && !isError && returnsList.length === 0 && (
-          <div className="card text-center py-12 text-[#64748B] bg-white rounded-xl border border-[#D8E4F5]">
+          <div className="card text-center py-12 text-[#64748B] bg-white rounded-2xl border border-[#D8E4F5]">
             <PackageX size={32} className="mx-auto mb-2 text-[#94A3B8]" />
-            <p className="font-semibold">No returns match this filter.</p>
+            <p className="font-semibold">Queue is clear.</p>
           </div>
         )}
 
@@ -147,7 +148,7 @@ export default function ReturnIntakeQueuePage() {
                           {r.trackingNumber}
                         </span>
                       </div>
-                      <p className="text-xs text-[#64748B] mt-1">{r.reason}</p>
+                      <p className="text-xs text-[#64748B] mt-1 line-clamp-1">{r.reason}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <StatusBadge status={r.status} />
@@ -160,30 +161,23 @@ export default function ReturnIntakeQueuePage() {
                   </button>
 
                   {isOpen && (
-                    <div className="mt-4 pt-4 border-t border-[#D8E4F5] space-y-4 text-xs">
+                    <div className="mt-4 pt-4 border-t border-[#E2E8F0] space-y-4">
                       {r.collectionAddress && (
-                        <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0] text-[#334155]">
+                        <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0] text-xs text-[#334155]">
                           <strong className="text-[#1E293B]">Collection Address:</strong>{' '}
-                          {r.collectionAddress.streetAddress}, {r.collectionAddress.city},{' '}
-                          {r.collectionAddress.province} ({r.collectionAddress.postalCode})
+                          {r.collectionAddress.streetAddress}, {r.collectionAddress.city}
                         </div>
                       )}
 
-                      {/* Action based on return status */}
                       {r.status === 'Approved' && (
-                        <div className="flex justify-end">
+                        <div className="flex justify-end pt-2">
                           <button
                             onClick={() => receiveMutation.mutate(r.id)}
                             disabled={receiveMutation.isPending}
-                            className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5"
+                            className="btn-primary text-xs px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm"
                           >
-                            {receiveMutation.isPending ? (
-                              <>
-                                <RefreshCw size={14} className="animate-spin" /> Saving…
-                              </>
-                            ) : (
-                              'Mark as Received'
-                            )}
+                            {receiveMutation.isPending ? <RefreshCw className="animate-spin" size={14} /> : <RotateCcw size={14} />}
+                            Mark as Received
                           </button>
                         </div>
                       )}
@@ -192,14 +186,12 @@ export default function ReturnIntakeQueuePage() {
                         <InspectForm returnId={r.id} onDone={() => setExpanded(null)} />
                       )}
 
-                      {(r.status === 'ReadyForRefund' ||
-                        r.status === 'InspectionFailed' ||
-                        r.status === 'Refunded') && (
-                        <p className="text-xs text-[#64748B] italic">
+                      {(r.status === 'ReadyForRefund' || r.status === 'InspectionFailed' || r.status === 'Refunded') && (
+                        <div className="p-3 bg-blue-50 text-blue-800 text-xs rounded-lg border border-blue-100 italic">
                           {r.status === 'ReadyForRefund'
-                            ? 'Inspection complete. Awaiting administrator refund release.'
-                            : 'No further warehouse action needed for this return.'}
-                        </p>
+                            ? 'Inspection complete. Ready for credit.'
+                            : 'No further warehouse action needed.'}
+                        </div>
                       )}
                     </div>
                   )}
