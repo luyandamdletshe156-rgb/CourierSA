@@ -81,6 +81,30 @@ public static class EmailContent
         return (subject, content);
     }
 
+    // ── Secure Delivery OTP ────────────────────────────────────────────────
+    public static string DeliveryOtp(string recipientName, string trackingNumber, string otpCode)
+    {
+        var previewText = $"Your secure delivery PIN is {otpCode}";
+
+        var content = $"""
+            <h2 style="margin:0 0 16px 0; color:#0B1B33; font-size:20px;">Secure Delivery Verification</h2>
+            <p style="margin:0 0 12px 0;">Hi {recipientName},</p>
+            <p style="margin:0 0 12px 0;">Your parcel (<strong>{trackingNumber}</strong>) has been flagged as high-value and requires a secure PIN for delivery.</p>
+            <table role="presentation" style="width:100%; background-color:#F9FAFB; border-radius:6px; margin:16px 0; text-align:center;">
+                <tr>
+                    <td style="padding:24px;">
+                        <p style="margin:0 0 8px 0; font-size:12px; color:#6B7280; text-transform:uppercase; font-weight:600; letter-spacing:1px;">Your Delivery PIN</p>
+                        <p style="margin:0; font-size:32px; font-weight:700; color:#0B1B33; letter-spacing:6px; font-family:monospace;">{otpCode}</p>
+                    </td>
+                </tr>
+            </table>
+            <p style="margin:0 0 12px 0; font-size:14px; color:#6B7280;">Please provide this PIN to the driver upon arrival. For your security, do not share it with anyone else.</p>
+            """;
+
+        // Return the fully built HTML string so SecureDeliveryService can send it immediately
+        return EmailTemplateBuilder.Build(previewText, content);
+    }
+
     // ── Colors for common statuses (used with StatusUpdate) ────────────────
     public const string ColorInfo = "#2563EB"; // dispatched / out for delivery
     public const string ColorSuccess = "#16A34A"; // delivered

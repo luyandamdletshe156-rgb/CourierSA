@@ -207,8 +207,11 @@ export const returnApi = {
 }
 
 export const secureDeliveryApi = {
-  flagHighValue: id        => api.put(`/parcels/${id}/flag-high-value`),
-  verifyOtp:     (id, otp) => api.put(`/parcels/${id}/verify-otp`, { otp }),
+  flagHighValue:        id        => api.put(`/parcels/${id}/flag-high-value`),
+  verifyOtp:            (id, otp) => api.put(`/parcels/${id}/verify-otp`, { otp }),
+  resendOtp:            id        => api.put(`/parcels/${id}/resend-otp`),
+  getOtpPending:        ()        => api.get('/parcels/otp-pending'),
+  getHighValueEligible: ()        => api.get('/parcels/high-value-eligible'),
 }
 
 export const reschedulingApi = {

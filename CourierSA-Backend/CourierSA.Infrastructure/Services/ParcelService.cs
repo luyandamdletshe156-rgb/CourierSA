@@ -1,6 +1,7 @@
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Quotes;
 using CourierSA.Application.DTOs.Routing;
+using CourierSA.Application.DTOs.SecureDelivery;
 using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
@@ -19,6 +20,7 @@ public class ParcelService : IParcelService
     private readonly INotificationService _notificationService;
     private readonly IAuditService _audit;
     private readonly ITrackingHubService _hubService;
+    private readonly ISecureDeliveryService _secureDelivery;
 
     public ParcelService(
         IUnitOfWork uow,
@@ -26,7 +28,8 @@ public class ParcelService : IParcelService
         IBarcodeService barcodeService,
         INotificationService notificationService,
         IAuditService audit,
-        ITrackingHubService hubService)
+        ITrackingHubService hubService,
+        ISecureDeliveryService secureDelivery)
     {
         _uow = uow;
         _quoteService = quoteService;
@@ -34,6 +37,7 @@ public class ParcelService : IParcelService
         _notificationService = notificationService;
         _audit = audit;
         _hubService = hubService;
+        _secureDelivery = secureDelivery;
     }
 
     public async Task<ParcelDetailDto> BookAsync(
@@ -46,7 +50,6 @@ public class ParcelService : IParcelService
 
         var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
 
-        // 👈 Safe Notification & Audit (Prevents 500 crashes if email/push fails)
         try { await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct); }
         catch (Exception ex) { Console.WriteLine($"[NOTIFY] BookAsync notification failed: {ex.Message}"); }
 
@@ -82,11 +85,6 @@ public class ParcelService : IParcelService
 
                 var parcel = await BuildAndAddParcelAsync(itemDto, customer, innerCt);
                 bookedParcels.Add(parcel);
-
-                // Save inside loop so tracking IDs update per iteration.
-                // Must be the RAW save (no execution-strategy wrapping) — we're already
-                // inside ExecuteInTransactionAsync's strategy.ExecuteAsync(...), and EF Core
-                // forbids nesting a second retrying strategy around a manual transaction.
                 await _uow.SaveChangesRawAsync(innerCt);
             }
         }, ct);
@@ -97,7 +95,6 @@ public class ParcelService : IParcelService
         {
             var delivery = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
 
-            // 👈 Safe Notification & Audit
             try { await _notificationService.SendParcelBookedAsync(customer.UserId, parcel.TrackingNumber, serviceType: parcel.ServiceType.ToString(), destinationCity: delivery?.City, amountZAR: parcel.QuoteAmountZAR, ct: ct); }
             catch (Exception ex) { Console.WriteLine($"[NOTIFY] BookBatchAsync notification failed: {ex.Message}"); }
 
@@ -112,6 +109,7 @@ public class ParcelService : IParcelService
 
         return new ParcelBatchResultDto(results, total);
     }
+
     private async Task<CustomerProfile> GetCustomerProfileOrThrowAsync(Guid customerId, CancellationToken ct)
     {
         return await _uow.Query<CustomerProfile>()
@@ -503,11 +501,26 @@ public class ParcelService : IParcelService
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
+        // Auto-flag high-value final deliveries for OTP verification.
+        FlagHighValueResultDto? otpFlagResult = null;
+        if (!isPickup)
+        {
+            try { otpFlagResult = await _secureDelivery.AutoFlagOnDispatchAsync(parcel); }
+            catch (Exception ex) { Console.WriteLine($"[SECURE-DELIVERY] Auto-flag failed for {parcel.TrackingNumber}: {ex.Message}"); }
+        }
+
         try { await _uow.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException ex) { var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct(); throw new BadRequestException($"The {string.Join(", ", failedTypes)} was updated by another process. Please refresh and try again."); }
 
         await _audit.LogAsync("PARCEL_DISPATCHED", "Parcel", parcelId, null, new { Status = parcel.Status.ToString(), driverId }, dispatcherId, null, ct);
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
+
+        // Email the OTP only after the dispatch itself is safely committed.
+        if (otpFlagResult is { Otp: not null })
+        {
+            try { await _secureDelivery.SendOtpEmailForParcelAsync(parcel, otpFlagResult.Otp); }
+            catch (Exception ex) { Console.WriteLine($"[SECURE-DELIVERY] OTP email failed for {parcel.TrackingNumber}: {ex.Message}"); }
+        }
     }
 
     public async Task<RouteSummaryDto> DispatchRouteAsync(
@@ -561,6 +574,7 @@ public class ParcelService : IParcelService
         await _uow.Query<DeliveryRoute>().AddAsync(route, ct);
 
         var stops = new List<RouteStopDto>();
+        var otpFlagResults = new List<(Parcel Parcel, FlagHighValueResultDto FlagResult)>();
 
         foreach (var parcel in parcels)
         {
@@ -616,6 +630,19 @@ public class ParcelService : IParcelService
             };
             await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
+            if (!isPickup)
+            {
+                try
+                {
+                    var flagResult = await _secureDelivery.AutoFlagOnDispatchAsync(parcel);
+                    if (flagResult is { Otp: not null }) otpFlagResults.Add((parcel, flagResult));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SECURE-DELIVERY] Auto-flag failed for {parcel.TrackingNumber}: {ex.Message}");
+                }
+            }
+
             stops.Add(new RouteStopDto(
                 delivery.Id, parcel.Id, parcel.TrackingNumber, delivery.Status.ToString(),
                 targetAddress?.RecipientName ?? "—",
@@ -645,6 +672,13 @@ public class ParcelService : IParcelService
         foreach (var parcel in parcels)
         {
             await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
+        }
+
+        // Email every flagged parcel's OTP only after the whole route is safely committed.
+        foreach (var item in otpFlagResults)
+        {
+            try { await _secureDelivery.SendOtpEmailForParcelAsync(item.Parcel, item.FlagResult.Otp!); }
+            catch (Exception ex) { Console.WriteLine($"[SECURE-DELIVERY] OTP email failed for {item.Parcel.TrackingNumber}: {ex.Message}"); }
         }
 
         return new RouteSummaryDto(route.Id, primaryZone?.ToString() ?? "Mixed Route", route.Status.ToString(), route.DispatchedAt, stops);
@@ -790,6 +824,36 @@ public class ParcelService : IParcelService
         }
         return new PagedResult<ParcelSummaryDto>(parcels.Select(p => MapToSummary(p, binCodesByParcelId.GetValueOrDefault(p.Id))).ToList(), count, page, pageSize);
     }
+
+    // --- NEW SECURE DELIVERY METHODS ---
+
+    public async Task<IEnumerable<ParcelSummaryDto>> GetOtpPendingParcelsAsync(CancellationToken ct = default)
+    {
+        var parcels = await _uow.Query<Parcel>().Query()
+            .AsNoTracking()
+            .Include(p => p.DeliveryAddress)
+            .Where(p => p.RequiresOtpVerification && p.OtpVerifiedAt == null && p.Status == ParcelStatus.OutForDelivery)
+            .OrderByDescending(p => p.UpdatedAt)
+            .ToListAsync(ct);
+
+        return parcels.Select(p => MapToSummary(p)).ToList();
+    }
+
+    public async Task<IEnumerable<ParcelSummaryDto>> GetHighValueEligibleParcelsAsync(CancellationToken ct = default)
+    {
+        var parcels = await _uow.Query<Parcel>().Query()
+            .AsNoTracking()
+            .Include(p => p.DeliveryAddress)
+            .Where(p => !p.RequiresOtpVerification
+                        && (p.Status == ParcelStatus.Approved || p.Status == ParcelStatus.CheckedOut)
+                        && p.DeclaredValueZAR >= 2000m)
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync(ct);
+
+        return parcels.Select(p => MapToSummary(p)).ToList();
+    }
+
+    // --- PRIVATE HELPER METHODS ---
 
     private async Task RefundWalletAsync(Parcel parcel, CancellationToken ct)
     {

@@ -645,21 +645,22 @@ public class ReturnRequestsController : CourierSABaseController
     }
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
 // SECURE DELIVERY CONTROLLER — UC3 Flag High-Value Parcel + Generate OTP /
 // UC4 Verify Recipient Identity
-// PUT /api/parcels/{id}/flag-high-value  – dispatcher flags parcel, generates OTP
-// PUT /api/parcels/{id}/verify-otp       – driver verifies OTP before completing delivery
 // ══════════════════════════════════════════════════════════════════════════════
 [Route("api/parcels")]
 [Authorize]
 public class SecureDeliveryController : CourierSABaseController
 {
     private readonly ISecureDeliveryService _secureDeliveryService;
+    private readonly IParcelService _parcelService; // Added for the new queries
 
-    public SecureDeliveryController(ISecureDeliveryService secureDeliveryService)
-        => _secureDeliveryService = secureDeliveryService;
+    public SecureDeliveryController(ISecureDeliveryService secureDeliveryService, IParcelService parcelService)
+    {
+        _secureDeliveryService = secureDeliveryService;
+        _parcelService = parcelService;
+    }
 
     [HttpPut("{id:guid}/flag-high-value")]
     [Authorize(Policy = "DispatcherOrAdmin")]
@@ -677,8 +678,33 @@ public class SecureDeliveryController : CourierSABaseController
         var result = await _secureDeliveryService.VerifyOtpAsync(id, dto, CurrentUserId, ct);
         return Ok(result, "Recipient identity verified.");
     }
-}
 
+    // --- NEW ENDPOINTS ---
+
+    [HttpPut("{id:guid}/resend-otp")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> ResendOtp(Guid id, CancellationToken ct)
+    {
+        await _secureDeliveryService.ResendOtpAsync(id, ct);
+        return Ok(new { message = "OTP generated and sent successfully." });
+    }
+
+    [HttpGet("otp-pending")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> GetOtpPending(CancellationToken ct)
+    {
+        var parcels = await _parcelService.GetOtpPendingParcelsAsync(ct);
+        return Ok(parcels);
+    }
+
+    [HttpGet("high-value-eligible")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> GetHighValueEligible(CancellationToken ct)
+    {
+        var parcels = await _parcelService.GetHighValueEligibleParcelsAsync(ct);
+        return Ok(parcels);
+    }
+}
 
 
 // ══════════════════════════════════════════════════════════════════════════════

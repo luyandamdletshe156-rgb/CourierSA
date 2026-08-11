@@ -24,9 +24,8 @@ public interface IAuthService
 
     Task ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task ResetPasswordAsync(ResetPasswordDto dto, CancellationToken ct = default);
-    Task<User> CreateStaffUserAsync(CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default);  // ← add
+    Task<User> CreateStaffUserAsync(CreateStaffUserDto dto, Guid createdByAdminId, CancellationToken ct = default);
     Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken ct = default);
-
 }
 
 public interface ITokenService
@@ -57,7 +56,7 @@ public interface IParcelService
     Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default);
     Task<TrackingResultDto?> TrackAsync(string trackingNumber, CancellationToken ct = default);
     Task<ParcelDetailDto?> GetDetailAsync(Guid id, CancellationToken ct = default);
-    Task<ParcelDetailDto?> GetPrivateTrackingAsync(string trackingNumber, Guid requestingUserId, CancellationToken ct = default); // ← ADD
+    Task<ParcelDetailDto?> GetPrivateTrackingAsync(string trackingNumber, Guid requestingUserId, CancellationToken ct = default);
     Task<PagedResult<ParcelSummaryDto>> GetPagedAsync(ParcelFilterDto filter, Guid customerId, CancellationToken ct = default);
     Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
     Task<Guid?> UpdateDriverLocationAsync(Guid userId, decimal lat, decimal lng, CancellationToken ct = default);
@@ -65,8 +64,11 @@ public interface IParcelService
     Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task<ParcelInspectionDto> LogInspectionAsync(Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default);
     Task<IEnumerable<ParcelInspectionDto>> GetInspectionsAsync(CancellationToken ct = default);
-}
 
+    // --- NEW SECURE DELIVERY QUERIES ---
+    Task<IEnumerable<ParcelSummaryDto>> GetOtpPendingParcelsAsync(CancellationToken ct = default);
+    Task<IEnumerable<ParcelSummaryDto>> GetHighValueEligibleParcelsAsync(CancellationToken ct = default);
+}
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
 public interface IQuoteService
@@ -92,9 +94,9 @@ public interface IBulkCsvService
 public interface INotificationService
 {
     Task SendParcelBookedAsync(
-    Guid userId, string trackingNumber,
-    string? serviceType = null, string? destinationCity = null, decimal? amountZAR = null,
-    CancellationToken ct = default);
+        Guid userId, string trackingNumber,
+        string? serviceType = null, string? destinationCity = null, decimal? amountZAR = null,
+        CancellationToken ct = default);
     Task SendDispatchedAsync(Guid userId, string trackingNumber, CancellationToken ct = default);
     Task SendDeliveredAsync(Guid userId, string trackingNumber, CancellationToken ct = default);
     Task SendFailedDeliveryAsync(Guid userId, string trackingNumber, string reason, CancellationToken ct = default);
@@ -155,6 +157,7 @@ public interface ITrackingHubService
     Task NotifyDriverNewAssignmentAsync(
         Guid driverId, object deliveryDetails, CancellationToken ct = default);
 }
+
 public interface IInvoiceService
 {
     Task<InvoiceDashboardDto> GetCustomerInvoiceDashboardAsync(Guid userId, CancellationToken ct = default);
@@ -187,6 +190,11 @@ public interface ISecureDeliveryService
 {
     Task<FlagHighValueResultDto> FlagAndGenerateOtpAsync(Guid parcelId, Guid dispatcherUserId, CancellationToken ct = default);
     Task<VerifyOtpResultDto> VerifyOtpAsync(Guid parcelId, VerifyOtpDto dto, Guid driverUserId, CancellationToken ct = default);
+
+    // --- NEW SECURE DELIVERY METHODS ---
+    Task<FlagHighValueResultDto> AutoFlagOnDispatchAsync(Parcel parcel);
+    Task SendOtpEmailForParcelAsync(Parcel parcel, string otpCode);
+    Task ResendOtpAsync(Guid parcelId, CancellationToken ct = default);
 }
 
 public interface IReschedulingService
