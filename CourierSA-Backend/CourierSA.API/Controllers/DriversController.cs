@@ -25,25 +25,38 @@ public class DriversController : CourierSABaseController
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
+        // Fetch into memory first to guarantee consistency with the Map logic
         var drivers = await _db.DriverProfiles
             .AsNoTracking()
+            .Where(d => !d.IsDeleted)
             .Include(d => d.User)
-            .Where(d => !d.IsDeleted) // FIX: Ensure deleted drivers don't show up
-            .OrderBy(d => d.User!.FirstName)
-            .Select(d => new DriverDirectoryItemDto(
+            .Include(d => d.Deliveries
+                .Where(del => del.Status != DeliveryStatus.Delivered &&
+                              del.Status != DeliveryStatus.Failed)
+                .Take(1))
+            .ToListAsync(ct);
+
+        var result = drivers.Select(d =>
+        {
+            var activeDelivery = d.Deliveries.FirstOrDefault();
+
+            // Unified self-healing logic
+            var computedStatus = (d.Status == DriverStatus.OnDelivery && activeDelivery == null)
+                ? DriverStatus.Available.ToString()
+                : d.Status.ToString();
+
+            return new DriverDirectoryItemDto(
                 d.Id,
                 d.User != null ? d.User.FirstName : "—",
                 d.User != null ? d.User.LastName : "—",
-                // FIX: Apply self-healing logic here too so the dispatcher dropdown 
-                // accurately reflects "Available" drivers even if they are stuck OnDelivery with 0 tasks.
-                (d.Status == DriverStatus.OnDelivery && !d.Deliveries.Any(del => del.Status != DeliveryStatus.Delivered && del.Status != DeliveryStatus.Failed))
-                    ? DriverStatus.Available.ToString()
-                    : d.Status.ToString(),
+                computedStatus,
                 d.LicenseNumber
-            ))
-            .ToListAsync(ct);
+            );
+        })
+        .OrderBy(d => d.FirstName)
+        .ToList();
 
-        return Ok(drivers);
+        return Ok(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
@@ -55,7 +68,7 @@ public class DriversController : CourierSABaseController
     {
         var drivers = await _db.DriverProfiles
             .AsNoTracking()
-            .Where(d => !d.IsDeleted) // FIX: Missing check added to prevent ghosts on map
+            .Where(d => !d.IsDeleted)
             .Include(d => d.User)
             // Include DeliveryAddress for Final deliveries
             .Include(d => d.Deliveries
@@ -79,13 +92,11 @@ public class DriversController : CourierSABaseController
         {
             var activeDelivery = d.Deliveries.FirstOrDefault();
 
-            // FIX: Self-healing fallback calculation. 
-            // If the driver record in DB is stuck on OnDelivery but has no active tasks, report as Available.
+            // Self-healing fallback calculation
             var computedStatus = (d.Status == DriverStatus.OnDelivery && activeDelivery == null)
                 ? DriverStatus.Available.ToString()
                 : d.Status.ToString();
 
-            // Determine if the active task is a pickup or final delivery
             bool isPickup = activeDelivery?.Parcel?.Status == ParcelStatus.Approved;
             var targetAddress = isPickup ? activeDelivery?.Parcel?.PickupAddress : activeDelivery?.Parcel?.DeliveryAddress;
 
@@ -96,7 +107,7 @@ public class DriversController : CourierSABaseController
                 firstName = d.User?.FirstName ?? "—",
                 lastName = d.User?.LastName ?? "—",
                 phone = d.User?.PhoneNumber,
-                status = computedStatus, // <--- Uses calculated status
+                status = computedStatus,
                 latitude = d.CurrentLatitude,
                 longitude = d.CurrentLongitude,
                 lastUpdatedAt = d.UpdatedAt,
@@ -113,7 +124,7 @@ public class DriversController : CourierSABaseController
                     deliveryLng = targetAddress?.Longitude,
                     status = activeDelivery.Status.ToString(),
                     dispatchedAt = activeDelivery.DispatchedAt,
-                    isPickup = isPickup // Let frontend know if they are collecting or delivering
+                    isPickup = isPickup
                 },
                 totalDeliveries = d.TotalDeliveries,
                 successfulDeliveries = d.SuccessfulDeliveries,
@@ -126,25 +137,38 @@ public class DriversController : CourierSABaseController
     [HttpGet("available")]
     public async Task<IActionResult> GetAvailable(CancellationToken ct)
     {
-        var available = await _db.DriverProfiles
+        // FIX: Fetch identical dataset as GetLocations to prevent EF Core SQL translation mismatches
+        var drivers = await _db.DriverProfiles
             .AsNoTracking()
+            .Where(d => !d.IsDeleted)
             .Include(d => d.User)
-            // FIX: Match the IsDeleted and self-healing logic perfectly with the Map endpoint
-            .Where(d => !d.IsDeleted &&
-                       (d.Status == DriverStatus.Available ||
-                       (d.Status == DriverStatus.OnDelivery &&
-                        !d.Deliveries.Any(del => del.Status != DeliveryStatus.Delivered &&
-                                                 del.Status != DeliveryStatus.Failed))))
-            .Select(d => new
+            .Include(d => d.Deliveries
+                .Where(del => del.Status != DeliveryStatus.Delivered &&
+                              del.Status != DeliveryStatus.Failed)
+                .Take(1))
+            .ToListAsync(ct);
+
+        var available = drivers.Select(d =>
+        {
+            var activeDelivery = d.Deliveries.FirstOrDefault();
+
+            // Unified self-healing logic ensures if they are available on the map, they are available here.
+            var computedStatus = (d.Status == DriverStatus.OnDelivery && activeDelivery == null)
+                ? DriverStatus.Available.ToString()
+                : d.Status.ToString();
+
+            return new
             {
                 driverId = d.Id,
-                userId = d.UserId, // FIX: Included userId so the frontend map doesn't crash
-                firstName = d.User != null ? d.User.FirstName : "—", // Null-safe checks
+                userId = d.UserId,
+                firstName = d.User != null ? d.User.FirstName : "—",
                 lastName = d.User != null ? d.User.LastName : "—",
                 phone = d.User != null ? d.User.PhoneNumber : null,
-                status = DriverStatus.Available.ToString(),
-            })
-            .ToListAsync(ct);
+                status = computedStatus,
+            };
+        })
+        .Where(d => d.status == DriverStatus.Available.ToString()) // Filter strictly in memory
+        .ToList();
 
         return Ok(available);
     }

@@ -9,7 +9,7 @@ import { deliveryApi, secureDeliveryApi } from '@/api'
 import { 
   Truck, CheckCircle, XCircle, Navigation, Phone, 
   MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon,
-  ShieldCheck, ShieldAlert
+  ShieldCheck, ShieldAlert, Camera, PenTool, Image as ImageIcon, FileSignature
 } from 'lucide-react'
 
 // ── Groups a list of deliveries by routeId. Items with no routeId (single
@@ -47,6 +47,10 @@ export function DriverDeliveries() {
   const [podNotes, setPodNotes]             = useState('')
   const [failReason, setFailReason]         = useState('RecipientAbsent')
   const [failNotes, setFailNotes]           = useState('')
+  
+  // POD Upload State
+  const [podImage, setPodImage]             = useState(null)
+  const [podSignature, setPodSignature]     = useState(null)
 
   // ── OTP verification state (UC3/UC4 — high-value delivery security) ────────
   const [otpInput, setOtpInput]         = useState('')
@@ -58,10 +62,20 @@ export function DriverDeliveries() {
     setOtpInput('')
     setOtpVerified(false)
     setOtpError('')
+    setPodImage(null)
+    setPodSignature(null)
+    setPodNotes('')
   }
 
+  const openFailedModal = (d) => {
+    setFailedModal(d)
+    setFailReason('RecipientAbsent')
+    setFailNotes('')
+  }
+
+  // FIXED: Passed as an object { otp: ... } to match C# VerifyOtpDto
   const verifyOtpMutation = useMutation({
-    mutationFn: (parcelId) => secureDeliveryApi.verifyOtp(parcelId, otpInput.trim()),
+    mutationFn: (parcelId) => secureDeliveryApi.verifyOtp(parcelId, { otp: otpInput.trim() }),
     onSuccess: () => { setOtpVerified(true); setOtpError('') },
     onError: err => setOtpError(err?.message || 'Incorrect OTP.'),
   })
@@ -69,13 +83,12 @@ export function DriverDeliveries() {
   const deliveredMutation = useMutation({
     mutationFn: ({ id }) => deliveryApi.markDelivered(id, {
       notes: podNotes,
-      imagePath: null,
-      signaturePath: null,
+      imagePath: podImage ? podImage.name : null,
+      signaturePath: podSignature ? podSignature.name : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['driver-deliveries'] })
       setDeliveredModal(null)
-      setPodNotes('')
     },
   })
 
@@ -87,7 +100,6 @@ export function DriverDeliveries() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['driver-deliveries'] })
       setFailedModal(null)
-      setFailNotes('')
     },
   })
 
@@ -104,6 +116,25 @@ export function DriverDeliveries() {
     deliveredModal.otpVerified ||
     otpVerified
   )
+
+  // Dynamic failure reasons based on task type
+  const failReasonsList = failedModal?.isPickup
+    ? [
+        { id: 'RecipientAbsent', label: 'Sender absent' },
+        { id: 'AddressNotFound', label: 'Address not found' },
+        { id: 'AccessDenied', label: 'Access denied' },
+        { id: 'ParcelDamaged', label: 'Not ready / Damaged' },
+        { id: 'RefusedDelivery', label: 'Refused to hand over' },
+        { id: 'Other', label: 'Other' }
+      ]
+    : [
+        { id: 'RecipientAbsent', label: 'Recipient absent' },
+        { id: 'AddressNotFound', label: 'Address not found' },
+        { id: 'AccessDenied', label: 'Access denied' },
+        { id: 'ParcelDamaged', label: 'Parcel damaged' },
+        { id: 'RefusedDelivery', label: 'Refused delivery' },
+        { id: 'Other', label: 'Other' }
+      ];
 
   return (
     <AppShell title="My Deliveries">
@@ -204,14 +235,14 @@ export function DriverDeliveries() {
                     activeTab={activeTab}
                     onDetail={() => setDetailModal(d)}
                     onDelivered={() => openDeliveredModal(d)}
-                    onFailed={() => setFailedModal(d)}
+                    onFailed={() => openFailedModal(d)}
                   />
                 ))}
               </div>
             </div>
           ))}
 
-          {/* Ungrouped single-dispatch stops — unchanged flat rendering */}
+          {/* Ungrouped single-dispatch stops */}
           {ungrouped.map(d => (
             <DeliveryCard
               key={d.id}
@@ -219,7 +250,7 @@ export function DriverDeliveries() {
               activeTab={activeTab}
               onDetail={() => setDetailModal(d)}
               onDelivered={() => openDeliveredModal(d)}
-              onFailed={() => setFailedModal(d)}
+              onFailed={() => openFailedModal(d)}
             />
           ))}
         </div>
@@ -299,7 +330,6 @@ export function DriverDeliveries() {
             )}
 
             <div className="flex justify-between items-center pt-2">
-              {/* FIXED: Missing opening <a tag added here */}
               <a
                 href={`https://maps.google.com/?q=${encodeURIComponent(`${detailModal.deliveryAddress}, ${detailModal.city}`)}`}
                 target="_blank"
@@ -317,97 +347,148 @@ export function DriverDeliveries() {
 
       {/* RE-DESIGNED CONFIRM COMPLETION MODAL */}
       {deliveredModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-[#172554]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0">
             
-            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#D8E4F5]">
-              <h3 className="text-xl font-bold text-[#172554] tracking-tight">
-                Confirm {deliveredModal.isPickup ? 'pickup' : 'delivery'}
-              </h3>
+            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#D8E4F5] bg-[#F8FAFC]">
+              <div>
+                <h3 className="text-xl font-bold text-[#172554] tracking-tight">
+                  Confirm {deliveredModal.isPickup ? 'Collection' : 'Delivery'}
+                </h3>
+                <p className="text-xs text-[#64748B] mt-1 font-mono">{deliveredModal.trackingNumber}</p>
+              </div>
               <button 
                 onClick={() => setDeliveredModal(null)}
-                className="p-2 text-[#94A3B8] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded-lg transition-colors"
+                className="p-2 text-[#94A3B8] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded-full transition-colors bg-white border border-[#D8E4F5]"
               >
                 <X className="w-5 h-5" strokeWidth={2.5} />
               </button>
             </div>
 
-            <div className="p-6 pt-5">
-              <div className="mb-6 p-4 bg-[#F6FAFF] border border-[#D8E4F5] rounded-xl flex flex-wrap gap-2 items-center">
-                <span className="text-sm text-[#64748B]">Confirming {deliveredModal.isPickup ? 'collection' : 'delivery'} of</span>
-                <span className="tracking-number">{deliveredModal.trackingNumber}</span>
-                <span className="text-sm text-[#64748B]">{deliveredModal.isPickup ? 'from' : 'to'}</span>
-                <strong className="text-[#172554] font-bold">{deliveredModal.recipientName}</strong>.
+            <div className="p-6 pt-5 max-h-[70vh] overflow-y-auto">
+              {/* Recipient summary */}
+              <div className="mb-5 flex items-start gap-3 p-3.5 bg-white border border-[#D8E4F5] rounded-xl shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-[#DCEEFF] text-[#0A3D91] flex items-center justify-center flex-shrink-0">
+                  {deliveredModal.isPickup ? <Truck size={20} /> : <MapPin size={20} />}
+                </div>
+                <div>
+                  <p className="text-xs text-[#64748B] font-semibold uppercase">{deliveredModal.isPickup ? 'Collecting from' : 'Delivering to'}</p>
+                  <p className="font-bold text-[#172554] text-base">{deliveredModal.recipientName}</p>
+                  <p className="text-xs text-[#64748B] mt-0.5">{deliveredModal.deliveryAddress}</p>
+                </div>
               </div>
 
-              {/* OTP verification gate — UC3/UC4 high-value delivery security */}
+              {/* OTP verification gate — UC3/UC4 */}
               {!deliveredModal.isPickup && deliveredModal.requiresOtpVerification && !otpSatisfied && (
-                <div className="mb-5 p-4 bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded-xl">
-                  <div className="flex items-center gap-2 text-[#B45309] font-bold text-sm mb-2">
-                    <ShieldAlert size={16} /> High-value parcel — OTP required
+                <div className="mb-5 p-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl shadow-sm">
+                  <div className="flex items-center gap-2 text-[#D97706] font-bold text-sm mb-2">
+                    <ShieldAlert size={18} /> High-value parcel security
                   </div>
-                  <p className="text-xs text-[#64748B] mb-3">
-                    Ask the recipient for their 4-digit OTP before completing this delivery.
+                  <p className="text-xs text-[#92400E] mb-3 font-medium">
+                    Ask the recipient for their 4-digit PIN to verify their identity.
                   </p>
                   <div className="flex gap-2">
                     <input
                       type="text" maxLength={4} inputMode="numeric"
-                      className="input font-mono text-center text-lg tracking-widest flex-1"
-                      placeholder="0000"
+                      className="input font-mono text-center text-xl tracking-[0.5em] flex-1 border-[#FDE68A] focus:border-[#D97706] focus:ring-[#D97706]/20 bg-white"
+                      placeholder="••••"
                       value={otpInput}
                       onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
                     />
                     <button
-                      className="btn-secondary"
+                      className="btn bg-[#D97706] text-white hover:bg-[#B45309]"
                       disabled={otpInput.length !== 4 || verifyOtpMutation.isPending}
                       onClick={() => verifyOtpMutation.mutate(deliveredModal.parcelId)}
                     >
                       {verifyOtpMutation.isPending ? 'Verifying…' : 'Verify'}
                     </button>
                   </div>
-                  {otpError && <Alert message={otpError} className="mt-2" />}
+                  {otpError && <Alert type="error" message={otpError} className="mt-3" />}
                 </div>
               )}
 
               {!deliveredModal.isPickup && deliveredModal.requiresOtpVerification && otpSatisfied && (
-                <div className="mb-5 flex items-center gap-2 text-sm text-[#047857] bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl px-4 py-2.5">
-                  <ShieldCheck size={15} /> Recipient identity verified
+                <div className="mb-5 flex items-center gap-2 text-sm text-[#059669] bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-3 font-medium shadow-sm">
+                  <ShieldCheck size={18} /> Recipient identity verified
                 </div>
               )}
 
+              {/* Proof of Delivery (Photo & Signature) */}
+              <div className="mb-5">
+                <label className="label mb-2">Proof of {deliveredModal.isPickup ? 'Collection' : 'Delivery'}</label>
+                <div className="grid grid-cols-2 gap-3">
+                  
+                  {/* Photo Upload Zone */}
+                  <label className={`relative flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                    podImage ? 'bg-[#ECFDF5] border-[#10B981] text-[#059669]' : 'bg-[#F8FAFC] border-[#CBD5E1] hover:border-[#0A3D91] hover:bg-[#F6FAFF] text-[#64748B]'
+                  }`}>
+                    {podImage ? <ImageIcon className="mb-2" size={24} /> : <Camera className="mb-2" size={24} />}
+                    <span className={`text-xs font-bold ${podImage ? 'text-[#059669]' : 'text-[#172554]'}`}>
+                      {podImage ? 'Photo Saved' : 'Capture Photo'}
+                    </span>
+                    <span className="text-[10px] mt-1 text-center px-1 truncate w-full">
+                      {podImage ? podImage.name : 'Tap to open camera'}
+                    </span>
+                    <input type="file" className="hidden" accept="image/*" capture="environment" onChange={e => setPodImage(e.target.files[0])} />
+                  </label>
+
+                  {/* Signature Upload Zone */}
+                  <label className={`relative flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                    podSignature ? 'bg-[#ECFDF5] border-[#10B981] text-[#059669]' : 'bg-[#F8FAFC] border-[#CBD5E1] hover:border-[#0A3D91] hover:bg-[#F6FAFF] text-[#64748B]'
+                  }`}>
+                    {podSignature ? <FileSignature className="mb-2" size={24} /> : <PenTool className="mb-2" size={24} />}
+                    <span className={`text-xs font-bold ${podSignature ? 'text-[#059669]' : 'text-[#172554]'}`}>
+                      {podSignature ? 'Signature Saved' : 'Get Signature'}
+                    </span>
+                    <span className="text-[10px] mt-1 text-center px-1 truncate w-full">
+                      {podSignature ? podSignature.name : 'Tap to sign pad'}
+                    </span>
+                    <input type="file" className="hidden" accept="image/*" onChange={e => setPodSignature(e.target.files[0])} />
+                  </label>
+
+                </div>
+              </div>
+
+              {/* Notes */}
               <div className="space-y-1.5">
                 <label htmlFor="notes" className="label">
-                  Notes (optional)
+                  Additional Notes
                 </label>
                 <textarea 
                   id="notes"
-                  className="input min-h-[120px] resize-none"
-                  placeholder="e.g. Left with security, signed by J. Smith..."
+                  className="input min-h-[80px] resize-none"
+                  placeholder="e.g. Left with security, left at front door..."
                   value={podNotes}
                   onChange={e => setPodNotes(e.target.value)}
                 ></textarea>
               </div>
 
               {deliveredMutation.error && (
-                <Alert message={deliveredMutation.error.message} className="mt-4" />
+                <Alert type="error" message={deliveredMutation.error.message} className="mt-4" />
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-[#F6FAFF]/50 border-t border-[#D8E4F5]">
+            <div className="flex items-center gap-3 px-6 py-4 bg-[#F8FAFC] border-t border-[#D8E4F5]">
               <button 
                 onClick={() => setDeliveredModal(null)} 
-                className="btn-secondary"
+                className="btn-secondary flex-1 py-3"
                 disabled={deliveredMutation.isPending}
               >
                 Cancel
               </button>
               <button 
-                className="btn-primary"
+                className={`btn-primary flex-[2] py-3 shadow-lg ${!otpSatisfied ? 'opacity-50' : 'hover:-translate-y-0.5'}`}
                 disabled={deliveredMutation.isPending || !otpSatisfied}
                 onClick={() => deliveredMutation.mutate({ id: deliveredModal.id })}
               >
-                <CheckCircle size={16} />
-                {deliveredMutation.isPending ? 'Confirming...' : (deliveredModal.isPickup ? 'Confirm collected' : 'Confirm delivered')}
+                {deliveredMutation.isPending ? (
+                  'Saving...'
+                ) : (
+                  <>
+                    <CheckCircle size={18} />
+                    Confirm & Complete
+                  </>
+                )}
               </button>
             </div>
 
@@ -417,83 +498,79 @@ export function DriverDeliveries() {
 
       {/* RE-DESIGNED REPORT FAILED MODAL */}
       {failedModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#172554]/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-[#172554]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0">
             
-            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#EF4444]/20">
-              <h3 className="text-xl font-bold text-[#172554] tracking-tight flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-[#EF4444]/10 text-[#EF4444] flex items-center justify-center">
+            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#FECACA] bg-[#FEF2F2]">
+              <div>
+                <h3 className="text-xl font-bold text-[#991B1B] tracking-tight flex items-center gap-2">
                   <AlertCircle className="w-5 h-5" />
-                </span>
-                Report failed {failedModal.isPickup ? 'pickup' : 'delivery'}
-              </h3>
+                  Report Failed {failedModal.isPickup ? 'Pickup' : 'Delivery'}
+                </h3>
+                <p className="text-xs text-[#DC2626] mt-1 font-mono ml-7">{failedModal.trackingNumber}</p>
+              </div>
               <button 
                 onClick={() => setFailedModal(null)}
-                className="p-2 text-[#94A3B8] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded-lg transition-colors"
+                className="p-2 text-[#F87171] hover:text-white hover:bg-[#EF4444] rounded-full transition-colors bg-white border border-[#FECACA]"
               >
                 <X className="w-5 h-5" strokeWidth={2.5} />
               </button>
             </div>
 
             <div className="p-6 space-y-5">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold text-[#172554]">Parcel:</span>
-                <span className="tracking-number">{failedModal.trackingNumber}</span>
-              </div>
-
+              
+              {/* Quick-Select Failure Chips */}
               <div>
-                <label className="label" htmlFor="reason">Reason</label>
-                <div className="relative">
-                  <select 
-                    id="reason" 
-                    className="input appearance-none pr-10 cursor-pointer"
-                    value={failReason}
-                    onChange={e => setFailReason(e.target.value)}
-                  >
-                    <option value="RecipientAbsent">{failedModal.isPickup ? 'Sender absent' : 'Recipient absent'}</option>
-                    <option value="AddressNotFound">Address not found</option>
-                    <option value="AccessDenied">Access denied</option>
-                    <option value="ParcelDamaged">{failedModal.isPickup ? 'Parcel not ready/damaged' : 'Parcel damaged'}</option>
-                    <option value="RefusedDelivery">{failedModal.isPickup ? 'Sender refused to hand over' : 'Recipient refused delivery'}</option>
-                    <option value="Other">Other</option>
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-[#94A3B8]">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                  </div>
+                <label className="label text-[#7F1D1D] mb-3">What went wrong?</label>
+                <div className="flex flex-wrap gap-2">
+                  {failReasonsList.map(r => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setFailReason(r.id)}
+                      className={`px-3.5 py-2 text-xs font-bold rounded-lg border transition-all active:scale-95 ${
+                        failReason === r.id
+                          ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-md shadow-[#EF4444]/20'
+                          : 'bg-white text-[#475569] border-[#CBD5E1] hover:border-[#94A3B8] hover:bg-[#F8FAFC]'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <div>
-                <label className="label" htmlFor="failed-notes">Notes</label>
+                <label className="label text-[#7F1D1D]" htmlFor="failed-notes">Additional details</label>
                 <textarea 
                   id="failed-notes"
-                  className="input min-h-[100px] resize-none"
-                  placeholder={`Additional details about why the ${failedModal.isPickup ? 'pickup' : 'delivery'} failed...`}
+                  className="input min-h-[100px] resize-none focus:border-[#EF4444] focus:ring-[#EF4444]/20"
+                  placeholder={`Describe why the ${failedModal.isPickup ? 'pickup' : 'delivery'} couldn't be completed...`}
                   value={failNotes}
                   onChange={e => setFailNotes(e.target.value)}
                 ></textarea>
               </div>
 
               {failedMutation.error && (
-                <Alert message={failedMutation.error.message} className="mt-2" />
+                <Alert type="error" message={failedMutation.error.message} className="mt-2" />
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-[#F6FAFF]/50 border-t border-[#D8E4F5]">
+            <div className="flex items-center gap-3 px-6 py-4 bg-[#FEF2F2] border-t border-[#FECACA]">
               <button 
                 onClick={() => setFailedModal(null)} 
-                className="btn-secondary"
+                className="btn-secondary flex-1 py-3 border-[#FECACA] text-[#991B1B] hover:bg-white"
                 disabled={failedMutation.isPending}
               >
                 Cancel
               </button>
               <button 
-                className="btn-danger"
+                className="btn-danger flex-[2] py-3 shadow-lg hover:-translate-y-0.5"
                 disabled={failedMutation.isPending}
                 onClick={() => failedMutation.mutate({ id: failedModal.id })}
               >
-                <X className="w-4 h-4" strokeWidth={2.5} /> 
-                {failedMutation.isPending ? 'Reporting...' : 'Report failed'}
+                <XCircle size={18} /> 
+                {failedMutation.isPending ? 'Reporting...' : 'Confirm Failure'}
               </button>
             </div>
 
@@ -509,9 +586,9 @@ export function DriverDeliveries() {
 function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFailed }) {
   return (
     <div className="card hover:border-gray-300 transition-all">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             {stopNumber && (
               <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                 {stopNumber}
@@ -525,12 +602,12 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
               <TrackingBadge value={d.trackingNumber} />
             </button>
             {d.isPickup && (
-              <span className="px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700 rounded-full">
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700 rounded-full">
                 Pickup
               </span>
             )}
             {!d.isPickup && d.requiresOtpVerification && (
-              <span className={`px-2 py-0.5 text-xs font-semibold rounded-full flex items-center gap-1 ${
+              <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full flex items-center gap-1 ${
                 d.otpVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
               }`}>
                 {d.otpVerified ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
@@ -538,29 +615,23 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
               </span>
             )}
             <StatusPill status={d.status} />
-            <button
-              onClick={onDetail}
-              className="text-xs text-brand-500 hover:underline flex items-center gap-1 font-medium ml-1"
-            >
-              <Info size={13} /> Details
-            </button>
           </div>
 
           <div className="flex items-start gap-1.5 text-sm text-gray-600 mb-1">
-            <MapPin size={14} className="mt-0.5 text-gray-400 flex-shrink-0" />
+            <MapPin size={14} className="mt-1 text-gray-400 flex-shrink-0" />
             <div>
-              <span className="font-medium text-gray-800">
+              <span className="font-bold text-gray-900 text-base">
                 {d.recipientName}
               </span>
               <br />
-              {d.deliveryAddress}, {d.city}
+              <span className="text-gray-500">{d.deliveryAddress}, {d.city}</span>
             </div>
           </div>
 
           {d.recipientPhone && (
             <a
               href={`tel:${d.recipientPhone}`}
-              className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:text-brand-600 font-medium"
+              className="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold mt-1 bg-brand-50 px-2 py-1 rounded-md"
             >
               <Phone size={12} />
               {d.recipientPhone}
@@ -568,45 +639,44 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
           )}
 
           {d.specialInstructions && (
-            <p className="mt-2 text-xs text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded border border-amber-200">
+            <p className="mt-3 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200 font-medium">
               ⚠ {d.specialInstructions}
             </p>
           )}
         </div>
 
-        <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-row sm:flex-col gap-2 flex-shrink-0 mt-2 sm:mt-0 w-full sm:w-auto">
           {activeTab === 'active' && (
             <>
-              {/* FIXED: Missing opening <a tag added here */}
               <a
                 href={`https://maps.google.com/?q=${encodeURIComponent(`${d.deliveryAddress}, ${d.city}`)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="btn-secondary btn-sm"
+                className="btn-secondary btn-sm flex-1 sm:flex-none"
               >
                 <Navigation size={13} />
-                Navigate
+                Nav
               </a>
               <button
-                className="btn-primary btn-sm"
+                className="btn-primary btn-sm flex-1 sm:flex-none"
                 onClick={onDelivered}
               >
                 <CheckCircle size={13} />
-                {d.isPickup ? 'Collected' : 'Delivered'}
+                {d.isPickup ? 'Collect' : 'Deliver'}
               </button>
               <button
-                className="btn-danger btn-sm"
+                className="btn-danger btn-sm flex-1 sm:flex-none"
                 onClick={onFailed}
               >
                 <XCircle size={13} />
-                Failed
+                Fail
               </button>
             </>
           )}
 
           {activeTab !== 'active' && (
             <button
-              className="btn-secondary btn-sm"
+              className="btn-secondary btn-sm w-full"
               onClick={onDetail}
             >
               <Info size={13} />
