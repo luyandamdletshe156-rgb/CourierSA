@@ -1,19 +1,19 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import { StatCard, StatusPill, EmptyState, PageLoader, Modal, Alert, TrackingBadge } from '@/components/ui'
-import api from '@/api'
-import { AlertTriangle, CheckCircle, Clock, FileText, Plus, Upload, X } from 'lucide-react'
+import { StatCard, EmptyState, PageLoader, Modal, Alert, TrackingBadge } from '@/components/ui'
+import api, { parcelApi } from '@/api'
+import { AlertTriangle, CheckCircle, Clock, Plus, X, RefreshCw, Package } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
 const CLAIM_STATUS_STYLES = {
-  Submitted:          { cls: 'status-pending',   label: 'Submitted'           },
-  UnderReview:        { cls: 'status-transit',   label: 'Under review'        },
-  Approved:           { cls: 'status-approved',  label: 'Approved'            },
-  PartiallyApproved:  { cls: 'status-approved',  label: 'Partially approved'  },
-  Rejected:           { cls: 'status-failed',    label: 'Rejected'            },
-  Settled:            { cls: 'status-delivered', label: 'Settled'             },
+  Submitted:          { cls: 'status-pending bg-amber-50 text-amber-700 border-amber-200',          label: 'Submitted'          },
+  UnderReview:        { cls: 'status-transit bg-blue-50 text-blue-700 border-blue-200',            label: 'Under review'       },
+  Approved:           { cls: 'status-approved bg-[#DCEEFF] text-[#0A3D91] border-[#BEE3F8]',       label: 'Approved'           },
+  PartiallyApproved:  { cls: 'status-approved bg-blue-50 text-blue-800 border-blue-200',           label: 'Partially approved' },
+  Rejected:           { cls: 'status-failed bg-red-50 text-red-700 border-red-200',               label: 'Rejected'           },
+  Settled:            { cls: 'status-delivered bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Settled'            },
 }
 
 const CLAIM_TYPES = [
@@ -24,8 +24,12 @@ const CLAIM_TYPES = [
 ]
 
 function ClaimStatusBadge({ status }) {
-  const s = CLAIM_STATUS_STYLES[status] ?? { cls: 'status-draft', label: status }
-  return <span className={s.cls}>{s.label}</span>
+  const s = CLAIM_STATUS_STYLES[status] ?? { cls: 'bg-gray-100 text-gray-700 border-gray-200', label: status }
+  return (
+    <span className={clsx('px-2.5 py-0.5 rounded-full text-[11px] font-bold border inline-block', s.cls)}>
+      {s.label}
+    </span>
+  )
 }
 
 export default function ClaimsPage() {
@@ -35,85 +39,100 @@ export default function ClaimsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['insurance-claims'],
-    queryFn:  () => api.get('/claims'),
+    queryFn: () => api.get('/claims'),
   })
 
-  const claims = data?.data ?? []
+  // Defensive unwrapping for API envelopes
+  const claims = Array.isArray(data?.data?.items)
+    ? data.data.items
+    : Array.isArray(data?.data?.data)
+    ? data.data.data
+    : Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+    ? data
+    : []
 
-  const pending   = claims.filter(c => c.status === 'Submitted' || c.status === 'UnderReview').length
-  const approved  = claims.filter(c => c.status === 'Approved' || c.status === 'PartiallyApproved' || c.status === 'Settled').length
-  const rejected  = claims.filter(c => c.status === 'Rejected').length
+  const pending  = claims.filter(c => c.status === 'Submitted' || c.status === 'UnderReview').length
+  const approved = claims.filter(c => c.status === 'Approved' || c.status === 'PartiallyApproved' || c.status === 'Settled').length
+  const rejected = claims.filter(c => c.status === 'Rejected').length
 
   return (
     <AppShell title="Claims">
-      <div className="page-header">
+      <div className="page-header flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="page-title">Insurance Claims</h1>
-          <p className="page-subtitle">Submit and track claims for lost, damaged, or delayed parcels</p>
+          <h1 className="text-xl font-bold text-[#172554]">Insurance Claims</h1>
+          <p className="text-xs text-[#64748B] mt-0.5">Submit and track claims for lost, damaged, or delayed parcels</p>
         </div>
-        <button className="btn-primary" onClick={() => setNewClaimOpen(true)}>
+        <button className="btn-primary text-xs px-4 py-2.5 flex items-center gap-2 rounded-xl shadow-sm" onClick={() => setNewClaimOpen(true)}>
           <Plus size={15} /> New claim
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatCard label="Active claims"   value={pending}  icon={Clock}        color="bg-amber-500"   />
-        <StatCard label="Approved"        value={approved} icon={CheckCircle}  color="bg-emerald-500" />
-        <StatCard label="Rejected"        value={rejected} icon={X}            color="bg-red-500"     />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <StatCard label="Active claims" value={pending}  icon={Clock}       color="bg-amber-500" />
+        <StatCard label="Approved"      value={approved} icon={CheckCircle} color="bg-emerald-500" />
+        <StatCard label="Rejected"      value={rejected} icon={X}           color="bg-red-500" />
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-sm font-semibold text-gray-800">My claims</h2>
+      <div className="card bg-white p-5 rounded-2xl border border-[#D8E4F5] shadow-sm">
+        <div className="pb-4 mb-4 border-b border-[#E2E8F0]">
+          <h2 className="text-sm font-bold text-[#172554]">My claims</h2>
         </div>
 
-        {isLoading ? <PageLoader /> : claims.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12 text-[#64748B] gap-2 text-sm">
+            <RefreshCw size={18} className="animate-spin text-[#0A3D91]" /> Loading insurance claims…
+          </div>
+        ) : claims.length === 0 ? (
           <EmptyState
             icon={AlertTriangle}
             title="No claims filed"
             description="File a claim if your parcel was damaged, lost, or significantly delayed."
             action={
-              <button className="btn-primary btn-sm" onClick={() => setNewClaimOpen(true)}>
+              <button className="btn-primary btn-sm text-xs px-3.5 py-2 mt-2" onClick={() => setNewClaimOpen(true)}>
                 <Plus size={14} /> File a claim
               </button>
             }
           />
         ) : (
-          <div className="table-container">
-            <table className="table">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr>
-                  <th>Claim #</th>
-                  <th>Parcel</th>
-                  <th>Type</th>
-                  <th>Claimed</th>
-                  <th>Approved</th>
-                  <th>Status</th>
-                  <th>Submitted</th>
-                  <th></th>
+                <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[11px] font-bold text-[#475569] uppercase tracking-wider">
+                  <th className="p-3 pl-4">Claim #</th>
+                  <th className="p-3">Parcel</th>
+                  <th className="p-3">Type</th>
+                  <th className="p-3">Claimed</th>
+                  <th className="p-3">Approved</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Submitted</th>
+                  <th className="p-3 pr-4 text-right"></th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-[#E2E8F0] text-[#334155]">
                 {claims.map(c => (
-                  <tr key={c.id}>
-                    <td>
-                      <span className="font-mono text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                  <tr key={c.id || c.claimNumber} className="hover:bg-[#F8FAFC] transition-colors">
+                    <td className="p-3 pl-4">
+                      <span className="font-mono text-xs font-bold text-[#172554] bg-[#F1F5F9] px-2 py-0.5 rounded-md border border-[#E2E8F0]">
                         {c.claimNumber}
                       </span>
                     </td>
-                    <td><TrackingBadge value={c.trackingNumber} /></td>
-                    <td className="text-xs text-gray-600">{c.type?.replace(/([A-Z])/g, ' $1').trim()}</td>
-                    <td className="font-medium text-sm">{formatZAR(c.claimedAmountZAR)}</td>
-                    <td className="text-sm">
+                    <td className="p-3"><TrackingBadge value={c.trackingNumber} /></td>
+                    <td className="p-3 font-medium text-[#475569]">{c.type?.replace(/([A-Z])/g, ' $1').trim()}</td>
+                    <td className="p-3 font-bold text-[#172554]">{formatZAR(c.claimedAmountZAR)}</td>
+                    <td className="p-3">
                       {c.approvedAmountZAR ? (
-                        <span className="text-emerald-600 font-medium">{formatZAR(c.approvedAmountZAR)}</span>
-                      ) : '—'}
+                        <span className="text-emerald-700 font-bold">{formatZAR(c.approvedAmountZAR)}</span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
-                    <td><ClaimStatusBadge status={c.status} /></td>
-                    <td className="text-xs text-gray-400">{formatDate(c.createdAt)}</td>
-                    <td>
+                    <td className="p-3"><ClaimStatusBadge status={c.status} /></td>
+                    <td className="p-3 text-[#64748B]">{formatDate(c.createdAt)}</td>
+                    <td className="p-3 pr-4 text-right">
                       <button
-                        className="btn-ghost btn-sm"
+                        className="btn-ghost btn-sm text-xs text-[#0A3D91] font-semibold hover:underline"
                         onClick={() => setSelectedClaim(c)}
                       >
                         Details
@@ -154,42 +173,80 @@ function NewClaimModal({ open, onClose, onSuccess }) {
   })
   const [error, setError] = useState('')
 
+  // Fetch Customer's Parcels for Dropdown
+  const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
+    queryKey: ['parcels', 'mine'],
+    queryFn: () => parcelApi.list({ pageSize: 100 }),
+    enabled: open,
+  })
+
+  const parcelsList =
+    parcelsData?.data?.items ??
+    parcelsData?.items ??
+    parcelsData?.data ??
+    (Array.isArray(parcelsData) ? parcelsData : [])
+
   const mutation = useMutation({
     mutationFn: () => api.post('/claims', {
-      trackingNumber:   form.trackingNumber.trim(),
+      trackingNumber:   form.trackingNumber.trim().toUpperCase(),
       type:             form.type,
       claimedAmountZAR: parseFloat(form.claimedAmount),
       description:      form.description.trim(),
     }),
     onSuccess: () => {
       setForm({ trackingNumber: '', type: 'Damage', claimedAmount: '', description: '' })
+      setError('')
       onSuccess()
     },
-    onError: err => setError(err.message),
+    onError: err =>
+      setError(err?.response?.data?.message || err?.message || 'Failed to submit claim.'),
   })
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
-  const valid = form.trackingNumber.trim().length > 5 &&
+  const valid = form.trackingNumber.trim().length > 3 &&
                 parseFloat(form.claimedAmount) > 0 &&
                 form.description.trim().length > 10
 
   return (
     <Modal open={open} onClose={onClose} title="File an insurance claim" size="md">
-      <div className="space-y-4">
-        <Alert type="error" message={error} />
+      <div className="space-y-4 text-xs">
+        {error && <Alert type="error" message={error} />}
 
+        {/* Parcel Selection Dropdown */}
         <div>
-          <label className="label">Tracking number</label>
-          <input
-            className="input font-mono"
-            placeholder="CSA-20240615-00423"
-            value={form.trackingNumber}
-            onChange={set('trackingNumber')}
-          />
+          <label className="block font-semibold text-[#334155] mb-1">Select Parcel <span className="text-red-500">*</span></label>
+          {isLoadingParcels ? (
+            <div className="p-2.5 border border-[#CBD5E1] rounded-xl text-xs text-[#64748B] flex items-center gap-1.5 bg-[#F8FAFC]">
+              <RefreshCw size={14} className="animate-spin text-[#0A3D91]" /> Loading parcels…
+            </div>
+          ) : parcelsList.length === 0 ? (
+            <input
+              className="input font-mono w-full p-2.5 border border-[#CBD5E1] rounded-xl text-xs"
+              placeholder="e.g. CSA-20260809-00042"
+              value={form.trackingNumber}
+              onChange={set('trackingNumber')}
+            />
+          ) : (
+            <select
+              className="input font-mono w-full p-2.5 border border-[#CBD5E1] rounded-xl text-xs bg-white focus:border-[#0A3D91]"
+              value={form.trackingNumber}
+              onChange={set('trackingNumber')}
+            >
+              <option value="">-- Select parcel --</option>
+              {parcelsList.map(p => {
+                const recipient = p.recipientName || p.deliveryAddress?.recipientName
+                return (
+                  <option key={p.id || p.trackingNumber} value={p.trackingNumber}>
+                    {p.trackingNumber} {recipient ? `— To: ${recipient}` : ''} ({p.status})
+                  </option>
+                )
+              })}
+            </select>
+          )}
         </div>
 
         <div>
-          <label className="label">Claim type</label>
+          <label className="block font-semibold text-[#334155] mb-1">Claim type</label>
           <div className="grid grid-cols-2 gap-2">
             {CLAIM_TYPES.map(t => (
               <button
@@ -197,56 +254,51 @@ function NewClaimModal({ open, onClose, onSuccess }) {
                 type="button"
                 onClick={() => setForm(f => ({ ...f, type: t.value }))}
                 className={clsx(
-                  'text-left p-3 rounded-lg border text-sm transition-all',
+                  'text-left p-3 rounded-xl border transition-all',
                   form.type === t.value
-                    ? 'border-brand-400 bg-brand-50 text-brand-700'
-                    : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                    ? 'border-[#0A3D91] bg-blue-50/70 text-[#0A3D91] font-bold'
+                    : 'border-[#E2E8F0] hover:border-[#CBD5E1] text-[#334155]'
                 )}
               >
-                <p className="font-medium">{t.label}</p>
-                <p className="text-xs mt-0.5 opacity-70">{t.desc}</p>
+                <p className="font-semibold">{t.label}</p>
+                <p className="text-[11px] mt-0.5 opacity-75 font-normal">{t.desc}</p>
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <label className="label">Claimed amount (ZAR)</label>
+          <label className="block font-semibold text-[#334155] mb-1">Claimed amount (ZAR)</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">R</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B] text-xs font-bold">R</span>
             <input
               type="number"
               min="0"
               step="0.01"
-              className="input pl-7"
+              className="input w-full pl-7 p-2.5 border border-[#CBD5E1] rounded-xl font-mono text-xs"
               placeholder="0.00"
               value={form.claimedAmount}
               onChange={set('claimedAmount')}
             />
           </div>
-          <p className="field-error">Must not exceed the declared value of the parcel.</p>
+          <p className="text-[11px] text-[#94A3B8] mt-1">Must not exceed the declared value of the parcel.</p>
         </div>
 
         <div>
-          <label className="label">Description</label>
+          <label className="block font-semibold text-[#334155] mb-1">Description</label>
           <textarea
-            className="input h-24 resize-none"
-            placeholder="Describe what happened in detail — when you noticed the damage/loss, condition of packaging, etc."
+            className="input w-full p-2.5 border border-[#CBD5E1] rounded-xl text-xs h-24 resize-none"
+            placeholder="Describe what happened in detail — condition of packaging, contents affected, etc."
             value={form.description}
             onChange={set('description')}
           />
-          <p className="text-xs text-gray-400 mt-1">{form.description.length}/500 characters</p>
+          <p className="text-[11px] text-[#94A3B8] mt-1">{form.description.length}/500 characters</p>
         </div>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-          <p className="font-semibold mb-0.5">Supporting documents</p>
-          <p>Attach photos of damage or proof of loss. File upload UI is available — backend endpoint connects to <code className="font-mono">/claims/:id/documents</code>.</p>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+          <button className="btn-secondary text-xs px-4 py-2 rounded-xl" onClick={onClose}>Cancel</button>
           <button
-            className="btn-primary"
+            className="btn-primary text-xs px-5 py-2 rounded-xl shadow-xs"
             disabled={!valid || mutation.isPending}
             onClick={() => mutation.mutate()}
           >
@@ -271,40 +323,40 @@ function ClaimDetailModal({ claim, onClose }) {
 
   return (
     <Modal open={!!claim} onClose={onClose} title={`Claim ${claim.claimNumber}`} size="md">
-      <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4 text-sm">
+      <div className="space-y-5 text-xs text-[#334155]">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-gray-500 mb-0.5">Parcel</p>
+            <p className="text-[11px] text-[#64748B] mb-0.5">Parcel</p>
             <TrackingBadge value={claim.trackingNumber} />
           </div>
           <div>
-            <p className="text-xs text-gray-500 mb-0.5">Status</p>
+            <p className="text-[11px] text-[#64748B] mb-0.5">Status</p>
             <ClaimStatusBadge status={claim.status} />
           </div>
           <div>
-            <p className="text-xs text-gray-500 mb-0.5">Type</p>
-            <p className="font-medium text-gray-800">{claim.type?.replace(/([A-Z])/g, ' $1').trim()}</p>
+            <p className="text-[11px] text-[#64748B] mb-0.5">Type</p>
+            <p className="font-semibold text-[#172554]">{claim.type?.replace(/([A-Z])/g, ' $1').trim()}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 mb-0.5">Claimed amount</p>
-            <p className="font-medium text-gray-800">{formatZAR(claim.claimedAmountZAR)}</p>
+            <p className="text-[11px] text-[#64748B] mb-0.5">Claimed amount</p>
+            <p className="font-bold text-[#172554]">{formatZAR(claim.claimedAmountZAR)}</p>
           </div>
           {claim.approvedAmountZAR && (
             <div>
-              <p className="text-xs text-gray-500 mb-0.5">Approved amount</p>
-              <p className="font-semibold text-emerald-600">{formatZAR(claim.approvedAmountZAR)}</p>
+              <p className="text-[11px] text-[#64748B] mb-0.5">Approved amount</p>
+              <p className="font-bold text-emerald-700">{formatZAR(claim.approvedAmountZAR)}</p>
             </div>
           )}
           <div>
-            <p className="text-xs text-gray-500 mb-0.5">Submitted</p>
-            <p className="text-gray-700">{formatDate(claim.createdAt, { time: true })}</p>
+            <p className="text-[11px] text-[#64748B] mb-0.5">Submitted</p>
+            <p className="text-[#334155]">{formatDate(claim.createdAt, { time: true })}</p>
           </div>
         </div>
 
         {claim.description && (
           <div>
-            <p className="text-xs text-gray-500 mb-1">Description</p>
-            <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <p className="text-[11px] font-semibold text-[#64748B] mb-1">Description</p>
+            <p className="text-xs text-[#475569] bg-[#F8FAFC] rounded-xl p-3 border border-[#E2E8F0]">
               {claim.description}
             </p>
           </div>
@@ -312,8 +364,8 @@ function ClaimDetailModal({ claim, onClose }) {
 
         {claim.resolutionNotes && (
           <div>
-            <p className="text-xs text-gray-500 mb-1">Resolution notes</p>
-            <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <p className="text-[11px] font-semibold text-[#64748B] mb-1">Resolution notes</p>
+            <p className="text-xs text-[#475569] bg-[#F8FAFC] rounded-xl p-3 border border-[#E2E8F0]">
               {claim.resolutionNotes}
             </p>
           </div>
@@ -321,30 +373,30 @@ function ClaimDetailModal({ claim, onClose }) {
 
         {/* Progress timeline */}
         <div>
-          <p className="text-xs text-gray-500 mb-3">Progress</p>
+          <p className="text-[11px] font-semibold text-[#64748B] mb-3">Progress</p>
           <div className="flex items-center gap-0">
             {steps.map((step, i) => (
               <div key={step.label} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
                   <div className={clsx(
-                    'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2',
+                    'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all',
                     step.done
-                      ? 'bg-brand-500 border-brand-500 text-white'
-                      : 'bg-white border-gray-300 text-gray-400'
+                      ? 'bg-[#0A3D91] border-[#0A3D91] text-white shadow-xs'
+                      : 'bg-white border-[#CBD5E1] text-[#94A3B8]'
                   )}>
                     {step.done ? '✓' : i + 1}
                   </div>
                   <p className={clsx(
-                    'text-xs mt-1 text-center whitespace-nowrap',
-                    step.done ? 'text-brand-600 font-medium' : 'text-gray-400'
+                    'text-[10px] mt-1 text-center whitespace-nowrap font-medium',
+                    step.done ? 'text-[#0A3D91]' : 'text-[#94A3B8]'
                   )}>
                     {step.label}
                   </p>
                 </div>
                 {i < steps.length - 1 && (
                   <div className={clsx(
-                    'flex-1 h-0.5 mb-4 mx-1',
-                    steps[i + 1].done ? 'bg-brand-500' : 'bg-gray-200'
+                    'flex-1 h-0.5 mb-4 mx-1 transition-all',
+                    steps[i + 1].done ? 'bg-[#0A3D91]' : 'bg-[#E2E8F0]'
                   )} />
                 )}
               </div>
@@ -352,8 +404,8 @@ function ClaimDetailModal({ claim, onClose }) {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <button className="btn-secondary" onClick={onClose}>Close</button>
+        <div className="flex justify-end pt-2 border-t border-[#E2E8F0]">
+          <button className="btn-secondary text-xs px-4 py-2 rounded-xl" onClick={onClose}>Close</button>
         </div>
       </div>
     </Modal>

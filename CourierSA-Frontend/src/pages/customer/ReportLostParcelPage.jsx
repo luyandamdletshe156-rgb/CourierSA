@@ -7,7 +7,19 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { lostParcelApi, parcelApi } from '@/api'
-import { PackageX, Search, CheckCircle2, FileText, ChevronDown, ChevronUp, RefreshCw, Package } from 'lucide-react'
+import {
+  PackageX,
+  Search,
+  CheckCircle2,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  Package,
+  ShieldCheck,
+  AlertTriangle,
+  ArrowRight
+} from 'lucide-react'
 import clsx from 'clsx'
 
 const schema = z.object({
@@ -31,7 +43,7 @@ export default function ReportLostParcelPage() {
 
   const notesValue = watch('customerNotes', '')
 
-  // 1. Fetch Reported Lost Parcel Cases
+  // 1. Fetch Customer's Reported Lost Parcel Cases
   const { data: casesData, isLoading: isLoadingCases, isError: isCasesError, error: casesError } = useQuery({
     queryKey: ['lost-parcel-cases', 'mine'],
     queryFn: () => lostParcelApi.mine(),
@@ -40,7 +52,7 @@ export default function ReportLostParcelPage() {
   // 2. Fetch Customer's Parcels
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
-    queryFn: () => parcelApi.list(),
+    queryFn: () => parcelApi.list({ pageSize: 100 }),
   })
 
   // Defensive unwrapping for API response envelopes
@@ -50,7 +62,6 @@ export default function ReportLostParcelPage() {
     ? casesData.data
     : []
 
-  // FIX: Unwraps nested { data: { items: [...] } } returned by paged API
   const rawParcels =
     parcelsData?.data?.items ??
     parcelsData?.items ??
@@ -60,11 +71,12 @@ export default function ReportLostParcelPage() {
   // 3. Filter Eligible Parcels:
   // - Exclude statuses: Delivered, Cancelled, Lost
   // - Exclude parcels that already have an open lost-parcel report
-  const INELIGIBLE_STATUSES = ['Delivered', 'Cancelled', 'Lost']
+  const INELIGIBLE_STATUSES = ['delivered', 'cancelled', 'lost']
   const existingReportedTrackingNumbers = new Set(casesList.map(c => c.trackingNumber))
 
   const eligibleParcels = rawParcels.filter(p => {
-    const isStatusEligible = !INELIGIBLE_STATUSES.includes(p.status)
+    const statusLower = p.status?.toLowerCase() || ''
+    const isStatusEligible = !INELIGIBLE_STATUSES.includes(statusLower)
     const hasNoOpenCase = !existingReportedTrackingNumbers.has(p.trackingNumber)
     return isStatusEligible && hasNoOpenCase
   })
@@ -252,6 +264,9 @@ export default function ReportLostParcelPage() {
             <div className="space-y-3">
               {casesList.map(c => {
                 const isExpanded = expandedCaseId === c.id
+                const isConfirmedLost = c.status === 'ConfirmedLost' || c.status === 'Closed'
+                const isFound = c.status === 'Found'
+
                 return (
                   <div
                     key={c.id}
@@ -287,6 +302,7 @@ export default function ReportLostParcelPage() {
 
                     {isExpanded && (
                       <div className="p-4 bg-[#F8FAFC] border-t border-[#E2E8F0] space-y-3 text-xs text-[#334155]">
+                        {/* Customer Notes */}
                         {c.customerNotes && (
                           <div>
                             <span className="font-semibold text-[#1E293B]">Your Notes:</span>
@@ -296,6 +312,7 @@ export default function ReportLostParcelPage() {
                           </div>
                         )}
 
+                        {/* Staff Investigation Update */}
                         {c.investigationNotes && (
                           <div>
                             <span className="font-semibold text-[#1E293B]">Staff Investigation Update:</span>
@@ -305,12 +322,52 @@ export default function ReportLostParcelPage() {
                           </div>
                         )}
 
-                        {c.claimNumber && (
-                          <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-[#0A3D91] flex items-center justify-between">
+                        {/* Status Resolution Banner */}
+                        {isConfirmedLost && !c.claimNumber && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 flex items-start gap-2">
+                            <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
                             <div>
-                              <span className="font-bold">Insurance Claim:</span> {c.claimNumber}
+                              <p className="font-semibold">Parcel Confirmed Lost</p>
+                              <p className="text-[11px] mt-0.5 text-amber-700">
+                                The investigation confirmed this parcel is lost. An insurance claim is being generated for your declared value.
+                              </p>
                             </div>
-                            <StatusBadge status={c.claimStatus} />
+                          </div>
+                        )}
+
+                        {isFound && (
+                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 flex items-start gap-2">
+                            <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="font-semibold">Parcel Located!</p>
+                              <p className="text-[11px] mt-0.5 text-emerald-700">
+                                Good news! Your parcel was located in our logistics network and is back in transit to your destination address.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Linked Insurance Claim Display */}
+                        {c.claimNumber && (
+                          <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-[#0A3D91] space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 font-bold">
+                                <ShieldCheck size={16} className="text-[#0A3D91]" />
+                                Insurance Claim: {c.claimNumber}
+                              </div>
+                              <StatusBadge status={c.claimStatus || 'SUBMITTED'} />
+                            </div>
+                            <p className="text-[11px] text-[#475569]">
+                              Loss claim generated for your declared value. Status updates automatically sync with your claims dashboard.
+                            </p>
+                            <div className="pt-1 flex justify-end">
+                              <a
+                                href="/customer/claims"
+                                className="text-[11px] font-bold text-[#0A3D91] hover:underline flex items-center gap-1"
+                              >
+                                View Claim Details & Progress Tracker <ArrowRight size={12} />
+                              </a>
+                            </div>
                           </div>
                         )}
                       </div>

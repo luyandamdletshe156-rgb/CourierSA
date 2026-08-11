@@ -57,10 +57,10 @@ export default function RequestReturnPage() {
     queryFn: () => returnApi.mine(),
   })
 
-  // 2. Fetch My Parcels
+  // 2. Fetch Customer's Parcels with pageSize: 100 to get ALL parcels across pages
   const { data: parcelsData, isLoading: isLoadingParcels } = useQuery({
     queryKey: ['parcels', 'mine'],
-    queryFn: () => parcelApi.list(),
+    queryFn: () => parcelApi.list({ pageSize: 100 }),
   })
 
   // Defensive unwrapping for API response envelopes
@@ -70,17 +70,16 @@ export default function RequestReturnPage() {
     ? returnsData.data
     : []
 
-  // FIX: Unwraps nested { data: { items: [...] } } returned by paged API
   const rawParcels =
     parcelsData?.data?.items ??
     parcelsData?.items ??
     parcelsData?.data ??
     (Array.isArray(parcelsData) ? parcelsData : [])
 
-  // Filter Delivered parcels that don't already have an open return request
+  // Filter Delivered parcels (case-insensitive) that don't already have an open return request
   const existingReturnTrackingNumbers = new Set(returnsList.map(r => r.trackingNumber))
   const eligibleParcels = rawParcels.filter(p => {
-    const isDelivered = p.status === 'Delivered'
+    const isDelivered = p.status?.toLowerCase() === 'delivered'
     const hasNoOpenReturn = !existingReturnTrackingNumbers.has(p.trackingNumber)
     return isDelivered && hasNoOpenReturn
   })

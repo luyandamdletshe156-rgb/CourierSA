@@ -4,7 +4,7 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { lostParcelApi } from '@/api'
-import { PackageX, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { PackageX, ChevronDown, ChevronUp, RefreshCw, ShieldCheck } from 'lucide-react'
 import clsx from 'clsx'
 
 const STATUS_FILTERS = ['', 'Reported', 'UnderInvestigation', 'ConfirmedLost', 'Found', 'Closed']
@@ -163,11 +163,94 @@ function ClaimForm({ caseId, onDone }) {
   )
 }
 
+// ── Update Claim Status Form (Admin Action) ───────────────────────────────────
+function UpdateClaimStatusForm({ claimId, currentStatus, onDone }) {
+  const [status, setStatus] = useState('Approved') // Approved | Settled | Rejected
+  const [approvedAmount, setApprovedAmount] = useState('')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+  const qc = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      lostParcelApi.updateClaimStatus(claimId, {
+        status,
+        approvedAmountZAR: approvedAmount ? Number(approvedAmount) : null,
+        notes,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lost-parcel-cases'] })
+      onDone()
+    },
+    onError: err => setError(err?.response?.data?.message || err?.message || 'Failed to update claim status.'),
+  })
+
+  return (
+    <div className="space-y-3 bg-[#F0F9FF] p-4 rounded-xl border border-[#BEE3F8]">
+      <div className="flex items-center gap-2 text-xs font-bold text-[#0A3D91]">
+        <ShieldCheck size={16} /> Manage Insurance Claim Status
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-[#334155] mb-1">Action / Status</label>
+          <select
+            className="input w-full p-2 border rounded-lg text-xs bg-white"
+            value={status}
+            onChange={e => setStatus(e.target.value)}
+          >
+            <option value="Approved">Approve Claim</option>
+            <option value="Settled">Settle & Credit Wallet</option>
+            <option value="Rejected">Reject Claim</option>
+          </select>
+        </div>
+
+        {status !== 'Rejected' && (
+          <div>
+            <label className="block text-xs font-semibold text-[#334155] mb-1">Approved Amount (ZAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              className="input font-mono w-full p-2 border rounded-lg text-xs"
+              placeholder="e.g. 499.95"
+              value={approvedAmount}
+              onChange={e => setApprovedAmount(e.target.value)}
+            />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-[#334155] mb-1">Resolution / Audit Notes</label>
+        <textarea
+          rows={2}
+          className="input w-full p-2.5 border rounded-lg text-xs"
+          placeholder="Log notes regarding approval or rejection..."
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+        />
+      </div>
+
+      {error && <Alert type="error" message={error} />}
+
+      <div className="flex justify-end">
+        <button
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="btn-primary text-xs px-4 py-2"
+        >
+          {mutation.isPending ? 'Updating…' : 'Update Claim Status'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function LostParcelQueuePage() {
   const [status, setStatus] = useState('')
   const [expanded, setExpanded] = useState(null)
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['lost-parcel-cases', 'queue', status],
     queryFn: () => lostParcelApi.queue(status || undefined),
   })
@@ -257,7 +340,7 @@ export default function LostParcelQueuePage() {
                         </p>
                       )}
                       {c.claimNumber && (
-                        <div className="text-sm text-[#0A3D91] flex items-center gap-2">
+                        <div className="text-sm text-[#0A3D91] flex items-center gap-2 p-2.5 bg-[#F1F5F9] rounded-lg">
                           <strong>Claim:</strong> {c.claimNumber} — <StatusBadge status={c.claimStatus} />
                         </div>
                       )}
@@ -272,8 +355,26 @@ export default function LostParcelQueuePage() {
                       {c.status === 'ConfirmedLost' && !c.claimNumber && (
                         <ClaimForm caseId={c.id} onDone={() => setExpanded(null)} />
                       )}
-                      {(c.status === 'Found' || c.status === 'Closed') && (
-                        <p className="text-xs text-[#64748B] italic">No further action needed for this case.</p>
+
+                      {/* Admin Claim Approval / Settlement Form */}
+                      {c.claimNumber && c.claimStatus !== 'Settled' && c.claimStatus !== 'Rejected' && (
+                        <UpdateClaimStatusForm
+                          claimId={c.insuranceClaimId}
+                          currentStatus={c.claimStatus}
+                          onDone={() => setExpanded(null)}
+                        />
+                      )}
+
+                      {c.claimStatus === 'Settled' && (
+                        <p className="text-xs text-emerald-700 font-semibold bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                          ✓ Claim settled and payout released to customer.
+                        </p>
+                      )}
+
+                      {c.status === 'Found' && (
+                        <p className="text-xs text-emerald-700 font-semibold bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                          ✓ Case resolved: Parcel was found and is back in transit.
+                        </p>
                       )}
                     </div>
                   )}
