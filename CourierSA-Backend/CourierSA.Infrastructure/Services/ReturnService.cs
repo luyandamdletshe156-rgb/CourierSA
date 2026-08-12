@@ -12,6 +12,7 @@ namespace CourierSA.Infrastructure.Services;
 public class ReturnService : IReturnService
 {
     private const int ReturnWindowDays = 14;   // business rule — SRS specifies "return window policy" without a number
+    private const decimal ReturnHandlingFeeRate = 0.15m; // 15% of the original fee is retained to cover the reverse-leg collection and warehouse handling
 
     private readonly IUnitOfWork _uow;
     private readonly IAuditService _audit;
@@ -185,7 +186,9 @@ public class ReturnService : IReturnService
         var customer = await _uow.Query<CustomerProfile>().GetByIdAsync(parcel.CustomerId, ct)
             ?? throw new NotFoundException("Customer profile not found.");
 
-        var refundAmount = parcel.QuoteAmountZAR ?? 0;
+        var originalAmount = parcel.QuoteAmountZAR ?? 0;
+        var handlingFee = ComputeHandlingFee(originalAmount);
+        var refundAmount = originalAmount - handlingFee;
 
         if (parcel.PaymentMethod == PaymentMethod.Wallet)
         {
@@ -219,6 +222,7 @@ public class ReturnService : IReturnService
 
         returnRequest.Status = ReturnRequestStatus.Refunded;
         returnRequest.RefundAmountZAR = refundAmount;
+        returnRequest.HandlingFeeZAR = handlingFee;
         returnRequest.RefundedAt = DateTime.UtcNow;
         returnRequest.RefundApprovedByStaffId = staffUserId;
         returnRequest.UpdatedAt = DateTime.UtcNow;
@@ -231,7 +235,8 @@ public class ReturnService : IReturnService
             Id = Guid.NewGuid(),
             ParcelId = parcel.Id,
             EventType = TrackingEventType.Returned,
-            Description = $"Return finalized. Refund of R{refundAmount:0.00} issued for RA {returnRequest.RaNumber}.",
+            Description = $"Return finalized. Refund of R{refundAmount:0.00} issued for RA {returnRequest.RaNumber} " +
+                          $"(R{handlingFee:0.00} return handling fee deducted from R{originalAmount:0.00}).",
             OccurredAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -240,7 +245,7 @@ public class ReturnService : IReturnService
         await _uow.SaveChangesAsync(ct);
 
         await _audit.LogAsync("RETURN_REFUND_RELEASED", "ReturnRequest", returnRequest.Id,
-            null, new { returnRequest.RaNumber, refundAmount, parcel.PaymentMethod }, staffUserId, null, ct);
+            null, new { returnRequest.RaNumber, originalAmount, handlingFee, refundAmount, parcel.PaymentMethod }, staffUserId, null, ct);
 
         return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
     }
@@ -292,7 +297,7 @@ public class ReturnService : IReturnService
         var parcels = await _uow.Query<Parcel>().Query()
             .AsNoTracking()
             .Where(p => parcelIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id, p => p.TrackingNumber, ct);
+            .ToDictionaryAsync(p => p.Id, p => new { p.TrackingNumber, p.QuoteAmountZAR }, ct);
 
         // 2. Fetch all related Addresses in one go
         var addressIds = returns.Select(r => r.CollectionAddressId).Distinct().ToList();
@@ -305,13 +310,16 @@ public class ReturnService : IReturnService
         var results = new List<ReturnRequestDto>();
         foreach (var r in returns)
         {
-            var trackingNumber = parcels.GetValueOrDefault(r.ParcelId, "—");
+            var parcelInfo = parcels.GetValueOrDefault(r.ParcelId);
+            var trackingNumber = parcelInfo?.TrackingNumber ?? "—";
             var address = addresses.GetValueOrDefault(r.CollectionAddressId);
+            var (originalAmount, handlingFee, expectedRefund) = ComputeRefundBreakdown(r, parcelInfo?.QuoteAmountZAR);
 
             results.Add(new ReturnRequestDto(
                 r.Id, r.RaNumber, r.ParcelId, trackingNumber, r.Status.ToString(), r.Reason,
                 MapAddressDto(address), r.RequestedAt, r.ApprovedAt, r.ReceivedAt,
-                r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt));
+                r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt,
+                originalAmount, handlingFee, expectedRefund));
         }
 
         return results;
@@ -334,11 +342,37 @@ public class ReturnService : IReturnService
     private async Task<ReturnRequestDto> MapToDtoAsync(ReturnRequest r, string trackingNumber, CancellationToken ct)
     {
         var address = await _uow.Query<ParcelAddress>().GetByIdAsync(r.CollectionAddressId, ct);
+        var parcel = await _uow.Parcels.GetByIdAsync(r.ParcelId, ct);
+        var (originalAmount, handlingFee, expectedRefund) = ComputeRefundBreakdown(r, parcel?.QuoteAmountZAR);
+
         return new ReturnRequestDto(
             r.Id, r.RaNumber, r.ParcelId, trackingNumber, r.Status.ToString(), r.Reason,
             MapAddressDto(address), r.RequestedAt, r.ApprovedAt, r.ReceivedAt,
-            r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt);
+            r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt,
+            originalAmount, handlingFee, expectedRefund);
     }
+
+    /// <summary>
+    /// Returns (OriginalAmountZAR, HandlingFeeZAR, ExpectedRefundAmountZAR) for a return request.
+    /// If the refund has already been released, the actual persisted figures are used.
+    /// Otherwise a preview is computed at the current <see cref="ReturnHandlingFeeRate"/> so the
+    /// admin refund queue can show the amount that WILL be due before the refund is released.
+    /// </summary>
+    private static (decimal? OriginalAmountZAR, decimal? HandlingFeeZAR, decimal? ExpectedRefundAmountZAR)
+        ComputeRefundBreakdown(ReturnRequest r, decimal? quoteAmountZAR)
+    {
+        if (r.RefundedAt is not null)
+            return (quoteAmountZAR, r.HandlingFeeZAR, r.RefundAmountZAR);
+
+        if (quoteAmountZAR is null)
+            return (null, null, null);
+
+        var previewFee = ComputeHandlingFee(quoteAmountZAR.Value);
+        return (quoteAmountZAR, previewFee, quoteAmountZAR.Value - previewFee);
+    }
+
+    private static decimal ComputeHandlingFee(decimal originalAmount) =>
+        Math.Round(originalAmount * ReturnHandlingFeeRate, 2, MidpointRounding.AwayFromZero);
 
     private static ParcelAddress MapAddress(CreateAddressDto dto) => new()
     {

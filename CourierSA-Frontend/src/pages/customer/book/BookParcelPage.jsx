@@ -7,6 +7,7 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import { parcelApi, quoteApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
+import { formatDate } from '@/utils'
 import { ParcelCartProvider, useParcelCart } from '@/context/ParcelCartContext'
 import CartSummaryPanel from './CartSummaryPanel'
 import {
@@ -77,6 +78,15 @@ function toAddressDto(addr) {
   }
 }
 
+// Combines the separate date + time inputs into a single local datetime the
+// backend's DateTime? ScheduledPickupDate can parse. Falls back to 09:00 if a
+// date was picked but no time was — still nulls out entirely if no date at all
+// (meaning "ASAP collection", handled server-side).
+function toScheduledPickupDto(date, time) {
+  if (!date) return null
+  return `${date}T${time || '09:00'}:00`
+}
+
 const parcelSchema = z.object({
   serviceType:         z.string().min(1, 'Select a service type'),
   weightKg:            z.coerce.number({ invalid_type_error: 'Weight required' }).min(0.1, 'Min 0.1 kg').max(999, 'Max 999 kg'),
@@ -87,6 +97,7 @@ const parcelSchema = z.object({
   insuranceRequired:   z.boolean().default(false),
   isEmergency:          z.boolean().default(false),
   scheduledPickupDate: z.string().optional(),
+  scheduledPickupTime: z.string().optional(),
   specialInstructions: z.string().max(300).optional(),
 })
 
@@ -201,6 +212,7 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
   const serviceType = watch('serviceType')
   const isFragile   = watch('isFragile')
   const isEmergency = watch('isEmergency')
+  const scheduledPickupDate = watch('scheduledPickupDate')
   const declaredVal = Number(watch('declaredValueZAR')) || 0
 
   // FIX: Get local YYYY-MM-DD date for min date setting
@@ -269,8 +281,22 @@ function Step2ParcelDetails({ onNext, onBack, nextButtonLabel = 'Get quote' }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label flex items-center gap-1.5"><Calendar size={14} /> Schedule collection</label>
-            <input type="date" className="input" {...register('scheduledPickupDate')} min={todayLocal} disabled={isEmergency} />
-            <p className="text-xs text-[#94A3B8] mt-1.5">{isEmergency ? 'Not available for emergency escalations — collection is immediate.' : 'Leave blank for ASAP collection'}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" className="input" {...register('scheduledPickupDate')} min={todayLocal} disabled={isEmergency} />
+              <input
+                type="time"
+                className="input"
+                {...register('scheduledPickupTime')}
+                disabled={isEmergency || !scheduledPickupDate}
+                min="08:00"
+                max="17:00"
+              />
+            </div>
+            <p className="text-xs text-[#94A3B8] mt-1.5">
+              {isEmergency
+                ? 'Not available for emergency escalations — collection is immediate.'
+                : 'Leave blank for ASAP collection. Collection window: 08:00–17:00.'}
+            </p>
           </div>
           <div>
             <label className="label">Driver special instructions</label>
@@ -543,7 +569,12 @@ function Step4Confirm({ onBack, onSubmit, isSubmitting, error }) {
         <SummaryRow label="Signature required" value={data.requiresSignature ? 'Yes' : null} />
         <SummaryRow label="Insurance" value={data.insuranceRequired ? 'Included' : null} />
         <SummaryRow label="Emergency escalation" value={data.isEmergency ? 'Yes — Same Day priority' : null} />
-        <SummaryRow label="Scheduled collection" value={data.scheduledPickupDate || null} />
+        <SummaryRow
+          label="Scheduled collection"
+          value={data.scheduledPickupDate
+            ? formatDate(toScheduledPickupDto(data.scheduledPickupDate, data.scheduledPickupTime), { time: true })
+            : null}
+        />
         <SummaryRow label="Instructions" value={data.specialInstructions} />
       </div>
 
@@ -591,7 +622,7 @@ function SingleParcelFlow() {
       description: data.description, declaredValueZAR: data.declaredValueZAR ? Number(data.declaredValueZAR) : null,
       isFragile: data.isFragile, requiresSignature: data.requiresSignature, insuranceRequired: data.insuranceRequired,
       isEmergency: data.isEmergency,
-      scheduledPickupDate: data.scheduledPickupDate || null,
+      scheduledPickupDate: toScheduledPickupDto(data.scheduledPickupDate, data.scheduledPickupTime),
       specialInstructions: data.specialInstructions?.trim() || null,
       quoteId: quoteData?.quote?.quoteId ?? null,
       paymentMethod: quoteData?.paymentMethod ?? 'CashOnCollection',
@@ -658,7 +689,7 @@ function AddParcelToCartForm({ onAdded }) {
       description: data.description, declaredValueZAR: data.declaredValueZAR ? Number(data.declaredValueZAR) : null,
       isFragile: data.isFragile, requiresSignature: data.requiresSignature, insuranceRequired: data.insuranceRequired,
       isEmergency: data.isEmergency,
-      scheduledPickupDate: data.scheduledPickupDate || null,
+      scheduledPickupDate: toScheduledPickupDto(data.scheduledPickupDate, data.scheduledPickupTime),
       specialInstructions: data.specialInstructions?.trim() || null,
     })
     methods.reset({ isFragile: false, isEmergency: false, insuranceRequired: false })

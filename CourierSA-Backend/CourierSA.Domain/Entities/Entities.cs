@@ -450,6 +450,7 @@ public class ReturnRequest : BaseEntity
     public string? InspectionNotes { get; set; }
 
     public decimal? RefundAmountZAR { get; set; }
+    public decimal? HandlingFeeZAR { get; set; }   // portion of the original fee retained as a return-handling charge
     public DateTime? RefundedAt { get; set; }
     public Guid? RefundApprovedByStaffId { get; set; }
 

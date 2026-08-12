@@ -79,12 +79,12 @@ export default function CartSummaryPanel({ items = [], quotes, onRemove }) {
                   {item.description} · {item.weightKg} kg
                 </p>
 
-                {/* Formatted scheduled date */}
+                {/* Formatted scheduled date + time */}
                 {scheduledDate && (
                   <p className="text-[11px] text-[#64748B] mt-1 font-medium">
                     Scheduled: {scheduledDate.toLocaleDateString('en-ZA', {
                       weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
-                    })}
+                    })} at {scheduledDate.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </p>
                 )}
               </div>

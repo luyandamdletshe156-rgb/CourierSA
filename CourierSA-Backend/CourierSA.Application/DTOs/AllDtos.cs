@@ -613,7 +613,8 @@ namespace CourierSA.Application.DTOs.Returns
         string Reason, ParcelAddressDto? CollectionAddress,
         DateTime RequestedAt, DateTime? ApprovedAt, DateTime? ReceivedAt,
         string? InspectionResult, string? InspectionNotes,
-        decimal? RefundAmountZAR, DateTime? RefundedAt);
+        decimal? RefundAmountZAR, DateTime? RefundedAt,
+        decimal? OriginalAmountZAR, decimal? HandlingFeeZAR, decimal? ExpectedRefundAmountZAR);
 
 
 }
