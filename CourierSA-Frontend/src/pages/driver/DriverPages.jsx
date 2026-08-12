@@ -75,9 +75,9 @@ export function DriverDeliveries() {
     setFailNotes('')
   }
 
-  // FIXED: Passed as an object { otp: ... } to match C# VerifyOtpDto
+  // FIXED: Passed as an object { otp: '1234' } to map properly to C# VerifyOtpDto
   const verifyOtpMutation = useMutation({
-    mutationFn: (parcelId) => secureDeliveryApi.verifyOtp(parcelId, { otp: otpInput.trim() }),
+    mutationFn: (parcelId) => secureDeliveryApi.verifyOtp(parcelId, { otp: otpInput }),
     onSuccess: () => { setOtpVerified(true); setOtpError('') },
     onError: err => setOtpError(err?.message || 'Incorrect OTP.'),
   })
@@ -391,11 +391,18 @@ export function DriverDeliveries() {
                   </p>
                   <div className="flex gap-2">
                     <input
-                      type="text" maxLength={4} inputMode="numeric"
+                      type="text" 
+                      inputMode="numeric"
+                      // Visual spacing via letter-spacing (tracking). Actual characters remain just 4 digits.
                       className="input font-mono text-center text-xl tracking-[0.5em] flex-1 border-[#FDE68A] focus:border-[#D97706] focus:ring-[#D97706]/20 bg-white"
                       placeholder="••••"
                       value={otpInput}
-                      onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                      onChange={e => {
+                        // FIX: Safely strip all non-digits, THEN cut to 4 max. 
+                        // Prevents pasting errors that previously triggered before replace()
+                        const cleanStr = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setOtpInput(cleanStr);
+                      }}
                     />
                     <button
                       className="btn bg-[#D97706] text-white hover:bg-[#B45309]"

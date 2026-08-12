@@ -68,7 +68,7 @@ export const authApi = {
 
 export const parcelApi = {
   list:       params => api.get('/parcels', { params }),
-  queue:   (params) => api.get('/parcels/queue', { params }),
+  queue:      params => api.get('/parcels/queue', { params }),
   get:        id     => api.get(`/parcels/${id}`),
   book:       dto    => api.post('/parcels', dto),
   bookBatch:  dto    => api.post('/parcels/batch', dto),
@@ -83,14 +83,14 @@ export const parcelApi = {
   checkIn:          (id, sortingBinId) =>
                          api.put(`/parcels/${id}/checkin`, { sortingBinId }),
   sortingSuggestion:(id) => api.get(`/parcels/${id}/sorting-suggestion`),
-  checkout:      id        => api.put(`/parcels/${id}/checkout`),
-  logInspection: (id, dto) => api.post(`/parcels/${id}/inspections`, dto),
-  inspections:   ()        => api.get('/parcels/inspections'),
-  dispatch:   (id, driverId) =>
+  checkout:         id        => api.put(`/parcels/${id}/checkout`),
+  logInspection:    (id, dto) => api.post(`/parcels/${id}/inspections`, dto),
+  inspections:      ()        => api.get('/parcels/inspections'),
+  dispatch:         (id, driverId) =>
                          api.put(`/parcels/${id}/dispatch`, { driverId }),
-  dispatchRoute: ({ parcelIds, driverId }) =>
-  api.post('/parcels/dispatch-route', { parcelIds, driverId }),
-  bulkUpload: file   => {
+  dispatchRoute:    ({ parcelIds, driverId }) =>
+                         api.post('/parcels/dispatch-route', { parcelIds, driverId }),
+  bulkUpload:       file   => {
     const form = new FormData()
     form.append('file', file)
     return api.post('/parcels/bulk-upload', form, {
@@ -177,8 +177,8 @@ export const driverApi = {
   updateLocation: (driverId, lat, lng) =>
     api.put(`/drivers/${driverId}/location`, { latitude: lat, longitude: lng }),
   myStatus:       ()       => api.get('/driver-portal/me'),
-  updateMyStatus: (status) => api.put('/driver-portal/status', { status }),
-  toggleStatus:   (status) => api.put('/driver-portal/status', { status }),
+  updateMyStatus: status   => api.put('/driver-portal/status', { status }),
+  toggleStatus:   status   => api.put('/driver-portal/status', { status }),
 }
 
 export const dispatcherApi = {
@@ -188,8 +188,8 @@ export const dispatcherApi = {
 
 export const invoiceApi = {
   list:        params => api.get('/invoices', { params }),
-  get:            id  => api.get(`/invoices/${id}`),
-  downloadPdf:    id  => api.get(`/invoices/${id}/pdf`, { responseType: 'blob' }),
+  get:         id     => api.get(`/invoices/${id}`),
+  downloadPdf: id     => api.get(`/invoices/${id}/pdf`, { responseType: 'blob' }),
 }
 
 export const lostParcelApi = {
@@ -217,7 +217,7 @@ export const returnApi = {
 
 export const secureDeliveryApi = {
   flagHighValue:        id        => api.put(`/parcels/${id}/flag-high-value`),
-  verifyOtp:            (id, otp) => api.put(`/parcels/${id}/verify-otp`, { otp }),
+  verifyOtp:            (id, dto) => api.put(`/parcels/${id}/verify-otp`, dto),  // 👈 FIXED THIS LINE
   resendOtp:            id        => api.put(`/parcels/${id}/resend-otp`),
   getOtpPending:        ()        => api.get('/parcels/otp-pending'),
   getHighValueEligible: ()        => api.get('/parcels/high-value-eligible'),
