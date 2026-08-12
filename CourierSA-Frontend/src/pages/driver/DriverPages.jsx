@@ -5,11 +5,13 @@ import {
   StatCard, StatusPill, TrackingBadge,
   EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
-import { deliveryApi, secureDeliveryApi } from '@/api'
+import { deliveryApi, secureDeliveryApi, returnApi } from '@/api'
+import StatusBadge from '@/components/ui/StatusBadge'
 import { 
   Truck, CheckCircle, XCircle, Navigation, Phone, 
   MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon,
-  ShieldCheck, ShieldAlert, Camera, PenTool, Image as ImageIcon, FileSignature
+  ShieldCheck, ShieldAlert, Camera, PenTool, Image as ImageIcon, FileSignature,
+  RotateCcw, PackageCheck
 } from 'lucide-react'
 
 // ── Groups a list of deliveries by routeId. Items with no routeId (single
@@ -686,5 +688,108 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Return Collections — reverse-leg pickups assigned to this driver.
+//    Kept intentionally simple: a flat list, no route grouping, since these
+//    are single standalone collections rather than multi-stop routes. ─────────
+export function DriverReturnCollections() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['driver-return-collections'],
+    queryFn: returnApi.myCollections,
+    refetchInterval: 30000,
+  })
+
+  const extractItems = (d) => Array.isArray(d) ? d : d?.data?.items ?? d?.items ?? d?.data ?? []
+  const collections = extractItems(data)
+
+  const dispatched = collections.filter(r => r.status === 'Dispatched')
+  const collected = collections.filter(r => r.status === 'Collected')
+
+  const collectMutation = useMutation({
+    mutationFn: (id) => returnApi.markCollected(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['driver-return-collections'] }),
+  })
+
+  return (
+    <AppShell title="Return Collections">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Return Collections</h1>
+          <p className="page-subtitle">{dispatched.length} to collect · {collected.length} in transit to warehouse</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <StatCard label="To Collect" value={dispatched.length} icon={RotateCcw} color="bg-brand-500" />
+        <StatCard label="In Transit" value={collected.length} icon={PackageCheck} color="bg-emerald-500" />
+      </div>
+
+      {collectMutation.error && (
+        <Alert type="error" message={collectMutation.error.message} className="mb-4" />
+      )}
+
+      {isLoading ? (
+        <PageLoader />
+      ) : collections.length === 0 ? (
+        <div className="card">
+          <EmptyState
+            icon={RotateCcw}
+            title="No return collections"
+            description="Your dispatcher will assign return collections to you when a customer return is approved."
+          />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {collections.map(r => (
+            <div key={r.id} className="card p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-gray-900">{r.raNumber}</span>
+                    <TrackingBadge value={r.trackingNumber} />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{r.reason}</p>
+                </div>
+                <StatusBadge status={r.status} />
+              </div>
+
+              {r.collectionAddress && (
+                <div className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                  <MapPin size={14} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-gray-700">{r.collectionAddress.recipientName}</p>
+                    <p>{r.collectionAddress.streetAddress}, {r.collectionAddress.suburb}</p>
+                    <p>{r.collectionAddress.city}, {r.collectionAddress.postalCode}</p>
+                    {r.collectionAddress.recipientPhone && (
+                      <p className="flex items-center gap-1 mt-1"><Phone size={11} /> {r.collectionAddress.recipientPhone}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {r.status === 'Dispatched' && (
+                <button
+                  className="btn-primary btn-sm w-full justify-center"
+                  disabled={collectMutation.isPending}
+                  onClick={() => collectMutation.mutate(r.id)}
+                >
+                  <PackageCheck size={14} />
+                  {collectMutation.isPending ? 'Confirming...' : 'Confirm Collected'}
+                </button>
+              )}
+
+              {r.status === 'Collected' && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                  Collected — deliver to the warehouse for intake.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </AppShell>
   )
 }

@@ -203,13 +203,16 @@ export const lostParcelApi = {
 }
 
 export const returnApi = {
-  request:        dto        => api.post('/return-requests', dto),
-  mine:           ()         => api.get('/return-requests/mine'),
-  queue:          status     => api.get('/return-requests', { params: { status } }),
-  get:            id         => api.get(`/return-requests/${id}`),
-  receive:        id         => api.put(`/return-requests/${id}/receive`),
-  inspect:        (id, dto)  => api.put(`/return-requests/${id}/inspect`, dto),
-  releaseRefund:  (id, dto)  => api.put(`/return-requests/${id}/release-refund`, dto),
+  request:            dto        => api.post('/return-requests', dto),
+  mine:               ()         => api.get('/return-requests/mine'),
+  queue:              status     => api.get('/return-requests', { params: { status } }),
+  get:                id         => api.get(`/return-requests/${id}`),
+  dispatchCollection: (id, driverId) => api.put(`/return-requests/${id}/dispatch-collection`, { driverId }),
+  markCollected:      id         => api.put(`/return-requests/${id}/mark-collected`),
+  myCollections:      ()         => api.get('/return-requests/my-collections'),
+  receive:            id         => api.put(`/return-requests/${id}/receive`),
+  inspect:            (id, dto)  => api.put(`/return-requests/${id}/inspect`, dto),
+  releaseRefund:      (id, dto)  => api.put(`/return-requests/${id}/release-refund`, dto),
 }
 
 export const secureDeliveryApi = {

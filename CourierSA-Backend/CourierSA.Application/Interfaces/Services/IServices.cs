@@ -195,6 +195,9 @@ public interface IReturnService
     Task<ReturnRequestDto?> GetDetailAsync(Guid returnId, CancellationToken ct = default);
     Task<IEnumerable<ReturnRequestDto>> GetMyReturnsAsync(Guid customerUserId, CancellationToken ct = default);
     Task<IEnumerable<ReturnRequestDto>> GetQueueAsync(string? status, CancellationToken ct = default);
+    Task<ReturnRequestDto> DispatchCollectionAsync(Guid returnId, DispatchReturnCollectionDto dto, Guid dispatcherUserId, CancellationToken ct = default);
+    Task<ReturnRequestDto> MarkCollectedAsync(Guid returnId, Guid driverUserId, CancellationToken ct = default);
+    Task<IEnumerable<ReturnRequestDto>> GetMyCollectionsAsync(Guid driverUserId, CancellationToken ct = default);
 }
 
 public interface ISecureDeliveryService

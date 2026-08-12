@@ -26,7 +26,7 @@ import ReportLostParcelPage from '@/pages/customer/ReportLostParcelPage'
 import RequestReturnPage from '@/pages/customer/RequestReturnPage'
 
 // Dispatcher
-import { DispatcherDashboard, DispatchQueue } from '@/pages/dispatcher/DispatcherPages'
+import { DispatcherDashboard, DispatchQueue, ReturnCollectionsQueue } from '@/pages/dispatcher/DispatcherPages'
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
 import LiveMapPage from '@/pages/dispatcher/LiveMapPage'
 import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
@@ -37,7 +37,7 @@ import FlagHighValuePage from '@/pages/dispatcher/FlagHighValuePage'
 
 // Driver
 import { DriverDashboard } from '@/pages/driver/DriverDashboard'
-import { DriverDeliveries } from '@/pages/driver/DriverPages'
+import { DriverDeliveries, DriverReturnCollections } from '@/pages/driver/DriverPages'
 import { DriverRoute } from '@/pages/driver/DriverRoute'
 import { DriverHistoryPage } from '@/pages/driver/DriverHistory'
 
@@ -130,6 +130,7 @@ export default function App() {
                   <Route path="/dispatcher/dashboard" element={<DispatcherDashboard />} />
                   <Route path="/dispatcher/pending" element={<DispatcherDashboard />} />
                   <Route path="/dispatcher/dispatch" element={<DispatchQueue />} />
+                  <Route path="/dispatcher/return-collections" element={<ReturnCollectionsQueue />} />
                   <Route path="/dispatcher/map" element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed" element={<FailedDeliveriesPage />} />
                   <Route path="/dispatcher/flag-high-value" element={<FlagHighValuePage />} />
@@ -143,6 +144,7 @@ export default function App() {
                 <Route element={<RequireRole roles={['Driver']} />}>
                   <Route path="/driver/dashboard" element={<DriverDashboard />} />
                   <Route path="/driver/deliveries" element={<DriverDeliveries />} />
+                  <Route path="/driver/collections" element={<DriverReturnCollections />} />
                   <Route path="/driver/route" element={<DriverRoute />} />
                   <Route path="/driver/history" element={<DriverHistoryPage />} />
                 </Route>

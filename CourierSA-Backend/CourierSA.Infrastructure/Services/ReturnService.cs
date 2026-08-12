@@ -98,11 +98,112 @@ public class ReturnService : IReturnService
         return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
     }
 
-    public async Task<ReturnRequestDto> ReceiveAsync(Guid returnId, Guid staffUserId, CancellationToken ct = default)
+    public async Task<ReturnRequestDto> DispatchCollectionAsync(
+        Guid returnId, DispatchReturnCollectionDto dto, Guid dispatcherUserId, CancellationToken ct = default)
     {
         var returnRequest = await GetOrThrowAsync(returnId, ct);
         if (returnRequest.Status != ReturnRequestStatus.Approved)
-            throw new BadRequestException($"Return must be 'Approved' to receive (currently '{returnRequest.Status}').");
+            throw new BadRequestException($"Return must be 'Approved' to dispatch a collection driver (currently '{returnRequest.Status}').");
+
+        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(dto.DriverId, ct)
+            ?? throw new NotFoundException("Driver not found.");
+        if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
+            throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
+
+        var parcel = await _uow.Parcels.GetByIdAsync(returnRequest.ParcelId, ct)
+            ?? throw new NotFoundException("Linked parcel not found.");
+
+        returnRequest.Status = ReturnRequestStatus.Dispatched;
+        returnRequest.AssignedDriverId = driver.Id;
+        returnRequest.DispatchedAt = DateTime.UtcNow;
+        returnRequest.UpdatedAt = DateTime.UtcNow;
+
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.ReturnCollectionDispatched,
+            Description = $"Driver assigned to collect returned parcel for RA {returnRequest.RaNumber}.",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        try
+        {
+            await _audit.LogAsync("RETURN_COLLECTION_DISPATCHED", "ReturnRequest", returnRequest.Id,
+                null, new { returnRequest.RaNumber, DriverId = driver.Id }, dispatcherUserId, null, ct);
+        }
+        catch (Exception ex) { Console.WriteLine($"[AUDIT] DispatchCollectionAsync log failed: {ex.Message}"); }
+
+        return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
+    }
+
+    public async Task<ReturnRequestDto> MarkCollectedAsync(Guid returnId, Guid driverUserId, CancellationToken ct = default)
+    {
+        var driverProfile = await _uow.Query<DriverProfile>().Query()
+            .FirstOrDefaultAsync(d => d.UserId == driverUserId, ct)
+            ?? throw new NotFoundException("Driver profile not found.");
+
+        var returnRequest = await GetOrThrowAsync(returnId, ct);
+        if (returnRequest.Status != ReturnRequestStatus.Dispatched)
+            throw new BadRequestException($"Return must be 'Dispatched' to mark as collected (currently '{returnRequest.Status}').");
+        if (returnRequest.AssignedDriverId != driverProfile.Id)
+            throw new ForbiddenException("This return collection is not assigned to you.");
+
+        var parcel = await _uow.Parcels.GetByIdAsync(returnRequest.ParcelId, ct)
+            ?? throw new NotFoundException("Linked parcel not found.");
+
+        returnRequest.Status = ReturnRequestStatus.Collected;
+        returnRequest.CollectedAt = DateTime.UtcNow;
+        returnRequest.UpdatedAt = DateTime.UtcNow;
+
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.ReturnCollected,
+            Description = $"Returned parcel collected from customer for RA {returnRequest.RaNumber}. In transit to warehouse.",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        try
+        {
+            await _audit.LogAsync("RETURN_COLLECTED", "ReturnRequest", returnRequest.Id,
+                null, new { returnRequest.RaNumber }, driverUserId, null, ct);
+        }
+        catch (Exception ex) { Console.WriteLine($"[AUDIT] MarkCollectedAsync log failed: {ex.Message}"); }
+
+        return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
+    }
+
+    public async Task<IEnumerable<ReturnRequestDto>> GetMyCollectionsAsync(Guid driverUserId, CancellationToken ct = default)
+    {
+        var driverProfile = await _uow.Query<DriverProfile>().Query()
+            .FirstOrDefaultAsync(d => d.UserId == driverUserId, ct);
+        if (driverProfile is null) return [];
+
+        var returns = await _uow.Query<ReturnRequest>().Query()
+            .AsNoTracking()
+            .Where(r => r.AssignedDriverId == driverProfile.Id &&
+                        (r.Status == ReturnRequestStatus.Dispatched || r.Status == ReturnRequestStatus.Collected))
+            .OrderByDescending(r => r.DispatchedAt)
+            .ToListAsync(ct);
+
+        return await MapReturnsBulkAsync(returns, ct);
+    }
+
+    public async Task<ReturnRequestDto> ReceiveAsync(Guid returnId, Guid staffUserId, CancellationToken ct = default)
+    {
+        var returnRequest = await GetOrThrowAsync(returnId, ct);
+        if (returnRequest.Status != ReturnRequestStatus.Approved && returnRequest.Status != ReturnRequestStatus.Collected)
+            throw new BadRequestException($"Return must be 'Approved' or 'Collected' to receive (currently '{returnRequest.Status}').");
 
         var parcel = await _uow.Parcels.GetByIdAsync(returnRequest.ParcelId, ct)
             ?? throw new NotFoundException("Linked parcel not found.");
@@ -306,7 +407,17 @@ public class ReturnService : IReturnService
             .Where(a => addressIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, ct);
 
-        // 3. Map in memory instantly
+        // 3. Fetch assigned driver names in one go
+        var driverIds = returns.Where(r => r.AssignedDriverId.HasValue)
+            .Select(r => r.AssignedDriverId!.Value).Distinct().ToList();
+        var driverNames = driverIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _uow.Query<DriverProfile>().Query()
+                .AsNoTracking()
+                .Where(d => driverIds.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.User != null ? d.User.FullName : "—", ct);
+
+        // 4. Map in memory instantly
         var results = new List<ReturnRequestDto>();
         foreach (var r in returns)
         {
@@ -314,12 +425,14 @@ public class ReturnService : IReturnService
             var trackingNumber = parcelInfo?.TrackingNumber ?? "—";
             var address = addresses.GetValueOrDefault(r.CollectionAddressId);
             var (originalAmount, handlingFee, expectedRefund) = ComputeRefundBreakdown(r, parcelInfo?.QuoteAmountZAR);
+            var driverName = r.AssignedDriverId.HasValue ? driverNames.GetValueOrDefault(r.AssignedDriverId.Value) : null;
 
             results.Add(new ReturnRequestDto(
                 r.Id, r.RaNumber, r.ParcelId, trackingNumber, r.Status.ToString(), r.Reason,
                 MapAddressDto(address), r.RequestedAt, r.ApprovedAt, r.ReceivedAt,
                 r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt,
-                originalAmount, handlingFee, expectedRefund));
+                originalAmount, handlingFee, expectedRefund,
+                r.AssignedDriverId, driverName, r.DispatchedAt, r.CollectedAt));
         }
 
         return results;
@@ -345,11 +458,22 @@ public class ReturnService : IReturnService
         var parcel = await _uow.Parcels.GetByIdAsync(r.ParcelId, ct);
         var (originalAmount, handlingFee, expectedRefund) = ComputeRefundBreakdown(r, parcel?.QuoteAmountZAR);
 
+        string? driverName = null;
+        if (r.AssignedDriverId.HasValue)
+        {
+            driverName = await _uow.Query<DriverProfile>().Query()
+                .AsNoTracking()
+                .Where(d => d.Id == r.AssignedDriverId.Value)
+                .Select(d => d.User != null ? d.User.FullName : "—")
+                .FirstOrDefaultAsync(ct);
+        }
+
         return new ReturnRequestDto(
             r.Id, r.RaNumber, r.ParcelId, trackingNumber, r.Status.ToString(), r.Reason,
             MapAddressDto(address), r.RequestedAt, r.ApprovedAt, r.ReceivedAt,
             r.InspectionResult?.ToString(), r.InspectionNotes, r.RefundAmountZAR, r.RefundedAt,
-            originalAmount, handlingFee, expectedRefund);
+            originalAmount, handlingFee, expectedRefund,
+            r.AssignedDriverId, driverName, r.DispatchedAt, r.CollectedAt);
     }
 
     /// <summary>

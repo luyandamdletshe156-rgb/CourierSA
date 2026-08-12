@@ -14,6 +14,8 @@ const COLOR_MAP = {
   ReadyForRefund:      'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
   InspectionFailed:    'bg-[#EF4444]/10 text-[#B91C1C] border-[#EF4444]/20',
   Refunded:            'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
+  Dispatched:          'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
+  Collected:           'bg-[#0EA5E9]/10 text-[#0369A1] border-[#0EA5E9]/20',
   // Claim statuses
   Submitted:           'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
   UnderReview:         'bg-[#1E63E9]/10 text-[#0A3D91] border-[#1E63E9]/20',

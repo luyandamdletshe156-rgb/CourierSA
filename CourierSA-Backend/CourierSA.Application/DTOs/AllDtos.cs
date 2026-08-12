@@ -608,13 +608,16 @@ namespace CourierSA.Application.DTOs.Returns
 
     public record ReleaseRefundDto(string? Notes);
 
+    public record DispatchReturnCollectionDto(Guid DriverId);
+
     public record ReturnRequestDto(
         Guid Id, string RaNumber, Guid ParcelId, string TrackingNumber, string Status,
         string Reason, ParcelAddressDto? CollectionAddress,
         DateTime RequestedAt, DateTime? ApprovedAt, DateTime? ReceivedAt,
         string? InspectionResult, string? InspectionNotes,
         decimal? RefundAmountZAR, DateTime? RefundedAt,
-        decimal? OriginalAmountZAR, decimal? HandlingFeeZAR, decimal? ExpectedRefundAmountZAR);
+        decimal? OriginalAmountZAR, decimal? HandlingFeeZAR, decimal? ExpectedRefundAmountZAR,
+        Guid? AssignedDriverId, string? AssignedDriverName, DateTime? DispatchedAt, DateTime? CollectedAt);
 
 
 }

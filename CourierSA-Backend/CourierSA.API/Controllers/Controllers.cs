@@ -635,6 +635,31 @@ public class ReturnRequestsController : CourierSABaseController
         return Ok(result);
     }
 
+    [HttpPut("{id:guid}/dispatch-collection")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> DispatchCollection(
+        Guid id, [FromBody] DispatchReturnCollectionDto dto, CancellationToken ct)
+    {
+        var result = await _returnService.DispatchCollectionAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, "Driver dispatched for return collection");
+    }
+
+    [HttpPut("{id:guid}/mark-collected")]
+    [Authorize(Policy = "DriverOnly")]
+    public async Task<IActionResult> MarkCollected(Guid id, CancellationToken ct)
+    {
+        var result = await _returnService.MarkCollectedAsync(id, CurrentUserId, ct);
+        return Ok(result, "Return collection confirmed");
+    }
+
+    [HttpGet("my-collections")]
+    [Authorize(Policy = "DriverOnly")]
+    public async Task<IActionResult> GetMyCollections(CancellationToken ct)
+    {
+        var result = await _returnService.GetMyCollectionsAsync(CurrentUserId, ct);
+        return Ok(result);
+    }
+
     [HttpPut("{id:guid}/receive")]
     [Authorize(Policy = "WarehouseOrAdmin")]
     public async Task<IActionResult> Receive(Guid id, CancellationToken ct)

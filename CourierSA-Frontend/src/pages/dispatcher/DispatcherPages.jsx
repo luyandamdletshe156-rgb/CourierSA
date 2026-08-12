@@ -5,10 +5,11 @@ import AppShell from '@/components/layout/AppShell'
 import {
   StatCard, TrackingBadge, EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
-import { parcelApi, driverApi } from '@/api'
+import StatusBadge from '@/components/ui/StatusBadge'
+import { parcelApi, driverApi, returnApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
-  Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package
+  Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package, RotateCcw
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -470,6 +471,174 @@ export function DispatchQueue() {
               : selectedParcelIds.length > 1 
                 ? `Dispatch ${selectedParcelIds.length} Tasks` 
                 : 'Assign & Dispatch Driver'}
+          </button>
+        </div>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Return Collections — assign a driver to collect an approved return
+//    from the customer's address. Deliberately simple: single-select,
+//    no batching, reuses the flat 15% handling-fee model (no separate
+//    collection quote). ───────────────────────────────────────────────────────
+export function ReturnCollectionsQueue() {
+  const qc = useQueryClient()
+  const [selectedReturnId, setSelectedReturnId] = useState(null)
+  const [selectedDriverId, setSelectedDriverId] = useState('')
+
+  const { data: returnsData, isLoading: returnsLoading } = useQuery({
+    queryKey: ['return-requests', 'queue', 'Approved'],
+    queryFn: () => returnApi.queue('Approved'),
+    refetchInterval: 15000,
+  })
+
+  const { data: driversData, isLoading: driversLoading } = useQuery({
+    queryKey: ['dispatcher-available-drivers'],
+    queryFn: async () => {
+      const res = await driverApi.available()
+      return Array.isArray(res) ? res : res?.data || []
+    },
+    refetchInterval: 15000,
+  })
+
+  const extractItems = (data) =>
+    Array.isArray(data) ? data : data?.data?.items ?? data?.items ?? data?.data ?? []
+
+  const returns = extractItems(returnsData)
+  const drivers = driversData ?? []
+  const selectedReturn = returns.find(r => r.id === selectedReturnId) ?? null
+
+  const dispatchMutation = useMutation({
+    mutationFn: () => returnApi.dispatchCollection(selectedReturnId, selectedDriverId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['return-requests'] })
+      qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
+      setSelectedReturnId(null)
+      setSelectedDriverId('')
+    },
+  })
+
+  return (
+    <AppShell title="Return Collections">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Return Collections</h1>
+          <p className="page-subtitle">Assign a driver to collect an approved return from the customer's address</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 card overflow-hidden">
+          <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
+              <RotateCcw size={18} className="text-[#0A3D91]" /> Awaiting Collection Dispatch
+            </h2>
+            <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{returns.length} Returns</span>
+          </div>
+
+          {returnsLoading ? <PageLoader /> : returns.length === 0 ? (
+            <EmptyState icon={CheckCircle2} title="Queue is clear" description="No approved returns are currently waiting for a collection driver." />
+          ) : (
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>RA Number</th>
+                    <th>Tracking #</th>
+                    <th>Collection Address</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returns.map(r => {
+                    const isSelected = selectedReturnId === r.id
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => setSelectedReturnId(r.id)}
+                        className={clsx(
+                          "cursor-pointer transition-colors duration-150",
+                          isSelected ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
+                        )}
+                      >
+                        <td className="text-sm font-bold text-[#172554]">{r.raNumber}</td>
+                        <td><TrackingBadge value={r.trackingNumber} /></td>
+                        <td className="text-xs text-[#64748B]">
+                          {r.collectionAddress
+                            ? `${r.collectionAddress.streetAddress}, ${r.collectionAddress.city}`
+                            : '—'}
+                        </td>
+                        <td><StatusBadge status={r.status} /></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5 h-max space-y-5 lg:sticky lg:top-6">
+          <h2 className="text-base font-bold text-[#172554] flex items-center gap-2 border-b border-[#E2E8F0] pb-3">
+            <Send size={18} className="text-[#0A3D91]" /> Dispatch Assignment
+          </h2>
+
+          {!selectedReturn ? (
+            <Alert type="warning" message="Select a return from the list on the left to assign a collection driver." />
+          ) : (
+            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
+              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">Selected Return</p>
+              <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
+                <span className="text-sm font-bold text-[#172554]">{selectedReturn.raNumber}</span>
+                <TrackingBadge value={selectedReturn.trackingNumber} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="label">Select Available Driver</label>
+            {driversLoading ? (
+              <p className="text-xs text-[#94A3B8]">Loading drivers...</p>
+            ) : drivers.length === 0 ? (
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
+                <UserCheck size={14} className="text-[#94A3B8] mt-0.5 flex-shrink-0" />
+                No drivers currently available — all active drivers are mid-route.
+              </div>
+            ) : (
+              <select
+                className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
+                value={selectedDriverId}
+                onChange={(e) => setSelectedDriverId(e.target.value)}
+                disabled={!selectedReturn}
+              >
+                <option value="" disabled hidden>Choose Driver...</option>
+                {drivers.map((d, index) => {
+                  const actualId = d?.id || d?.driverId || d?.userId
+                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—")
+                    ? `${d.firstName} ${d.lastName}`
+                    : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0, 6) : index}`)
+                  return (
+                    <option key={actualId || index} value={actualId || ''}>
+                      {actualName}
+                    </option>
+                  )
+                })}
+              </select>
+            )}
+          </div>
+
+          {dispatchMutation.error && (
+            <Alert type="error" message={dispatchMutation.error.message} />
+          )}
+
+          <button
+            className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!selectedReturn || !selectedDriverId || dispatchMutation.isPending}
+            onClick={() => dispatchMutation.mutate()}
+          >
+            <Send size={16} />
+            {dispatchMutation.isPending ? 'Assigning...' : 'Assign & Dispatch Driver'}
           </button>
         </div>
       </div>

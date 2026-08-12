@@ -45,11 +45,13 @@ const NAV = {
   Driver: [
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,           to: '/driver/deliveries'  },
+    { label: 'Return Collections', icon: RotateCcw,  to: '/driver/collections' },
     { label: 'History',       icon: FileText,        to: '/driver/history'     },
   ],
   Dispatcher: [
     { label: 'Dashboard',    icon: LayoutDashboard, to: '/dispatcher/dashboard'    },
     { label: 'Dispatch Queue', icon: ClipboardCheck, to: '/dispatcher/dispatch'    },
+    { label: 'Return Collections', icon: RotateCcw, to: '/dispatcher/return-collections' },
     { label: 'Live Map',     icon: MapPin,          to: '/dispatcher/map'          },
     { label: 'Track',        icon: Search,          to: '/dispatcher/track'        },
     { label: 'Reassign',     icon: RefreshCw,       to: '/dispatcher/reassign'      },

@@ -76,11 +76,13 @@ public enum TrackingEventType
     DeliveryAttempted, Delivered, DeliveryFailed, ReturnInitiated,
     Returned, Cancelled, AddressCorrected, ExceptionRaised,
     CheckedOut,
-    LostParcelReported,   
+    LostParcelReported,
     LostParcelConfirmed,
-    HighValueFlagged,   
+    HighValueFlagged,
     OtpVerified,
-    CollectionRescheduled
+    CollectionRescheduled,
+    ReturnCollectionDispatched,
+    ReturnCollected
 }
 public enum DeliveryStatus
 {
@@ -265,7 +267,9 @@ public enum ReturnRequestStatus
     ReadyForRefund,
     InspectionFailed,
     Refunded,
-    Closed
+    Closed,
+    Dispatched,   // driver assigned for reverse-leg collection from the customer
+    Collected     // driver has picked up the parcel; awaiting warehouse intake
 }
 
 public enum ReturnItemCondition

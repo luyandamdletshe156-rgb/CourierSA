@@ -454,6 +454,11 @@ public class ReturnRequest : BaseEntity
     public DateTime? RefundedAt { get; set; }
     public Guid? RefundApprovedByStaffId { get; set; }
 
+    public Guid? AssignedDriverId { get; set; }   // driver assigned for the reverse-leg collection (DriverProfile.Id)
+    public DateTime? DispatchedAt { get; set; }
+    public DateTime? CollectedAt { get; set; }
+
     public Parcel? Parcel { get; set; }
     public ParcelAddress? CollectionAddress { get; set; }
+    public DriverProfile? AssignedDriver { get; set; }
 }

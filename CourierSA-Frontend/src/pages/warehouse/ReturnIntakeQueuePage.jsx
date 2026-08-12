@@ -7,7 +7,7 @@ import { returnApi } from '@/api'
 import { PackageCheck, ChevronDown, ChevronUp, RefreshCw, PackageX, ClipboardCheck, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 
-const STATUS_FILTERS = ['Approved', 'Received', 'ReadyForRefund', 'InspectionFailed', 'Refunded', '']
+const STATUS_FILTERS = ['Approved', 'Dispatched', 'Collected', 'Received', 'ReadyForRefund', 'InspectionFailed', 'Refunded', '']
 
 function InspectForm({ returnId, onDone }) {
   const [result, setResult] = useState('Acceptable')
@@ -180,6 +180,30 @@ export default function ReturnIntakeQueuePage() {
                             {receiveMutation.isPending ? <RefreshCw className="animate-spin" size={14} /> : <RotateCcw size={14} />}
                             Mark as Received
                           </button>
+                        </div>
+                      )}
+
+                      {r.status === 'Dispatched' && (
+                        <div className="p-3 bg-[#FFFBEB] text-[#B45309] text-xs rounded-lg border border-[#F59E0B]/20">
+                          Driver {r.assignedDriverName || 'assigned'} is en route to collect this parcel from the customer.
+                        </div>
+                      )}
+
+                      {r.status === 'Collected' && (
+                        <div className="flex flex-col gap-3">
+                          <div className="p-3 bg-[#F0F9FF] text-[#0369A1] text-xs rounded-lg border border-[#0EA5E9]/20">
+                            Collected by {r.assignedDriverName || 'driver'}. In transit to the warehouse — scan in on arrival.
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => receiveMutation.mutate(r.id)}
+                              disabled={receiveMutation.isPending}
+                              className="btn-primary text-xs px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm"
+                            >
+                              {receiveMutation.isPending ? <RefreshCw className="animate-spin" size={14} /> : <RotateCcw size={14} />}
+                              Mark as Received
+                            </button>
+                          </div>
                         </div>
                       )}
 
