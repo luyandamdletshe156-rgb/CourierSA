@@ -29,8 +29,14 @@ export default function LoginPage() {
     if (user.mustChangePassword) {
       navigate('/change-password', { replace: true })   // ignore `from` — password must be set first
     } else {
-      navigate(from || dashboardPath(user.role), { replace: true })
-    }
+      // Only honor `from` if it actually belongs to this user's role section —
+      // otherwise a stale redirect target from an earlier (different-role or
+      // logged-out) URL attempt sends the new session straight to /unauthorized.
+      const target = dashboardPath(user.role)
+      const rolePrefix = '/' + target.split('/')[1]
+      const safeFrom = from && from.startsWith(rolePrefix) ? from : null
+      navigate(safeFrom || target, { replace: true })
+    } 
   } catch (err) {
     setError(err.message ?? 'Login failed. Check your credentials.')
   } finally {
