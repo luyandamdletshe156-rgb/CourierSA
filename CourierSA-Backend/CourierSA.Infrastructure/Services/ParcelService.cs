@@ -10,6 +10,8 @@ using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
 using CourierSA.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using static System.Net.Mime.MediaTypeNames;
+
 
 namespace CourierSA.Infrastructure.Services;
 
@@ -56,8 +58,7 @@ public class ParcelService : IParcelService
         this.object5 = object5;
     }
 
-    public async Task<ParcelDetailDto> BookAsync(
-     CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
+    public async Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
         var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
         var parcel = await BuildAndAddParcelAsync(dto, customer, ct);
@@ -76,8 +77,7 @@ public class ParcelService : IParcelService
                ?? throw new InvalidOperationException("Failed to retrieve parcel after booking.");
     }
 
-    public async Task<ParcelBatchResultDto> BookBatchAsync(
-    CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default)
+    public async Task<ParcelBatchResultDto> BookBatchAsync(CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default)
     {
         if (dto.Parcels is null || dto.Parcels.Count == 0)
             throw new BadRequestException("Batch must contain at least one parcel.");
@@ -335,6 +335,36 @@ public class ParcelService : IParcelService
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "Cancelled", ct: ct);
     }
 
+    // ✅ FIX: NEW DEDICATED METHOD FOR "RETURN TO SENDER"
+    public async Task ReturnToSenderAsync(Guid parcelId, string notes, Guid staffId, CancellationToken ct = default)
+    {
+        var parcel = await GetOrThrowAsync(parcelId, ct);
+
+        // Ensure this is only triggered from a failed delivery state
+        EnsureStatus(parcel, ParcelStatus.FailedDelivery);
+
+        var previousStatus = parcel.Status;
+
+        parcel.Status = ParcelStatus.Returned;
+        parcel.UpdatedAt = DateTime.UtcNow;
+
+        var trackingEvent = AddTrackingEvent(
+            parcel,
+            TrackingEventType.ExceptionRaised,
+            $"Return to sender initiated by dispatcher. Notes: {notes}"
+        );
+
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("PARCEL_RETURNED_TO_SENDER", "Parcel", parcel.Id,
+            new { Status = previousStatus.ToString() },
+            new { Status = parcel.Status.ToString(), notes },
+            staffId, null, ct);
+
+        await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
+    }
+
     public async Task CheckInAsync(Guid parcelId, Guid sortingBinId, Guid staffId, CancellationToken ct = default)
     {
         var parcel = await GetOrThrowAsync(parcelId, ct);
@@ -471,7 +501,11 @@ public class ParcelService : IParcelService
     public async Task DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default)
     {
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(parcelId, ct) ?? throw new NotFoundException($"Parcel {parcelId} not found.");
-        if (parcel.Status != ParcelStatus.CheckedOut && parcel.Status != ParcelStatus.Approved) throw new BadRequestException($"Cannot dispatch parcel in status '{parcel.Status}'.");
+
+        // ✅ FIX: Allow dispatching parcels that are currently in FailedDelivery status
+        if (parcel.Status != ParcelStatus.CheckedOut && parcel.Status != ParcelStatus.Approved && parcel.Status != ParcelStatus.FailedDelivery)
+            throw new BadRequestException($"Cannot dispatch parcel in status '{parcel.Status}'.");
+
         if (parcel.Customer is null) throw new InvalidOperationException($"Parcel {parcel.TrackingNumber} has no linked customer profile.");
 
         var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct) ?? throw new NotFoundException("Driver not found.");
@@ -517,7 +551,6 @@ public class ParcelService : IParcelService
         };
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
-        // Auto-flag high-value final deliveries for OTP verification.
         FlagHighValueResultDto? otpFlagResult = null;
         if (!isPickup)
         {
@@ -534,7 +567,6 @@ public class ParcelService : IParcelService
         try { await _notificationService.SendRouteAssignedAsync(driver.UserId, parcel.TrackingNumber, stopCount: 1, ct); }
         catch (Exception ex) { Console.WriteLine($"[NOTIFY] Driver assignment notification failed for {parcel.TrackingNumber}: {ex.Message}"); }
 
-        // Email the OTP only after the dispatch itself is safely committed.
         if (otpFlagResult is { Otp: not null })
         {
             try { await _secureDelivery.SendOtpEmailForParcelAsync(parcel, otpFlagResult.Otp); }
@@ -560,7 +592,8 @@ public class ParcelService : IParcelService
 
         foreach (var p in parcels)
         {
-            if (p.Status != ParcelStatus.CheckedOut && p.Status != ParcelStatus.Approved)
+            // ✅ FIX: Allow route dispatching parcels that are currently in FailedDelivery status
+            if (p.Status != ParcelStatus.CheckedOut && p.Status != ParcelStatus.Approved && p.Status != ParcelStatus.FailedDelivery)
                 throw new BadRequestException(
                     $"Parcel {p.TrackingNumber} is not ready for dispatch (status: {p.Status}).");
         }
@@ -700,7 +733,6 @@ public class ParcelService : IParcelService
             await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
         }
 
-        // Email every flagged parcel's OTP only after the whole route is safely committed.
         foreach (var item in otpFlagResults)
         {
             try { await _secureDelivery.SendOtpEmailForParcelAsync(item.Parcel, item.FlagResult.Otp!); }
@@ -748,11 +780,6 @@ public class ParcelService : IParcelService
         try { await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct); } catch (Exception ex) { Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}"); }
     }
 
-    // ── UC03/UC04 next-action engine ────────────────────────────────────────────
-    // Pickup reasons map to UC03 (Handle Failed Parcel Collection); delivery reasons
-    // map to UC04 (Resolve Delivery Exception). Both SRS flows end with "the system
-    // determines the appropriate next action" — this is that determination, computed
-    // from the reason (and, for deliveries, how many attempts have already failed).
     private const int MaxAutoReattempts = 2;
 
     private static (ExceptionResolutionAction Action, string Explanation) DetermineNextAction(
@@ -803,9 +830,6 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct) ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
 
         var isPickup = parcel.Status == ParcelStatus.Approved;
-
-        // Attempt number = how many Delivery rows have ever been raised for this parcel
-        // (a fresh Delivery row is created on every (re)dispatch — see DispatchAsync).
         var attemptNumber = await _uow.Deliveries.Query().CountAsync(d => d.ParcelId == parcel.Id, ct);
         var (action, explanation) = DetermineNextAction(isPickup, dto.Reason, attemptNumber);
         var requiresDispatcherReview = action is ExceptionResolutionAction.EscalateForAddressCorrection
@@ -843,8 +867,6 @@ public class ParcelService : IParcelService
         try { await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId, null, new { dto.Reason, dto.Notes, AttemptNumber = attemptNumber, RecommendedAction = action.ToString(), requiresDispatcherReview }, driverUserId, null, ct); } catch (Exception ex) { Console.WriteLine($"[AUDIT] Log failed for {parcel.TrackingNumber}: {ex.Message}"); }
         try { await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, isPickup ? "Approved" : "FailedDelivery", ct: ct); } catch (Exception ex) { Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}"); }
 
-        // Proactively alert dispatchers when a case needs their attention — mirrors the
-        // "Dispatcher/customer may be notified" step in the UC04 flow.
         if (requiresDispatcherReview)
         {
             try
@@ -940,8 +962,6 @@ public class ParcelService : IParcelService
         return new PagedResult<ParcelSummaryDto>(parcels.Select(p => MapToSummary(p, binCodesByParcelId.GetValueOrDefault(p.Id))).ToList(), count, page, pageSize);
     }
 
-    // --- NEW SECURE DELIVERY METHODS ---
-
     public async Task<IEnumerable<ParcelSummaryDto>> GetOtpPendingParcelsAsync(CancellationToken ct = default)
     {
         var parcels = await _uow.Query<Parcel>().Query()
@@ -967,8 +987,6 @@ public class ParcelService : IParcelService
 
         return parcels.Select(p => MapToSummary(p)).ToList();
     }
-
-    // --- PRIVATE HELPER METHODS ---
 
     private async Task RefundWalletAsync(Parcel parcel, CancellationToken ct)
     {
@@ -1082,7 +1100,7 @@ public class ParcelService : IParcelService
     }
 
 
-    private const decimal WarehouseCancellationFeeZAR = 50.00m; // Fee for warehouse cancellation
+    private const decimal WarehouseCancellationFeeZAR = 50.00m;
 
     public async Task<CancelParcelQuoteDto> PreviewCancelFeeAsync(
         Guid parcelId, Guid customerUserId, CancellationToken ct = default)
@@ -1122,7 +1140,6 @@ public class ParcelService : IParcelService
         );
     }
 
-    /// <summary>Generate and send a 4-digit OTP for warehouse parcel cancellation</summary>
     public async Task SendCancellationOtpAsync(Guid parcelId, Guid customerUserId, CancellationToken ct = default)
     {
         var customer = await GetCustomerProfileOrThrowAsync(customerUserId, ct);
@@ -1135,7 +1152,6 @@ public class ParcelService : IParcelService
         if (!isWarehouseStatus)
             throw new BadRequestException("OTP verification is only required for parcels currently at the warehouse.");
 
-        // Generate random 4-digit OTP
         var random = new Random();
         var otp = random.Next(1000, 9999).ToString("D4");
 
@@ -1145,7 +1161,6 @@ public class ParcelService : IParcelService
 
         await _uow.SaveChangesAsync(ct);
 
-        // Send OTP email/SMS notification
         try
         {
             await _notificationService.SendCancellationOtpAsync(customer.UserId, parcel.TrackingNumber, otp, ct);
@@ -1170,7 +1185,6 @@ public class ParcelService : IParcelService
 
         bool isWarehouseStatus = parcel.Status is ParcelStatus.AwaitingCheckIn or ParcelStatus.InWarehouse or ParcelStatus.CheckedOut;
 
-        // 🔒 OTP VERIFICATION GATE (WAREHOUSE PARCELS ONLY)
         if (isWarehouseStatus)
         {
             if (string.IsNullOrWhiteSpace(dto.Otp))
@@ -1182,7 +1196,6 @@ public class ParcelService : IParcelService
             if (parcel.CancellationOtp.Trim() != dto.Otp.Trim())
                 throw new BadRequestException("Invalid cancellation verification OTP code.");
 
-            // Clear OTP after successful use
             parcel.CancellationOtp = null;
             parcel.CancellationOtpExpiresAt = null;
         }
@@ -1197,7 +1210,6 @@ public class ParcelService : IParcelService
 
         string chargeMethod = "None";
 
-        // Release Bin assignment if stored
         var assignment = await _uow.Query<ParcelSortingAssignment>().Query()
             .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null && a.ReleasedAt == null, ct);
         if (assignment?.ConfirmedBinId != null)
@@ -1212,7 +1224,6 @@ public class ParcelService : IParcelService
             assignment.UpdatedAt = DateTime.UtcNow;
         }
 
-        // Process Refund
         if (parcel.IsPaid)
         {
             if (parcel.PaymentMethod == PaymentMethod.Wallet)
@@ -1250,7 +1261,6 @@ public class ParcelService : IParcelService
             await VoidInvoiceAsync(parcel, ct);
         }
 
-        // Tracking Event
         var trackingEvent = AddTrackingEvent(
             parcel,
             TrackingEventType.Cancelled,
@@ -1280,5 +1290,4 @@ public class ParcelService : IParcelService
                 : "Parcel cancelled successfully. Full refund issued."
         );
     }
-
 }

@@ -50,6 +50,10 @@ public interface IParcelService
     Task<ParcelBatchResultDto> BookBatchAsync(CreateParcelBatchDto dto, Guid customerId, CancellationToken ct = default);
     Task ApproveAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task RejectAsync(Guid parcelId, string reason, Guid staffId, CancellationToken ct = default);
+
+    // ➕ ADDED: Return to Sender method signature
+    Task ReturnToSenderAsync(Guid parcelId, string notes, Guid staffId, CancellationToken ct = default);
+
     Task CheckInAsync(Guid parcelId, Guid sortingBinId, Guid staffId, CancellationToken ct = default);
     Task<SortingSuggestionDto> GetSortingSuggestionAsync(Guid parcelId, CancellationToken ct = default);
     Task DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
@@ -76,7 +80,6 @@ public interface IParcelService
     Task SendCancellationOtpAsync(Guid parcelId, Guid customerUserId, CancellationToken ct = default);
     Task<CancelParcelResultDto> CancelByCustomerAsync(Guid parcelId, CancelParcelDto dto, Guid customerUserId, CancellationToken ct = default);
 }
-
 // ── Quotes ────────────────────────────────────────────────────────────────────
 public interface IQuoteService
 {
@@ -191,6 +194,10 @@ public interface ILostParcelService
 public interface IReturnService
 {
     Task<ReturnRequestDto> RequestReturnAsync(RequestReturnDto dto, Guid customerUserId, CancellationToken ct = default);
+
+    // ✅ FIX: Added the ApproveReturnAsync method signature
+    Task<ReturnRequestDto> ApproveReturnAsync(Guid returnId, Guid adminUserId, CancellationToken ct = default);
+
     Task<ReturnRequestDto> ReceiveAsync(Guid returnId, Guid staffUserId, CancellationToken ct = default);
     Task<ReturnRequestDto> InspectAsync(Guid returnId, InspectReturnDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<ReturnRequestDto> ReleaseRefundAsync(Guid returnId, ReleaseRefundDto dto, Guid staffUserId, CancellationToken ct = default);

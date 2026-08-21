@@ -116,7 +116,7 @@ public class AuthController : CourierSABaseController
     }
 }
 
-// ── Parcels Controller ────────────────────────────────────────────────────────
+
 [Route("api/parcels")]
 [Authorize]
 public class ParcelsController : CourierSABaseController
@@ -265,7 +265,8 @@ public class ParcelsController : CourierSABaseController
         if (parcel.Status != "FailedDelivery")
             throw new BadRequestException("Only parcels with status 'FailedDelivery' can be returned.");
 
-        await _parcelService.RejectAsync(id, $"Return to sender: {dto.Notes ?? "No notes"}", CurrentUserId, ct);
+        // ✅ FIX: Calls the new dedicated ReturnToSenderAsync method instead of RejectAsync
+        await _parcelService.ReturnToSenderAsync(id, dto.Notes ?? "No notes", CurrentUserId, ct);
         return NoContent("Return to sender initiated");
     }
 
@@ -307,7 +308,7 @@ public class ParcelsController : CourierSABaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // ➕ CUSTOMER CANCELLATION ENDPOINTS
+    // CUSTOMER CANCELLATION ENDPOINTS
     // ══════════════════════════════════════════════════════════════════════════════
 
     /// <summary>GET /api/parcels/{id}/cancel-quote – Customer previews cancellation fee & OTP rules</summary>
@@ -625,6 +626,15 @@ public class ReturnRequestsController : CourierSABaseController
         return Created(result, $"Return authorized. RA: {result.RaNumber}");
     }
 
+    // ✅ FIX: Added the endpoint for Admins to officially approve pending returns
+    [HttpPut("{id:guid}/approve")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ApproveReturn(Guid id, CancellationToken ct)
+    {
+        var result = await _returnService.ApproveReturnAsync(id, CurrentUserId, ct);
+        return Ok(result, "Return request has been approved and sent to dispatch.");
+    }
+
     [HttpGet("mine")]
     [Authorize(Policy = "CustomerOrBiz")]
     public async Task<IActionResult> GetMine(CancellationToken ct)
@@ -712,7 +722,6 @@ public class ReturnRequestsController : CourierSABaseController
         return Ok(result, $"Refund of R{result.RefundAmountZAR:0.00} released.");
     }
 }
-
 // ══════════════════════════════════════════════════════════════════════════════
 // SECURE DELIVERY CONTROLLER — UC3 Flag High-Value Parcel + Generate OTP /
 // UC4 Verify Recipient Identity

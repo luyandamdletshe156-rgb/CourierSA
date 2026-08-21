@@ -11,8 +11,8 @@ namespace CourierSA.Infrastructure.Services;
 
 public class ReturnService : IReturnService
 {
-    private const int ReturnWindowDays = 14;   // business rule — SRS specifies "return window policy" without a number
-    private const decimal ReturnHandlingFeeRate = 0.15m; // 15% of the original fee is retained to cover the reverse-leg collection and warehouse handling
+    private const int ReturnWindowDays = 14;
+    private const decimal ReturnHandlingFeeRate = 0.15m;
 
     private readonly IUnitOfWork _uow;
     private readonly IAuditService _audit;
@@ -65,11 +65,13 @@ public class ReturnService : IReturnService
             ParcelId = parcel.Id,
             CustomerId = customer.Id,
             RaNumber = $"RA-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
-            Status = ReturnRequestStatus.Approved,
+
+            // ✅ FIX: Status correctly uses 'Requested' so it waits for Admin approval
+            Status = ReturnRequestStatus.Requested,
+
             Reason = dto.Reason,
             CollectionAddressId = collectionAddress.Id,
             RequestedAt = DateTime.UtcNow,
-            ApprovedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -80,7 +82,7 @@ public class ReturnService : IReturnService
             Id = Guid.NewGuid(),
             ParcelId = parcel.Id,
             EventType = TrackingEventType.ReturnInitiated,
-            Description = $"Return authorized. RA: {returnRequest.RaNumber}. Reason: {dto.Reason}",
+            Description = $"Return requested. RA: {returnRequest.RaNumber}. Reason: {dto.Reason}. Awaiting admin approval.",
             OccurredAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -94,6 +96,40 @@ public class ReturnService : IReturnService
                 null, new { returnRequest.RaNumber, parcel.TrackingNumber, dto.Reason }, customerUserId, null, ct);
         }
         catch (Exception ex) { Console.WriteLine($"[AUDIT] RequestReturnAsync log failed: {ex.Message}"); }
+
+        return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
+    }
+
+    public async Task<ReturnRequestDto> ApproveReturnAsync(Guid returnId, Guid adminUserId, CancellationToken ct = default)
+    {
+        var returnRequest = await GetOrThrowAsync(returnId, ct);
+
+        // ✅ FIX: Checks if the status is 'Requested' before approving
+        if (returnRequest.Status != ReturnRequestStatus.Requested)
+            throw new BadRequestException($"Only requested returns can be approved (currently '{returnRequest.Status}').");
+
+        returnRequest.Status = ReturnRequestStatus.Approved;
+        returnRequest.ApprovedAt = DateTime.UtcNow;
+        returnRequest.UpdatedAt = DateTime.UtcNow;
+
+        var parcel = await _uow.Parcels.GetByIdAsync(returnRequest.ParcelId, ct)
+            ?? throw new NotFoundException("Linked parcel not found.");
+
+        var trackingEvent = new TrackingEvent
+        {
+            Id = Guid.NewGuid(),
+            ParcelId = parcel.Id,
+            EventType = TrackingEventType.ExceptionRaised,
+            Description = $"Return request RA: {returnRequest.RaNumber} has been approved. Awaiting dispatch.",
+            OccurredAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("RETURN_APPROVED", "ReturnRequest", returnRequest.Id,
+            null, new { returnRequest.RaNumber }, adminUserId, null, ct);
 
         return await MapToDtoAsync(returnRequest, parcel.TrackingNumber, ct);
     }
@@ -265,6 +301,22 @@ public class ReturnService : IReturnService
                 UpdatedAt = DateTime.UtcNow
             };
             await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
+
+            // ✅ Automatically generate an InsuranceClaim so the process continues into the Claims Queue
+            var claim = new InsuranceClaim
+            {
+                Id = Guid.NewGuid(),
+                ParcelId = parcel.Id,
+                CustomerId = parcel.CustomerId,
+                ClaimNumber = $"CLM-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
+                Type = ClaimType.Damage,
+                Status = ClaimStatus.Submitted,
+                ClaimedAmountZAR = parcel.DeclaredValueZAR ?? 0,
+                Description = $"Return inspection failed. Courier damage suspected. Notes: {dto.Notes}",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _uow.Query<InsuranceClaim>().AddAsync(claim, ct);
         }
         await _uow.SaveChangesAsync(ct);
 
@@ -314,8 +366,6 @@ public class ReturnService : IReturnService
         }
         else
         {
-            // No live payment gateway integration exists in this codebase (same constraint RejectAsync
-            // operates under) — Card/EFT refunds are flagged for manual processing outside the system.
             await VoidInvoiceAsync(parcel.Id, ct);
             await _audit.LogAsync("MANUAL_REFUND_REQUIRED", "ReturnRequest", returnRequest.Id,
                 null, new { parcel.TrackingNumber, Amount = refundAmount, parcel.PaymentMethod }, staffUserId, null, ct);
@@ -393,21 +443,18 @@ public class ReturnService : IReturnService
     {
         if (!returns.Any()) return new List<ReturnRequestDto>();
 
-        // 1. Fetch all related Parcels in one go (just what we need)
         var parcelIds = returns.Select(r => r.ParcelId).Distinct().ToList();
         var parcels = await _uow.Query<Parcel>().Query()
             .AsNoTracking()
             .Where(p => parcelIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id, p => new { p.TrackingNumber, p.QuoteAmountZAR }, ct);
 
-        // 2. Fetch all related Addresses in one go
         var addressIds = returns.Select(r => r.CollectionAddressId).Distinct().ToList();
         var addresses = await _uow.Query<ParcelAddress>().Query()
             .AsNoTracking()
             .Where(a => addressIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, ct);
 
-        // 3. Fetch assigned driver names in one go
         var driverIds = returns.Where(r => r.AssignedDriverId.HasValue)
             .Select(r => r.AssignedDriverId!.Value).Distinct().ToList();
         var driverNames = driverIds.Count == 0
@@ -417,7 +464,6 @@ public class ReturnService : IReturnService
                 .Where(d => driverIds.Contains(d.Id))
                 .ToDictionaryAsync(d => d.Id, d => d.User != null ? d.User.FullName : "—", ct);
 
-        // 4. Map in memory instantly
         var results = new List<ReturnRequestDto>();
         foreach (var r in returns)
         {
@@ -476,12 +522,6 @@ public class ReturnService : IReturnService
             r.AssignedDriverId, driverName, r.DispatchedAt, r.CollectedAt);
     }
 
-    /// <summary>
-    /// Returns (OriginalAmountZAR, HandlingFeeZAR, ExpectedRefundAmountZAR) for a return request.
-    /// If the refund has already been released, the actual persisted figures are used.
-    /// Otherwise a preview is computed at the current <see cref="ReturnHandlingFeeRate"/> so the
-    /// admin refund queue can show the amount that WILL be due before the refund is released.
-    /// </summary>
     private static (decimal? OriginalAmountZAR, decimal? HandlingFeeZAR, decimal? ExpectedRefundAmountZAR)
         ComputeRefundBreakdown(ReturnRequest r, decimal? quoteAmountZAR)
     {
