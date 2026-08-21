@@ -95,13 +95,28 @@ public enum DeliveryStatus
 
 public enum FailureReason
 {
+    // Legacy generic values — retained for backward compatibility with existing
+    // records; new UI no longer offers these directly (see the UC03/UC04-specific
+    // values below, which map 1:1 onto the SRS use case descriptions).
     RecipientAbsent,
     AddressNotFound,
     AccessDenied,
     ParcelDamaged,
     RefusedDelivery,
     InsufficientPayment,
-    Other
+    Other,
+
+    // UC03 — Handle Failed Parcel Collection (pickup-side reasons, per SRS flow step 4)
+    SenderUnavailable,
+    ParcelNotReady,
+    IncorrectCollectionAddress,
+    ParcelInformationMismatch,
+
+    // UC04 — Resolve Delivery Exception (delivery-side reasons, per SRS flow step 3)
+    RecipientUnavailable,
+    IncorrectAddress,
+    RestrictedAccess,
+    RecipientRefusedParcel
 }
 
 public enum DriverStatus
@@ -277,4 +292,57 @@ public enum ReturnItemCondition
     Acceptable,
     Damaged,
     Missing
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UC02 — Handle Damaged Parcel at Collection
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>Predefined damage categories the driver selects from at collection.</summary>
+public enum DamageType
+{
+    Crushed,
+    TornOrPunctured,
+    WaterDamage,
+    Leaking,
+    BrokenOrShattered,
+    Other
+}
+
+/// <summary>Severity level the driver assigns — drives the system's threshold evaluation.</summary>
+public enum DamageSeverity
+{
+    Minor,
+    Moderate,
+    Severe
+}
+
+/// <summary>The outcome the system (and, for escalations, the dispatcher) resolves the report to.</summary>
+public enum CollectionDamageOutcome
+{
+    Proceed,     // driver may accept custody and continue the collection
+    Escalated,   // held pending a dispatcher decision
+    Rejected     // collection refused; treated as a failed pickup
+}
+
+public enum CollectionDamageReportStatus
+{
+    PendingDispatcherReview,
+    Resolved
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UC03 / UC04 — Failed Parcel Collection & Delivery Exception next-action engine
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>System-recommended next step, computed from the failure reason (and, for
+/// deliveries, the attempt count) — surfaced to the dispatcher's queue.</summary>
+public enum ExceptionResolutionAction
+{
+    NotifyCustomerToReschedule,             // pickup: sender/parcel-side issue, customer follow-up needed
+    AutoRescheduleNextAttempt,               // delivery: transient issue, safe to auto re-attempt
+    EscalateForAddressCorrection,            // address is wrong — needs dispatcher/customer correction
+    EscalateForAccessArrangement,            // restricted access — needs special arrangement
+    RouteToReturnToSender,                   // recipient refused — route back through reverse logistics
+    RequiresManualReview                     // ambiguous / "Other" — dispatcher must triage manually
 }

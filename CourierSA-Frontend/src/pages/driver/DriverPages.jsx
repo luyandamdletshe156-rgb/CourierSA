@@ -5,13 +5,13 @@ import {
   StatCard, StatusPill, TrackingBadge,
   EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
-import { deliveryApi, secureDeliveryApi, returnApi } from '@/api'
+import { deliveryApi, secureDeliveryApi, returnApi, collectionDamageApi } from '@/api'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { 
   Truck, CheckCircle, XCircle, Navigation, Phone, 
   MapPin, Info, Calendar, X, AlertCircle, Route as RouteIcon,
   ShieldCheck, ShieldAlert, Camera, PenTool, Image as ImageIcon, FileSignature,
-  RotateCcw, PackageCheck
+  RotateCcw, PackageCheck, AlertTriangle, Trash2
 } from 'lucide-react'
 
 // ── Groups a list of deliveries by routeId. Items with no routeId (single
@@ -49,6 +49,16 @@ export function DriverDeliveries() {
   const [podNotes, setPodNotes]             = useState('')
   const [failReason, setFailReason]         = useState('RecipientAbsent')
   const [failNotes, setFailNotes]           = useState('')
+  const [failResult, setFailResult]         = useState(null)
+
+  // ── UC02 damage report state ────────────────────────────────────────────────
+  const [damageModal, setDamageModal]       = useState(null)   // the delivery being reported
+  const [damageStep, setDamageStep]         = useState('form') // 'form' | 'result'
+  const [damageType, setDamageType]         = useState('Crushed')
+  const [damageSeverity, setDamageSeverity] = useState('Minor')
+  const [damageNotes, setDamageNotes]       = useState('')
+  const [damagePhotos, setDamagePhotos]     = useState([])     // array of base64 data URLs
+  const [damageOutcome, setDamageOutcome]   = useState(null)   // preview result
   
   // POD Upload State
   const [podImage, setPodImage]             = useState(null)
@@ -71,8 +81,19 @@ export function DriverDeliveries() {
 
   const openFailedModal = (d) => {
     setFailedModal(d)
-    setFailReason('RecipientAbsent')
+    setFailReason(d?.isPickup ? 'SenderUnavailable' : 'RecipientUnavailable')
     setFailNotes('')
+    setFailResult(null)
+  }
+
+  const openDamageModal = (d) => {
+    setDamageModal(d)
+    setDamageStep('form')
+    setDamageType('Crushed')
+    setDamageSeverity('Minor')
+    setDamageNotes('')
+    setDamagePhotos([])
+    setDamageOutcome(null)
   }
 
   // FIXED: Passed as an object { otp: '1234' } to map properly to C# VerifyOtpDto
@@ -94,16 +115,48 @@ export function DriverDeliveries() {
     },
   })
 
+  // UC03/UC04 — driver submits, system returns the recommended next action;
+  // we hold the modal open one extra beat to show that outcome (mirrors UC02's
+  // "system displays outcome" pattern for a consistent feel across all three).
   const failedMutation = useMutation({
     mutationFn: ({ id }) => deliveryApi.markFailed(id, {
       reason: failReason,
       notes: failNotes,
     }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['driver-deliveries'] })
-      setFailedModal(null)
+      setFailResult(res?.data ?? null)
     },
   })
+
+  // UC02 — preview the system's severity-threshold evaluation before committing
+  const damagePreviewMutation = useMutation({
+    mutationFn: () => collectionDamageApi.preview(damageModal.id, { type: damageType, severity: damageSeverity }),
+    onSuccess: (res) => {
+      setDamageOutcome(res?.data ?? null)
+      setDamageStep('result')
+    },
+  })
+
+  const damageReportMutation = useMutation({
+    mutationFn: () => collectionDamageApi.report(damageModal.id, {
+      type: damageType,
+      severity: damageSeverity,
+      notes: damageNotes,
+      photoDataUrls: damagePhotos,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['driver-deliveries'] })
+      setDamageModal(null)
+    },
+  })
+
+  const handlePhotoCapture = (file) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setDamagePhotos(prev => [...prev, reader.result])
+    reader.readAsDataURL(file)
+  }
 
   const active    = deliveries.filter(d => d.status !== 'Delivered' && d.status !== 'Failed')
   const completed = deliveries.filter(d => d.status === 'Delivered')
@@ -119,24 +172,30 @@ export function DriverDeliveries() {
     otpVerified
   )
 
-  // Dynamic failure reasons based on task type
+  // Reason codes aligned 1:1 with the SRS flows for UC03 (pickup) and UC04 (delivery) —
+  // damage now has its own dedicated inspection flow (UC02), so it's no longer a
+  // catch-all reason chip here.
   const failReasonsList = failedModal?.isPickup
     ? [
-        { id: 'RecipientAbsent', label: 'Sender absent' },
-        { id: 'AddressNotFound', label: 'Address not found' },
-        { id: 'AccessDenied', label: 'Access denied' },
-        { id: 'ParcelDamaged', label: 'Not ready / Damaged' },
-        { id: 'RefusedDelivery', label: 'Refused to hand over' },
-        { id: 'Other', label: 'Other' }
+        { id: 'SenderUnavailable',         label: 'Sender unavailable' },
+        { id: 'ParcelNotReady',            label: 'Parcel not ready' },
+        { id: 'IncorrectCollectionAddress',label: 'Incorrect collection address' },
+        { id: 'ParcelInformationMismatch', label: 'Parcel information does not match' },
+        { id: 'Other',                     label: 'Other' }
       ]
     : [
-        { id: 'RecipientAbsent', label: 'Recipient absent' },
-        { id: 'AddressNotFound', label: 'Address not found' },
-        { id: 'AccessDenied', label: 'Access denied' },
-        { id: 'ParcelDamaged', label: 'Parcel damaged' },
-        { id: 'RefusedDelivery', label: 'Refused delivery' },
-        { id: 'Other', label: 'Other' }
+        { id: 'RecipientUnavailable', label: 'Recipient unavailable' },
+        { id: 'IncorrectAddress',     label: 'Incorrect address' },
+        { id: 'RestrictedAccess',     label: 'Restricted access' },
+        { id: 'RecipientRefusedParcel', label: 'Recipient refused parcel' },
+        { id: 'Other',                label: 'Other' }
       ];
+
+  const damageOutcomeStyle = {
+    Proceed:   { badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle, label: 'Proceed' },
+    Escalated: { badge: 'bg-amber-100 text-amber-700 border-amber-200',       icon: AlertCircle, label: 'Escalated to dispatcher' },
+    Rejected:  { badge: 'bg-red-100 text-red-700 border-red-200',             icon: XCircle,      label: 'Collection rejected' },
+  }
 
   return (
     <AppShell title="My Deliveries">
@@ -238,6 +297,7 @@ export function DriverDeliveries() {
                     onDetail={() => setDetailModal(d)}
                     onDelivered={() => openDeliveredModal(d)}
                     onFailed={() => openFailedModal(d)}
+                    onDamage={() => openDamageModal(d)}
                   />
                 ))}
               </div>
@@ -253,6 +313,7 @@ export function DriverDeliveries() {
               onDetail={() => setDetailModal(d)}
               onDelivered={() => openDeliveredModal(d)}
               onFailed={() => openFailedModal(d)}
+              onDamage={() => openDamageModal(d)}
             />
           ))}
         </div>
@@ -505,83 +566,301 @@ export function DriverDeliveries() {
         </div>
       )}
 
-      {/* RE-DESIGNED REPORT FAILED MODAL */}
+      {/* RE-DESIGNED REPORT FAILED MODAL — UC03 (pickup) / UC04 (delivery) */}
       {failedModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-[#172554]/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0">
-            
+
             <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-[#FECACA] bg-[#FEF2F2]">
               <div>
                 <h3 className="text-xl font-bold text-[#991B1B] tracking-tight flex items-center gap-2">
                   <AlertCircle className="w-5 h-5" />
-                  Report Failed {failedModal.isPickup ? 'Pickup' : 'Delivery'}
+                  {failResult ? 'Next Action' : `Report Failed ${failedModal.isPickup ? 'Pickup' : 'Delivery'}`}
                 </h3>
                 <p className="text-xs text-[#DC2626] mt-1 font-mono ml-7">{failedModal.trackingNumber}</p>
               </div>
               <button 
-                onClick={() => setFailedModal(null)}
+                onClick={() => { setFailedModal(null); setFailResult(null) }}
                 className="p-2 text-[#F87171] hover:text-white hover:bg-[#EF4444] rounded-full transition-colors bg-white border border-[#FECACA]"
               >
                 <X className="w-5 h-5" strokeWidth={2.5} />
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
-              
-              {/* Quick-Select Failure Chips */}
-              <div>
-                <label className="label text-[#7F1D1D] mb-3">What went wrong?</label>
-                <div className="flex flex-wrap gap-2">
-                  {failReasonsList.map(r => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setFailReason(r.id)}
-                      className={`px-3.5 py-2 text-xs font-bold rounded-lg border transition-all active:scale-95 ${
-                        failReason === r.id
-                          ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-md shadow-[#EF4444]/20'
-                          : 'bg-white text-[#475569] border-[#CBD5E1] hover:border-[#94A3B8] hover:bg-[#F8FAFC]'
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+            {!failResult ? (
+              <>
+                <div className="p-6 space-y-5">
+
+                  {/* Quick-Select Failure Chips */}
+                  <div>
+                    <label className="label text-[#7F1D1D] mb-3">What went wrong?</label>
+                    <div className="flex flex-wrap gap-2">
+                      {failReasonsList.map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setFailReason(r.id)}
+                          className={`px-3.5 py-2 text-xs font-bold rounded-lg border transition-all active:scale-95 ${
+                            failReason === r.id
+                              ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-md shadow-[#EF4444]/20'
+                              : 'bg-white text-[#475569] border-[#CBD5E1] hover:border-[#94A3B8] hover:bg-[#F8FAFC]'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label text-[#7F1D1D]" htmlFor="failed-notes">Additional details</label>
+                    <textarea 
+                      id="failed-notes"
+                      className="input min-h-[100px] resize-none focus:border-[#EF4444] focus:ring-[#EF4444]/20"
+                      placeholder={`Describe why the ${failedModal.isPickup ? 'pickup' : 'delivery'} couldn't be completed...`}
+                      value={failNotes}
+                      onChange={e => setFailNotes(e.target.value)}
+                    ></textarea>
+                  </div>
+
+                  {failedMutation.error && (
+                    <Alert type="error" message={failedMutation.error.message} className="mt-2" />
+                  )}
                 </div>
-              </div>
 
+                <div className="flex items-center gap-3 px-6 py-4 bg-[#FEF2F2] border-t border-[#FECACA]">
+                  <button 
+                    onClick={() => setFailedModal(null)} 
+                    className="btn-secondary flex-1 py-3 border-[#FECACA] text-[#991B1B] hover:bg-white"
+                    disabled={failedMutation.isPending}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn-danger flex-[2] py-3 shadow-lg hover:-translate-y-0.5"
+                    disabled={failedMutation.isPending}
+                    onClick={() => failedMutation.mutate({ id: failedModal.id })}
+                  >
+                    <XCircle size={18} /> 
+                    {failedMutation.isPending ? 'Reporting...' : 'Confirm Failure'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 space-y-4">
+                  <div className={`rounded-xl border p-4 flex items-start gap-3 ${
+                    failResult.requiresDispatcherReview
+                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  }`}>
+                    {failResult.requiresDispatcherReview
+                      ? <AlertTriangle size={20} className="flex-shrink-0 mt-0.5" />
+                      : <CheckCircle size={20} className="flex-shrink-0 mt-0.5" />}
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide mb-1">
+                        {failResult.requiresDispatcherReview ? 'Escalated to dispatcher' : 'Handled automatically'}
+                      </p>
+                      <p className="text-sm font-medium">{failResult.recommendedActionExplanation}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Attempt #{failResult.attemptNumber} · {failResult.status}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 px-6 py-4 bg-[#F8FAFC] border-t border-[#D8E4F5]">
+                  <button
+                    className="btn-primary flex-1 py-3"
+                    onClick={() => { setFailedModal(null); setFailResult(null) }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* UC02 — DAMAGE REPORT MODAL */}
+      {damageModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-[#172554]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="card w-full max-w-lg p-0 overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0">
+
+            <div className="card-header px-6 pt-6 mb-0 pb-4 border-b border-amber-200 bg-amber-50">
               <div>
-                <label className="label text-[#7F1D1D]" htmlFor="failed-notes">Additional details</label>
-                <textarea 
-                  id="failed-notes"
-                  className="input min-h-[100px] resize-none focus:border-[#EF4444] focus:ring-[#EF4444]/20"
-                  placeholder={`Describe why the ${failedModal.isPickup ? 'pickup' : 'delivery'} couldn't be completed...`}
-                  value={failNotes}
-                  onChange={e => setFailNotes(e.target.value)}
-                ></textarea>
+                <h3 className="text-xl font-bold text-amber-900 tracking-tight flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5" />
+                  {damageStep === 'form' ? 'Report Damage at Collection' : 'System Evaluation'}
+                </h3>
+                <p className="text-xs text-amber-700 mt-1 font-mono ml-7">{damageModal.trackingNumber}</p>
               </div>
-
-              {failedMutation.error && (
-                <Alert type="error" message={failedMutation.error.message} className="mt-2" />
-              )}
-            </div>
-
-            <div className="flex items-center gap-3 px-6 py-4 bg-[#FEF2F2] border-t border-[#FECACA]">
-              <button 
-                onClick={() => setFailedModal(null)} 
-                className="btn-secondary flex-1 py-3 border-[#FECACA] text-[#991B1B] hover:bg-white"
-                disabled={failedMutation.isPending}
+              <button
+                onClick={() => setDamageModal(null)}
+                className="p-2 text-amber-400 hover:text-white hover:bg-amber-500 rounded-full transition-colors bg-white border border-amber-200"
               >
-                Cancel
-              </button>
-              <button 
-                className="btn-danger flex-[2] py-3 shadow-lg hover:-translate-y-0.5"
-                disabled={failedMutation.isPending}
-                onClick={() => failedMutation.mutate({ id: failedModal.id })}
-              >
-                <XCircle size={18} /> 
-                {failedMutation.isPending ? 'Reporting...' : 'Confirm Failure'}
+                <X className="w-5 h-5" strokeWidth={2.5} />
               </button>
             </div>
+
+            {damageStep === 'form' ? (
+              <>
+                <div className="p-6 space-y-5 max-h-[65vh] overflow-y-auto">
+                  <div>
+                    <label className="label mb-2">Damage type</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        ['Crushed', 'Crushed'],
+                        ['TornOrPunctured', 'Torn / Punctured'],
+                        ['WaterDamage', 'Water damage'],
+                        ['Leaking', 'Leaking'],
+                        ['BrokenOrShattered', 'Broken / Shattered'],
+                        ['Other', 'Other'],
+                      ].map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setDamageType(id)}
+                          className={`px-3 py-2 text-xs font-bold rounded-lg border transition-all active:scale-95 ${
+                            damageType === id
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20'
+                              : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label mb-2">Severity level</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        ['Minor', 'Minor', 'border-emerald-300 text-emerald-700 data-[on=true]:bg-emerald-500 data-[on=true]:text-white data-[on=true]:border-emerald-500'],
+                        ['Moderate', 'Moderate', 'border-amber-300 text-amber-700 data-[on=true]:bg-amber-500 data-[on=true]:text-white data-[on=true]:border-amber-500'],
+                        ['Severe', 'Severe', 'border-red-300 text-red-700 data-[on=true]:bg-red-500 data-[on=true]:text-white data-[on=true]:border-red-500'],
+                      ].map(([id, label, cls]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          data-on={damageSeverity === id}
+                          onClick={() => setDamageSeverity(id)}
+                          className={`px-3 py-2.5 text-xs font-bold rounded-lg border-2 bg-white transition-all active:scale-95 ${cls}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label mb-2">Photo evidence</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {damagePhotos.map((src, i) => (
+                        <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200">
+                          <img src={src} alt={`Damage evidence ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setDamagePhotos(prev => prev.filter((_, idx) => idx !== i))}
+                            className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      <label className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer text-gray-400 hover:border-amber-400 hover:text-amber-500 transition-colors">
+                        <Camera size={20} />
+                        <span className="text-[10px] font-bold mt-1">Add photo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={e => { handlePhotoCapture(e.target.files[0]); e.target.value = '' }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label" htmlFor="damage-notes">Inspection notes</label>
+                    <textarea
+                      id="damage-notes"
+                      className="input min-h-[80px] resize-none"
+                      placeholder="Describe what you observed..."
+                      value={damageNotes}
+                      onChange={e => setDamageNotes(e.target.value)}
+                    ></textarea>
+                  </div>
+
+                  {damagePreviewMutation.error && (
+                    <Alert type="error" message={damagePreviewMutation.error.message} className="mt-2" />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 px-6 py-4 bg-amber-50 border-t border-amber-200">
+                  <button
+                    onClick={() => setDamageModal(null)}
+                    className="btn-secondary flex-1 py-3"
+                    disabled={damagePreviewMutation.isPending}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-primary flex-[2] py-3 shadow-lg bg-amber-600 hover:bg-amber-700 border-amber-600"
+                    disabled={damagePreviewMutation.isPending}
+                    onClick={() => damagePreviewMutation.mutate()}
+                  >
+                    {damagePreviewMutation.isPending ? 'Evaluating...' : 'Evaluate Severity'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 space-y-4">
+                  {damageOutcome && (() => {
+                    const style = damageOutcomeStyle[damageOutcome.recommendedOutcome] ?? damageOutcomeStyle.Escalated
+                    const Icon = style.icon
+                    return (
+                      <div className={`rounded-xl border p-4 flex items-start gap-3 ${style.badge}`}>
+                        <Icon size={22} className="flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wide mb-1">{style.label}</p>
+                          <p className="text-sm font-medium">{damageOutcome.explanation}</p>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    <span className="font-semibold text-gray-700">{damageType}</span> · {damageSeverity} severity · {damagePhotos.length} photo{damagePhotos.length !== 1 ? 's' : ''} attached
+                  </div>
+
+                  {damageReportMutation.error && (
+                    <Alert type="error" message={damageReportMutation.error.message} className="mt-2" />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 px-6 py-4 bg-amber-50 border-t border-amber-200">
+                  <button
+                    onClick={() => setDamageStep('form')}
+                    className="btn-secondary flex-1 py-3"
+                    disabled={damageReportMutation.isPending}
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="btn-primary flex-[2] py-3 shadow-lg bg-amber-600 hover:bg-amber-700 border-amber-600"
+                    disabled={damageReportMutation.isPending}
+                    onClick={() => damageReportMutation.mutate()}
+                  >
+                    {damageReportMutation.isPending ? 'Submitting...' : 'Confirm & Submit'}
+                  </button>
+                </div>
+              </>
+            )}
 
           </div>
         </div>
@@ -592,7 +871,7 @@ export function DriverDeliveries() {
 
 // ── Single delivery card — used for both grouped-route stops and ungrouped
 //    (single-dispatch) items, so the markup and actions are identical either way.
-function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFailed }) {
+function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFailed, onDamage }) {
   return (
     <div className="card hover:border-gray-300 transition-all">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -673,6 +952,16 @@ function DeliveryCard({ d, stopNumber, activeTab, onDetail, onDelivered, onFaile
                 <CheckCircle size={13} />
                 {d.isPickup ? 'Collect' : 'Deliver'}
               </button>
+              {d.isPickup && (
+                <button
+                  className="btn-secondary btn-sm flex-1 sm:flex-none border-amber-300 text-amber-700 hover:bg-amber-50"
+                  onClick={onDamage}
+                  title="Log physical damage found before accepting custody"
+                >
+                  <AlertTriangle size={13} />
+                  Damage
+                </button>
+              )}
               <button
                 className="btn-danger btn-sm flex-1 sm:flex-none"
                 onClick={onFailed}

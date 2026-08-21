@@ -48,13 +48,13 @@ public static class InfrastructureServiceExtensions
         services.Configure<JwtSettings>(jwtSection);
 
         var jwtSettings = jwtSection.Get<JwtSettings>()!;
-        var key         = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
+        var key = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
 
         services
             .AddAuthentication(opts =>
             {
                 opts.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                opts.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+                opts.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
             })
             .AddJwtBearer(opts =>
             {
@@ -62,13 +62,13 @@ public static class InfrastructureServiceExtensions
                 opts.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey        = new SymmetricSecurityKey(key),
-                    ValidateIssuer          = true,
-                    ValidIssuer             = jwtSettings.Issuer,
-                    ValidateAudience        = true,
-                    ValidAudience           = jwtSettings.Audience,
-                    ValidateLifetime        = true,
-                    ClockSkew               = TimeSpan.FromMinutes(1)
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    ValidateIssuer = true,
+                    ValidIssuer = jwtSettings.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = jwtSettings.Audience,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(1)
                 };
 
                 // SignalR – read token from query string
@@ -90,31 +90,32 @@ public static class InfrastructureServiceExtensions
 
         // ── Authorization Policies ────────────────────────────────────────────
         services.AddAuthorizationBuilder()
-            .AddPolicy("AdminOnly",        p => p.RequireRole("Administrator"))
-            .AddPolicy("DispatcherOrAdmin",p => p.RequireRole("Dispatcher", "Administrator"))
-            .AddPolicy("DriverOnly",       p => p.RequireRole("Driver"))
+            .AddPolicy("AdminOnly", p => p.RequireRole("Administrator"))
+            .AddPolicy("DispatcherOrAdmin", p => p.RequireRole("Dispatcher", "Administrator"))
+            .AddPolicy("DriverOnly", p => p.RequireRole("Driver"))
             .AddPolicy("WarehouseOrAdmin", p => p.RequireRole("WarehouseStaff", "Administrator"))
-            .AddPolicy("CustomerOrBiz",    p => p.RequireRole("Customer", "BusinessClient"))
-            .AddPolicy("StaffOnly",        p => p.RequireRole(
+            .AddPolicy("CustomerOrBiz", p => p.RequireRole("Customer", "BusinessClient"))
+            .AddPolicy("StaffOnly", p => p.RequireRole(
                 "Dispatcher", "WarehouseStaff", "Administrator", "Driver"));
 
         // ── Application Services ──────────────────────────────────────────────
-        services.AddScoped<ITokenService,        JwtTokenService>();
-        services.AddScoped<IPasswordService,     PasswordService>();
-        services.AddScoped<IAuthService,         AuthService>();
-        services.AddScoped<IParcelService,       ParcelService>();
+        services.AddScoped<ITokenService, JwtTokenService>();
+        services.AddScoped<IPasswordService, PasswordService>();
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IParcelService, ParcelService>();
         services.AddScoped<ILostParcelService, LostParcelService>();
         services.AddScoped<IReturnService, ReturnService>();
-        services.AddScoped<IQuoteService,        QuoteService>();
+        services.AddScoped<IQuoteService, QuoteService>();
         services.AddScoped<INotificationService, NotificationService>();
-        services.AddScoped<IAuditService,        AuditService>();
-        services.AddScoped<IBarcodeService,      BarcodeService>();
-        services.AddScoped<IStorageService,      LocalStorageService>();
+        services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<IBarcodeService, BarcodeService>();
+        services.AddScoped<IStorageService, LocalStorageService>();
         services.Configure<BrevoEmailSettings>(configuration.GetSection("BrevoEmailSettings"));
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IBulkCsvService, BulkCsvService>();
         services.AddScoped<ISecureDeliveryService, SecureDeliveryService>();
         services.AddScoped<IReschedulingService, ReschedulingService>();
+        services.AddScoped<ICollectionDamageService, CollectionDamageService>();
 
 
         // ── SignalR ───────────────────────────────────────────────────────────

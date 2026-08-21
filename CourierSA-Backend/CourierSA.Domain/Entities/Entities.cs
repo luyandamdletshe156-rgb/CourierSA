@@ -182,11 +182,48 @@ public class Delivery : BaseEntity
     public DateTime? DispatchedAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
 
+    // ── UC03/UC04 — next-action engine (populated by MarkFailedAsync) ──────────
+    public int AttemptNumber { get; set; } = 1;
+    public ExceptionResolutionAction? RecommendedAction { get; set; }
+    public bool RequiresDispatcherReview { get; set; }
+    public string? DispatcherResolutionNotes { get; set; }
+    public DateTime? EscalationResolvedAt { get; set; }
+
     public Parcel? Parcel { get; set; }
     public DriverProfile? Driver { get; set; }
 
     public Guid? RouteId { get; set; }
     public DeliveryRoute? Route { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UC02 — Collection Damage Report (Handle Damaged Parcel at Collection)
+// ══════════════════════════════════════════════════════════════════════════════
+public class CollectionDamageReport : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public Guid DeliveryId { get; set; }     // the pickup-leg Delivery this report was raised against
+    public Guid DriverId { get; set; }       // DriverProfile.Id
+
+    public DamageType Type { get; set; }
+    public DamageSeverity Severity { get; set; }
+    public string? Notes { get; set; }
+
+    /// <summary>JSON array of base64 data-URL photo captures (demo-scope evidence storage —
+    /// no blob storage / CDN is provisioned for this project).</summary>
+    public string? PhotoDataUrls { get; set; }
+
+    public CollectionDamageOutcome SystemRecommendedOutcome { get; set; }
+    public CollectionDamageOutcome? FinalOutcome { get; set; }
+    public CollectionDamageReportStatus Status { get; set; } = CollectionDamageReportStatus.PendingDispatcherReview;
+
+    public string? DispatcherDecisionNotes { get; set; }
+    public Guid? ResolvedByDispatcherId { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+
+    public Parcel? Parcel { get; set; }
+    public Delivery? Delivery { get; set; }
+    public DriverProfile? Driver { get; set; }
 }
 
 // ── Quote ─────────────────────────────────────────────────────────────────────

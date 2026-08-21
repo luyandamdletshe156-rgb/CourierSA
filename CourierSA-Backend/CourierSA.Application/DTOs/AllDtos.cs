@@ -261,7 +261,10 @@ public record DeliveryDto(
     string? DriverPhone = null,
     Guid? RouteId = null,
     bool RequiresOtpVerification = false,   // ← ADD
-    bool OtpVerified = false                // ← ADD
+    bool OtpVerified = false,               // ← ADD
+    int AttemptNumber = 1,
+    string? RecommendedAction = null,
+    bool RequiresDispatcherReview = false
 );
 public record BulkUploadResultDto(
     int TotalRows,
@@ -649,4 +652,48 @@ namespace CourierSA.Application.DTOs.Rescheduling
     public record RescheduleResultDto(
         Guid ParcelId, string TrackingNumber, DateTime NewScheduledPickupDate,
         bool FeeCharged, decimal FeeZAR, string ChargeMethod);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UC02 — Handle Damaged Parcel at Collection
+// ══════════════════════════════════════════════════════════════════════════════
+namespace CourierSA.Application.DTOs.CollectionDamage
+{
+    using CourierSA.Domain.Enums;
+
+    /// <summary>Driver's damage report submission (also used to request a preview).</summary>
+    public record SubmitCollectionDamageReportDto(
+        DamageType Type,
+        DamageSeverity Severity,
+        string? Notes,
+        List<string>? PhotoDataUrls);
+
+    /// <summary>Pure computation — the system's recommended outcome for the given
+    /// type/severity/parcel combination, without persisting anything. Lets the driver
+    /// see the outcome before committing (SRS flow steps 6–7).</summary>
+    public record DamageOutcomePreviewDto(
+        string RecommendedOutcome,
+        string Explanation);
+
+    public record CollectionDamageReportDto(
+        Guid Id, Guid ParcelId, string TrackingNumber, Guid DeliveryId,
+        string DamageType, string Severity, string? Notes, List<string> PhotoDataUrls,
+        string SystemRecommendedOutcome, string? FinalOutcome, string Status,
+        string? DriverName, DateTime CreatedAt,
+        string? DispatcherDecisionNotes, DateTime? ResolvedAt);
+
+    public record ResolveDamageEscalationDto(CollectionDamageOutcome Outcome, string? Notes);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UC03 / UC04 — Failed Parcel Collection & Delivery Exception next-action result
+// ══════════════════════════════════════════════════════════════════════════════
+namespace CourierSA.Application.DTOs.Parcels
+{
+    public record FailedDeliveryResultDto(
+        Guid DeliveryId, string Status, string Reason, int AttemptNumber,
+        string RecommendedAction, string RecommendedActionExplanation,
+        bool RequiresDispatcherReview);
+
+    public record ResolveDeliveryEscalationDto(string Resolution, string? Notes);
 }

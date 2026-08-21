@@ -144,8 +144,17 @@ export const deliveryApi = {
   failed:        ()          => api.get('/deliveries/failed'),           // Added for Dispatcher Failed list
   markDelivered: (id, dto)   => api.put(`/deliveries/${id}/delivered`, dto),
   markFailed:    (id, dto)   => api.put(`/deliveries/${id}/failed`, dto),
+  resolveEscalation: (id, dto) => api.put(`/deliveries/${id}/resolve-escalation`, dto),
   updateLocation:(id, lat, lng) =>
                     api.put(`/deliveries/${id}/location`, { latitude: lat, longitude: lng }),
+}
+
+// ── UC02 — Handle Damaged Parcel at Collection ──────────────────────────────────
+export const collectionDamageApi = {
+  preview: (deliveryId, dto) => api.post(`/collection-damage/${deliveryId}/preview`, dto),
+  report:  (deliveryId, dto) => api.post(`/collection-damage/${deliveryId}/report`, dto),
+  queue:   ()                => api.get('/collection-damage/queue'),
+  resolve: (id, dto)         => api.put(`/collection-damage/${id}/resolve`, dto),
 }
 
 export const notificationApi = {

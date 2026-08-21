@@ -11,30 +11,31 @@ public class ApplicationDbContext : DbContext
         : base(options) { }
 
     // ── Core Identity ──────────────────────────────────────────────────────────
-    public DbSet<User>                     Users                    { get; set; }
-    public DbSet<CustomerProfile>          CustomerProfiles         { get; set; }
-    public DbSet<DriverProfile>            DriverProfiles           { get; set; }
+    public DbSet<User> Users { get; set; }
+    public DbSet<CustomerProfile> CustomerProfiles { get; set; }
+    public DbSet<DriverProfile> DriverProfiles { get; set; }
 
     // ── Parcel Workflow ────────────────────────────────────────────────────────
-    public DbSet<Parcel>                   Parcels                  { get; set; }
-    public DbSet<ParcelAddress>            ParcelAddresses          { get; set; }
-    public DbSet<TrackingEvent>            TrackingEvents           { get; set; }
-    public DbSet<Quote>                    Quotes                   { get; set; }
-    public DbSet<ParcelInspection>         ParcelInspections        { get; set; }
-    public DbSet<Delivery>                 Deliveries               { get; set; }
+    public DbSet<Parcel> Parcels { get; set; }
+    public DbSet<ParcelAddress> ParcelAddresses { get; set; }
+    public DbSet<TrackingEvent> TrackingEvents { get; set; }
+    public DbSet<Quote> Quotes { get; set; }
+    public DbSet<ParcelInspection> ParcelInspections { get; set; }
+    public DbSet<Delivery> Deliveries { get; set; }
     public DbSet<LostParcelCase> LostParcelCases { get; set; }
     public DbSet<ReturnRequest> ReturnRequests { get; set; }
+    public DbSet<CollectionDamageReport> CollectionDamageReports { get; set; }
 
     // ── Fleet ──────────────────────────────────────────────────────────────────
-    public DbSet<Vehicle>                  Vehicles                 { get; set; }
-    public DbSet<VehicleInspection>        VehicleInspections       { get; set; }
+    public DbSet<Vehicle> Vehicles { get; set; }
+    public DbSet<VehicleInspection> VehicleInspections { get; set; }
 
     // ── Finance ────────────────────────────────────────────────────────────────
-    public DbSet<WalletTransaction>        WalletTransactions       { get; set; }
-    public DbSet<Invoice>                  Invoices                 { get; set; }
+    public DbSet<WalletTransaction> WalletTransactions { get; set; }
+    public DbSet<Invoice> Invoices { get; set; }
 
     // ── Claims & Corrections ───────────────────────────────────────────────────
-    public DbSet<InsuranceClaim>           InsuranceClaims          { get; set; }
+    public DbSet<InsuranceClaim> InsuranceClaims { get; set; }
     public DbSet<AddressCorrectionRequest> AddressCorrectionRequests { get; set; }
     // ── Sorting & Warehouse Zones ──────────────────────────────────────────────
     public DbSet<PostalCodeZoneRule> PostalCodeZoneRules { get; set; }
@@ -46,8 +47,8 @@ public class ApplicationDbContext : DbContext
     // ── Platform ───────────────────────────────────────────────────────────────
 
     public DbSet<BulkUploadHistory> BulkUploadHistories { get; set; }
-    public DbSet<Notification>Notifications{ get; set; }
-    public DbSet<AuditLog>AuditLogs{ get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -81,6 +82,24 @@ public class ApplicationDbContext : DbContext
            .HasForeignKey(c => c.InsuranceClaimId)
            .OnDelete(DeleteBehavior.SetNull);
 
+        modelBuilder.Entity<CollectionDamageReport>()
+           .HasOne(r => r.Parcel)
+           .WithMany()
+           .HasForeignKey(r => r.ParcelId)
+           .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CollectionDamageReport>()
+           .HasOne(r => r.Delivery)
+           .WithMany()
+           .HasForeignKey(r => r.DeliveryId)
+           .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CollectionDamageReport>()
+           .HasOne(r => r.Driver)
+           .WithMany()
+           .HasForeignKey(r => r.DriverId)
+           .OnDelete(DeleteBehavior.Restrict);
+
 
         // Global query filters – soft delete
         modelBuilder.Entity<User>().HasQueryFilter(e => !e.IsDeleted);
@@ -91,9 +110,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<InsuranceClaim>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<LostParcelCase>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ReturnRequest>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<CollectionDamageReport>().HasQueryFilter(e => !e.IsDeleted);
 
 
-       
+
         // Precision overrides for money columns (MySQL DECIMAL)
         foreach (var property in modelBuilder.Model.GetEntityTypes()
             .SelectMany(t => t.GetProperties())

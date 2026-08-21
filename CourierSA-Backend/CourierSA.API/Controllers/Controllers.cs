@@ -1,5 +1,6 @@
 using CourierSA.API.Middleware;
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.CollectionDamage;
 using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
 using CourierSA.Application.DTOs.Rescheduling;
@@ -479,6 +480,10 @@ public class DeliveriesController : CourierSABaseController
             d.FailureReason,
             d.AttemptNotes,
             d.UpdatedAt,
+            d.AttemptNumber,
+            recommendedAction = d.RecommendedAction != null ? d.RecommendedAction.Value.ToString() : null,
+            d.RequiresDispatcherReview,
+            d.DispatcherResolutionNotes,
 
             isPickup = d.Parcel != null && d.Parcel.Status == ParcelStatus.Approved,
 
@@ -522,13 +527,16 @@ public class DeliveriesController : CourierSABaseController
         return NoContent("Delivery marked as successful");
     }
 
-    /// <summary>PUT /api/deliveries/{id}/failed</summary>
+    /// <summary>PUT /api/deliveries/{id}/failed — UC03 (pickup) / UC04 (delivery): driver
+    /// reports a failed attempt; system determines and returns the recommended next action.</summary>
     [HttpPut("{id:guid}/failed")]
     public async Task<IActionResult> MarkFailed(
         Guid id, [FromBody] FailedDeliveryDto dto, CancellationToken ct)
     {
-        await _parcelService.MarkFailedAsync(id, dto, CurrentUserId, ct);
-        return NoContent("Delivery marked as failed");
+        var result = await _parcelService.MarkFailedAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, result.RequiresDispatcherReview
+            ? $"Reported. {result.RecommendedActionExplanation}"
+            : $"Reported. {result.RecommendedActionExplanation}");
     }
 
     /// <summary>PUT /api/deliveries/{id}/location – Driver GPS update</summary>
@@ -538,6 +546,24 @@ public class DeliveriesController : CourierSABaseController
     {
         await _parcelService.UpdateDriverLocationAsync(CurrentUserId, dto.Latitude, dto.Longitude, ct);
         return NoContent("Location updated");
+    }
+
+    /// <summary>PUT /api/deliveries/{id}/resolve-escalation — UC03/UC04: dispatcher
+    /// clears a flagged exception once they've acted on it (re-dispatched, corrected the
+    /// address, arranged access, or routed the parcel to return-to-sender).</summary>
+    [HttpPut("{id:guid}/resolve-escalation")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> ResolveEscalation(
+        Guid id, [FromBody] ResolveDeliveryEscalationDto dto, CancellationToken ct)
+    {
+        var delivery = await _uow.Deliveries.GetByIdAsync(id, ct)
+            ?? throw new NotFoundException("Delivery not found.");
+        delivery.RequiresDispatcherReview = false;
+        delivery.DispatcherResolutionNotes = $"{dto.Resolution}" + (string.IsNullOrWhiteSpace(dto.Notes) ? "" : $" — {dto.Notes}");
+        delivery.EscalationResolvedAt = DateTime.UtcNow;
+        delivery.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+        return NoContent("Escalation resolved");
     }
 }
 
@@ -891,5 +917,62 @@ public class LostParcelsController : CourierSABaseController
     {
         var result = await _lostParcelService.UpdateClaimStatusAsync(claimId, dto, CurrentUserId, ct);
         return Ok(result, $"Insurance claim status updated to {result.Status}.");
+    }
+}
+
+/// <summary>
+/// UC02 — Handle Damaged Parcel at Collection.
+///
+/// POST /api/collection-damage/{deliveryId}/preview  — Driver: system-evaluated outcome, not persisted
+/// POST /api/collection-damage/{deliveryId}/report    — Driver: confirm & submit the inspection report
+/// GET  /api/collection-damage/queue                  — Dispatcher: escalations awaiting a decision
+/// PUT  /api/collection-damage/{id}/resolve            — Dispatcher: resolve an escalated report
+/// </summary>
+[Route("api/collection-damage")]
+[Authorize]
+public class CollectionDamageController : CourierSABaseController
+{
+    private readonly ICollectionDamageService _damageService;
+
+    public CollectionDamageController(ICollectionDamageService damageService)
+    {
+        _damageService = damageService;
+    }
+
+    public record PreviewRequestDto(DamageType Type, DamageSeverity Severity);
+
+    [HttpPost("{deliveryId:guid}/preview")]
+    [Authorize(Policy = "DriverOnly")]
+    public async Task<IActionResult> Preview(
+        Guid deliveryId, [FromBody] PreviewRequestDto dto, CancellationToken ct)
+    {
+        var result = await _damageService.PreviewOutcomeAsync(deliveryId, dto.Type, dto.Severity, CurrentUserId, ct);
+        return Ok(result);
+    }
+
+    [HttpPost("{deliveryId:guid}/report")]
+    [Authorize(Policy = "DriverOnly")]
+    public async Task<IActionResult> Report(
+        Guid deliveryId, [FromBody] SubmitCollectionDamageReportDto dto, CancellationToken ct)
+    {
+        var result = await _damageService.ReportAsync(deliveryId, dto, CurrentUserId, ct);
+        return Created(result, $"Damage report submitted — outcome: {result.SystemRecommendedOutcome}");
+    }
+
+    [HttpGet("queue")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> GetQueue(CancellationToken ct)
+    {
+        var result = await _damageService.GetQueueAsync(ct);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/resolve")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> Resolve(
+        Guid id, [FromBody] ResolveDamageEscalationDto dto, CancellationToken ct)
+    {
+        var result = await _damageService.ResolveEscalationAsync(id, dto, CurrentUserId, ct);
+        return Ok(result, $"Escalation resolved: {result.FinalOutcome}");
     }
 }

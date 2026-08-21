@@ -1,5 +1,6 @@
 using CourierSA.Application.DTOs.Auth;
 using CourierSA.Application.DTOs.Bulk;
+using CourierSA.Application.DTOs.CollectionDamage;
 using CourierSA.Application.DTOs.Invoices;
 using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
@@ -10,6 +11,7 @@ using CourierSA.Application.DTOs.Routing;
 using CourierSA.Application.DTOs.SecureDelivery;
 using CourierSA.Application.DTOs.Sorting;
 using CourierSA.Domain.Entities;
+using CourierSA.Domain.Enums;
 using System.Security.Claims;
 
 namespace CourierSA.Application.Interfaces.Services;
@@ -52,7 +54,7 @@ public interface IParcelService
     Task<SortingSuggestionDto> GetSortingSuggestionAsync(Guid parcelId, CancellationToken ct = default);
     Task DispatchAsync(Guid parcelId, Guid driverId, Guid dispatcherId, CancellationToken ct = default);
     Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverId, CancellationToken ct = default);
-    Task MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);
+    Task<FailedDeliveryResultDto> MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverId, CancellationToken ct = default);
     Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default);
     Task<TrackingResultDto?> TrackAsync(string trackingNumber, CancellationToken ct = default);
     Task<ParcelDetailDto?> GetDetailAsync(Guid id, CancellationToken ct = default);
@@ -208,6 +210,24 @@ public interface ISecureDeliveryService
     Task<FlagHighValueResultDto> AutoFlagOnDispatchAsync(Parcel parcel);
     Task SendOtpEmailForParcelAsync(Parcel parcel, string otpCode);
     Task ResendOtpAsync(Guid parcelId, CancellationToken ct = default);
+}
+
+// ── UC02 — Handle Damaged Parcel at Collection ─────────────────────────────────
+public interface ICollectionDamageService
+{
+    /// <summary>Computes the recommended outcome without persisting anything — lets the
+    /// driver see the system's evaluation before confirming (SRS steps 6–7).</summary>
+    Task<DamageOutcomePreviewDto> PreviewOutcomeAsync(
+        Guid deliveryId, DamageType type, DamageSeverity severity, Guid driverUserId, CancellationToken ct = default);
+
+    /// <summary>Driver confirms and submits the inspection report (SRS steps 8–9).</summary>
+    Task<CollectionDamageReportDto> ReportAsync(
+        Guid deliveryId, SubmitCollectionDamageReportDto dto, Guid driverUserId, CancellationToken ct = default);
+
+    Task<IEnumerable<CollectionDamageReportDto>> GetQueueAsync(CancellationToken ct = default);
+
+    Task<CollectionDamageReportDto> ResolveEscalationAsync(
+        Guid reportId, ResolveDamageEscalationDto dto, Guid dispatcherUserId, CancellationToken ct = default);
 }
 
 public interface IReschedulingService

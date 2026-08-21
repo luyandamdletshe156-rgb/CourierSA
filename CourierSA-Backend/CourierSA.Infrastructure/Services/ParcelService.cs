@@ -748,7 +748,54 @@ public class ParcelService : IParcelService
         try { await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct); } catch (Exception ex) { Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}"); }
     }
 
-    public async Task MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverUserId, CancellationToken ct = default)
+    // ── UC03/UC04 next-action engine ────────────────────────────────────────────
+    // Pickup reasons map to UC03 (Handle Failed Parcel Collection); delivery reasons
+    // map to UC04 (Resolve Delivery Exception). Both SRS flows end with "the system
+    // determines the appropriate next action" — this is that determination, computed
+    // from the reason (and, for deliveries, how many attempts have already failed).
+    private const int MaxAutoReattempts = 2;
+
+    private static (ExceptionResolutionAction Action, string Explanation) DetermineNextAction(
+        bool isPickup, FailureReason reason, int attemptNumber)
+    {
+        if (isPickup)
+        {
+            return reason switch
+            {
+                FailureReason.SenderUnavailable or FailureReason.ParcelNotReady =>
+                    (ExceptionResolutionAction.NotifyCustomerToReschedule,
+                     "Sender-side issue — the customer has been notified to reschedule the collection."),
+                FailureReason.IncorrectCollectionAddress =>
+                    (ExceptionResolutionAction.EscalateForAddressCorrection,
+                     "The collection address appears incorrect — a dispatcher must confirm the correct address before re-attempting."),
+                FailureReason.ParcelInformationMismatch =>
+                    (ExceptionResolutionAction.RequiresManualReview,
+                     "Parcel details didn't match what was expected at collection — flagged for manual review."),
+                _ => (ExceptionResolutionAction.RequiresManualReview, "Unclassified pickup failure — flagged for dispatcher triage.")
+            };
+        }
+
+        return reason switch
+        {
+            FailureReason.RecipientUnavailable => attemptNumber <= MaxAutoReattempts
+                ? (ExceptionResolutionAction.AutoRescheduleNextAttempt,
+                   $"Recipient unavailable on attempt {attemptNumber} — eligible for an automatic re-attempt.")
+                : (ExceptionResolutionAction.EscalateForAddressCorrection,
+                   $"Recipient unavailable for {attemptNumber} consecutive attempts — escalated to a dispatcher."),
+            FailureReason.IncorrectAddress =>
+                (ExceptionResolutionAction.EscalateForAddressCorrection,
+                 "The delivery address appears incorrect — needs dispatcher/customer correction before re-attempting."),
+            FailureReason.RestrictedAccess =>
+                (ExceptionResolutionAction.EscalateForAccessArrangement,
+                 "Access to the delivery location is restricted — needs a special access arrangement."),
+            FailureReason.RecipientRefusedParcel =>
+                (ExceptionResolutionAction.RouteToReturnToSender,
+                 "The recipient refused the parcel — routed for return-to-sender processing."),
+            _ => (ExceptionResolutionAction.RequiresManualReview, "Unclassified delivery exception — flagged for dispatcher triage.")
+        };
+    }
+
+    public async Task<FailedDeliveryResultDto> MarkFailedAsync(Guid deliveryId, FailedDeliveryDto dto, Guid driverUserId, CancellationToken ct = default)
     {
         var driverProfile = await _uow.Query<DriverProfile>().FirstOrDefaultAsync(d => d.UserId == driverUserId, ct) ?? throw new NotFoundException("Driver profile not found.");
         var delivery = await _uow.Deliveries.GetByIdAsync(deliveryId, ct) ?? throw new NotFoundException("Delivery not found.");
@@ -756,7 +803,23 @@ public class ParcelService : IParcelService
         var parcel = await _uow.Parcels.GetWithFullDetailsAsync(delivery.ParcelId, ct) ?? throw new NotFoundException($"Parcel {delivery.ParcelId} not found.");
 
         var isPickup = parcel.Status == ParcelStatus.Approved;
-        delivery.Status = DeliveryStatus.Failed; delivery.FailureReason = dto.Reason; delivery.AttemptNotes = dto.Notes; delivery.UpdatedAt = DateTime.UtcNow;
+
+        // Attempt number = how many Delivery rows have ever been raised for this parcel
+        // (a fresh Delivery row is created on every (re)dispatch — see DispatchAsync).
+        var attemptNumber = await _uow.Deliveries.Query().CountAsync(d => d.ParcelId == parcel.Id, ct);
+        var (action, explanation) = DetermineNextAction(isPickup, dto.Reason, attemptNumber);
+        var requiresDispatcherReview = action is ExceptionResolutionAction.EscalateForAddressCorrection
+            or ExceptionResolutionAction.EscalateForAccessArrangement
+            or ExceptionResolutionAction.RouteToReturnToSender
+            or ExceptionResolutionAction.RequiresManualReview;
+
+        delivery.Status = DeliveryStatus.Failed;
+        delivery.FailureReason = dto.Reason;
+        delivery.AttemptNotes = dto.Notes;
+        delivery.AttemptNumber = attemptNumber;
+        delivery.RecommendedAction = action;
+        delivery.RequiresDispatcherReview = requiresDispatcherReview;
+        delivery.UpdatedAt = DateTime.UtcNow;
         if (!isPickup) parcel.Status = ParcelStatus.FailedDelivery;
         parcel.UpdatedAt = DateTime.UtcNow;
 
@@ -768,7 +831,7 @@ public class ParcelService : IParcelService
             Id = Guid.NewGuid(),
             ParcelId = parcel.Id,
             EventType = TrackingEventType.DeliveryFailed,
-            Description = isPickup ? $"Pickup failed: {dto.Reason}" : $"Delivery failed: {dto.Reason}",
+            Description = (isPickup ? $"Pickup failed: {dto.Reason}" : $"Delivery failed: {dto.Reason}") + $" — {explanation}",
             OccurredAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -777,8 +840,34 @@ public class ParcelService : IParcelService
         await _uow.SaveChangesAsync(ct);
         await CheckRouteCompletionAsync(delivery.RouteId, ct);
         try { await _notificationService.SendFailedDeliveryAsync(parcel.Customer!.UserId, parcel.TrackingNumber, dto.Reason.ToString(), ct); } catch (Exception ex) { Console.WriteLine($"[NOTIFY] Failed-delivery notification failed: {ex.Message}"); }
-        try { await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId, null, new { dto.Reason, dto.Notes }, driverUserId, null, ct); } catch (Exception ex) { Console.WriteLine($"[AUDIT] Log failed for {parcel.TrackingNumber}: {ex.Message}"); }
+        try { await _audit.LogAsync("DELIVERY_FAILED", "Delivery", deliveryId, null, new { dto.Reason, dto.Notes, AttemptNumber = attemptNumber, RecommendedAction = action.ToString(), requiresDispatcherReview }, driverUserId, null, ct); } catch (Exception ex) { Console.WriteLine($"[AUDIT] Log failed for {parcel.TrackingNumber}: {ex.Message}"); }
         try { await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, isPickup ? "Approved" : "FailedDelivery", ct: ct); } catch (Exception ex) { Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}"); }
+
+        // Proactively alert dispatchers when a case needs their attention — mirrors the
+        // "Dispatcher/customer may be notified" step in the UC04 flow.
+        if (requiresDispatcherReview)
+        {
+            try
+            {
+                var dispatcherIds = await _uow.Users.Query()
+                    .Where(u => u.Role == UserRole.Dispatcher && !u.IsDeleted)
+                    .Select(u => u.Id)
+                    .ToListAsync(ct);
+                foreach (var dispatcherId in dispatcherIds)
+                {
+                    await _notificationService.SendSystemAlertAsync(
+                        dispatcherId,
+                        $"{(isPickup ? "Pickup" : "Delivery")} exception needs review",
+                        $"{parcel.TrackingNumber}: {explanation}",
+                        ct);
+                }
+            }
+            catch (Exception ex) { Console.WriteLine($"[NOTIFY] Dispatcher escalation alert failed: {ex.Message}"); }
+        }
+
+        return new FailedDeliveryResultDto(
+            delivery.Id, delivery.Status.ToString(), dto.Reason.ToString(), attemptNumber,
+            action.ToString(), explanation, requiresDispatcherReview);
     }
 
     public async Task<TrackingResultDto?> TrackAsync(string trackingNumber, CancellationToken ct = default)
