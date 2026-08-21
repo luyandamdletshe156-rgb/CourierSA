@@ -56,6 +56,7 @@ const NAV = {
     { label: 'Track',        icon: Search,          to: '/dispatcher/track'        },
     { label: 'Reassign',     icon: RefreshCw,       to: '/dispatcher/reassign'      },
     { label: 'Failed Deliveries', icon: AlertTriangle, to: '/dispatcher/failed'     },
+    { label: 'Damage Escalations', icon: AlertTriangle, to: '/dispatcher/damage-escalations' },
     { label: 'Flag High Value', icon: AlertTriangle, to: '/dispatcher/flag-high-value' },
     { label: 'Maintenance Swaps', icon: Truck,       to: '/dispatcher/swaps'        },
     { label: 'History',      icon: FileText,        to: '/dispatcher/history'      },

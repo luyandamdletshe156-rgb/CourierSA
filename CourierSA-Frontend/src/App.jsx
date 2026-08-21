@@ -28,6 +28,7 @@ import RequestReturnPage from '@/pages/customer/RequestReturnPage'
 // Dispatcher
 import { DispatcherDashboard, DispatchQueue, ReturnCollectionsQueue } from '@/pages/dispatcher/DispatcherPages'
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
+import DamageEscalationQueuePage from '@/pages/dispatcher/DamageEscalationQueuePage'
 import LiveMapPage from '@/pages/dispatcher/LiveMapPage'
 import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
 import { DispatcherHistoryPage } from '@/pages/dispatcher/DispatcherHistoryPage'
@@ -133,6 +134,7 @@ export default function App() {
                   <Route path="/dispatcher/return-collections" element={<ReturnCollectionsQueue />} />
                   <Route path="/dispatcher/map" element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed" element={<FailedDeliveriesPage />} />
+                  <Route path="/dispatcher/damage-escalations" element={<DamageEscalationQueuePage />} />
                   <Route path="/dispatcher/flag-high-value" element={<FlagHighValuePage />} />
                   <Route path="/dispatcher/reassign" element={<DispatcherReassignmentPage />} />
                   <Route path="/dispatcher/swaps" element={<MaintenanceSwapsPage />} />
