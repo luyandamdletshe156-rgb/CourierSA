@@ -179,6 +179,14 @@ export const adminApi = {
   retireVehicle:  id       => api.delete(`/admin/vehicles/${id}`),
 }
 
+export const fraudApi = {
+  flagged:        ()             => api.get('/admin/fraud/flagged'),
+  get:             customerId    => api.get(`/admin/fraud/${customerId}`),
+  evaluate:        customerId    => api.post(`/admin/fraud/${customerId}/evaluate`),
+  restrict:       (customerId, dto) => api.post(`/admin/fraud/${customerId}/restrict`, dto),
+  liftRestriction: customerId    => api.post(`/admin/fraud/${customerId}/lift-restriction`),
+}
+
 export const driverApi = {
   all:            () => api.get('/drivers'),
   locations:      () => api.get('/drivers/locations'),

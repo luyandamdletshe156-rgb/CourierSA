@@ -22,6 +22,11 @@ const COLOR_MAP = {
   PartiallyApproved:   'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
   Rejected:            'bg-[#EF4444]/10 text-[#B91C1C] border-[#EF4444]/20',
   Settled:             'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
+  // Fraud risk levels (UC-FRAUD-01)
+  Low:                 'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
+  Medium:              'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
+  High:                'bg-[#EF4444]/10 text-[#B91C1C] border-[#EF4444]/20',
+  Restricted:          'bg-[#7C2D12]/10 text-[#7C2D12] border-[#7C2D12]/20',
 }
 
 export default function StatusBadge({ status }) {

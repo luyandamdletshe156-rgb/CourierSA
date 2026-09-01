@@ -59,6 +59,7 @@ import AdminFleetPage from '@/pages/admin/AdminFleetPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
 import LostParcelQueuePage from '@/pages/admin/LostParcelQueuePage'
 import ReturnRefundQueuePage from '@/pages/admin/ReturnRefundQueuePage'
+import FraudRiskQueuePage from '@/pages/admin/Fraudriskqueuepage'
 
 // Business
 import { BusinessDashboard } from '@/pages/business/BusinessDashboard'
@@ -168,6 +169,7 @@ export default function App() {
                   <Route path="/admin/fleet" element={<AdminFleetPage />} />
                   <Route path="/admin/lost-parcels" element={<LostParcelQueuePage />} />
                   <Route path="/admin/returns/refunds" element={<ReturnRefundQueuePage />} />
+                  <Route path="/admin/fraud" element={<FraudRiskQueuePage />} />
                   <Route path="/admin/vehicles" element={<VehicleInspectionsPage />} />
                   <Route path="/admin/reports" element={<AdminReportsPage />} />
                   <Route path="/admin/audit-logs" element={<AuditLogPage />} />

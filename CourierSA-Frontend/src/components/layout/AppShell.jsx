@@ -8,7 +8,8 @@ import {
   LayoutDashboard, Package, Truck, Users, FileText,
   BarChart3, Settings, LogOut, Menu, X,
   ClipboardCheck, MapPin, CreditCard, AlertTriangle, 
-  RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search
+  RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search,
+  ShieldAlert
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -21,6 +22,7 @@ const NAV = {
     { label: 'Vehicles',    icon: Truck,           to: '/admin/vehicles'    },
     { label: 'Lost Parcels',icon: PackageX,        to: '/admin/lost-parcels'},
     { label: 'Refunds',     icon: HandCoins,       to: '/admin/returns/refunds' },
+    { label: 'Fraud Risk',  icon: ShieldAlert,     to: '/admin/fraud'       },
     { label: 'Reports',     icon: BarChart3,       to: '/admin/reports'     },
     { label: 'Audit Logs',  icon: FileText,        to: '/admin/audit-logs'  },
     { label: 'Settings',    icon: Settings,        to: '/admin/settings'    },
