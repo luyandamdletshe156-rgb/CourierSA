@@ -6,10 +6,10 @@ import {
   StatCard, TrackingBadge, EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
-import { parcelApi, driverApi, returnApi } from '@/api'
+import { parcelApi, driverApi, returnApi, dispatcherApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
-  Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package, RotateCcw
+  Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package, RotateCcw, Weight
 } from 'lucide-react'
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
@@ -265,8 +265,30 @@ export function DispatchQueue() {
     refetchInterval: 15000,
   })
 
+  // UC-CAPACITY-01 — pull vehicle payload capacity so we can warn before the
+  // server rejects an overweight route.
+  const { data: vehiclesData } = useQuery({
+    queryKey: ['dispatcher-vehicles-capacity'],
+    queryFn: () => dispatcherApi.vehicles(),
+    refetchInterval: 30000,
+  })
+
+  const vehicles = Array.isArray(vehiclesData) ? vehiclesData
+    : Array.isArray(vehiclesData?.data) ? vehiclesData.data : []
+
+  const vehicleByDriverId = vehicles.reduce((map, v) => {
+    if (v.assignedDriverId) map[v.assignedDriverId] = v
+    return map
+  }, {})
+
   const drivers = driversData ?? []
   const selectedParcels = parcels.filter(p => selectedParcelIds.includes(p.id))
+  const totalWeightKg = selectedParcels.reduce((sum, p) => sum + (p.weightKg ?? 0), 0)
+  const selectedVehicle = selectedDriverId ? vehicleByDriverId[selectedDriverId] : null
+  const isOverCapacity = !!selectedVehicle && totalWeightKg > selectedVehicle.payloadCapacityKg
+  const capacityUtilizationPercent = selectedVehicle?.payloadCapacityKg
+    ? Math.round((totalWeightKg / selectedVehicle.payloadCapacityKg) * 1000) / 10
+    : null
 
   // Proximity Lock: Lock selection to the city of the FIRST selected item
   const activeCity = selectedParcels.length > 0 
@@ -281,6 +303,8 @@ export function DispatchQueue() {
     })
   }
 
+  const [dispatchSuccessMessage, setDispatchSuccessMessage] = useState('')
+
   const dispatchMutation = useMutation({
     mutationFn: () => {
       if (selectedParcelIds.length === 1) {
@@ -291,9 +315,18 @@ export function DispatchQueue() {
         driverId: selectedDriverId
       })
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      const summary = result?.data ?? result
+      if (summary?.capacityUtilizationPercent != null) {
+        setDispatchSuccessMessage(
+          `Route dispatched — ${summary.capacityUtilizationPercent}% of ${summary.vehicleRegistration ?? 'vehicle'}'s capacity used.`
+        )
+      } else {
+        setDispatchSuccessMessage('Dispatched successfully.')
+      }
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
+      qc.invalidateQueries({ queryKey: ['dispatcher-vehicles-capacity'] })
       setSelectedParcelIds([])
       setSelectedDriverId('')
     },
@@ -328,6 +361,7 @@ export function DispatchQueue() {
                     <th>Tracking #</th>
                     <th>Task Type</th>
                     <th>City</th>
+                    <th>Weight</th>
                     <th>Bin Code</th>
                   </tr>
                 </thead>
@@ -375,6 +409,7 @@ export function DispatchQueue() {
                           )}
                         </td>
                         <td className="text-xs text-[#64748B]">{taskCity || '—'}</td>
+                        <td className="text-xs text-[#64748B]">{p.weightKg != null ? `${p.weightKg} kg` : '—'}</td>
                         <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
                       </tr>
                     )
@@ -456,21 +491,49 @@ export function DispatchQueue() {
             )}
           </div>
 
+          {selectedVehicle && (
+            <div className={clsx(
+              "flex items-start gap-2.5 px-3.5 py-3 rounded-xl border text-xs",
+              isOverCapacity
+                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#B91C1C]"
+                : "bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]"
+            )}>
+              <Weight size={15} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-bold">
+                  {totalWeightKg} kg / {selectedVehicle.payloadCapacityKg} kg capacity
+                  {capacityUtilizationPercent != null && ` (${capacityUtilizationPercent}%)`}
+                </p>
+                <p className="mt-0.5">
+                  {isOverCapacity
+                    ? `Exceeds ${selectedVehicle.registrationNumber}'s payload capacity — remove parcels or pick a different vehicle.`
+                    : `${selectedVehicle.registrationNumber} has enough capacity for this route.`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {dispatchSuccessMessage && (
+            <Alert type="success" message={dispatchSuccessMessage} />
+          )}
+
           {dispatchMutation.error && (
             <Alert type="error" message={dispatchMutation.error.message} />
           )}
 
           <button
             className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending}
-            onClick={() => dispatchMutation.mutate()}
+            disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending || isOverCapacity}
+            onClick={() => { setDispatchSuccessMessage(''); dispatchMutation.mutate() }}
           >
             <Send size={16} /> 
             {dispatchMutation.isPending 
               ? 'Assigning...' 
-              : selectedParcelIds.length > 1 
-                ? `Dispatch ${selectedParcelIds.length} Tasks` 
-                : 'Assign & Dispatch Driver'}
+              : isOverCapacity
+                ? 'Exceeds Vehicle Capacity'
+                : selectedParcelIds.length > 1 
+                  ? `Dispatch ${selectedParcelIds.length} Tasks` 
+                  : 'Assign & Dispatch Driver'}
           </button>
         </div>
       </div>
