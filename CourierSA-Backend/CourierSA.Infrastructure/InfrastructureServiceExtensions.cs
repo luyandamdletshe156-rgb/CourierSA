@@ -24,8 +24,7 @@ public static class InfrastructureServiceExtensions
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseMySql(
                 configuration.GetConnectionString("DefaultConnection"),
-                ServerVersion.AutoDetect(
-                    configuration.GetConnectionString("DefaultConnection")),
+                new MySqlServerVersion(new Version(8, 0, 46)), // confirmed via SELECT VERSION() — 8.0.46-azure
                 mysql =>
                 {
                     mysql.MigrationsAssembly("CourierSA.Infrastructure");
