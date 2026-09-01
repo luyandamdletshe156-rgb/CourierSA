@@ -1,4 +1,5 @@
 ﻿using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.Fraud;
 using CourierSA.Application.DTOs.Vehicles;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Application.Interfaces.Repositories;
@@ -248,5 +249,56 @@ public class AdminController : CourierSABaseController
         await _audit.LogAsync("VEHICLE_RETIRED", "Vehicle", id, null, null, CurrentUserId, null, ct);
 
         return NoContent();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // FRAUD DETECTION — UC-FRAUD-01: Detect and Restrict High-Risk Customer Accounts
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>GET /api/admin/fraud/flagged – Customers currently Medium/High risk or restricted</summary>
+    [HttpGet("fraud/flagged")]
+    public async Task<IActionResult> GetFlaggedAccounts(
+        [FromServices] IFraudDetectionService fraudService, CancellationToken ct)
+    {
+        var flagged = await fraudService.GetFlaggedAccountsAsync(ct);
+        return Ok(flagged);
+    }
+
+    /// <summary>GET /api/admin/fraud/{customerId} – Latest risk assessment for one customer</summary>
+    [HttpGet("fraud/{customerId:guid}")]
+    public async Task<IActionResult> GetFraudAssessment(
+        Guid customerId, [FromServices] IFraudDetectionService fraudService, CancellationToken ct)
+    {
+        var result = await fraudService.GetAssessmentAsync(customerId, ct)
+            ?? throw new NotFoundException("Customer profile not found.");
+        return Ok(result);
+    }
+
+    /// <summary>POST /api/admin/fraud/{customerId}/evaluate – Recompute the customer's risk score now</summary>
+    [HttpPost("fraud/{customerId:guid}/evaluate")]
+    public async Task<IActionResult> EvaluateFraudRisk(
+        Guid customerId, [FromServices] IFraudDetectionService fraudService, CancellationToken ct)
+    {
+        var result = await fraudService.EvaluateAsync(customerId, ct);
+        return Ok(result, $"Risk evaluated: {result.RiskLevel} ({result.RiskScore}/100).");
+    }
+
+    /// <summary>POST /api/admin/fraud/{customerId}/restrict – Manually restrict an account</summary>
+    [HttpPost("fraud/{customerId:guid}/restrict")]
+    public async Task<IActionResult> RestrictAccount(
+        Guid customerId, [FromBody] RestrictAccountDto dto,
+        [FromServices] IFraudDetectionService fraudService, CancellationToken ct)
+    {
+        var result = await fraudService.RestrictAsync(customerId, dto, CurrentUserId, ct);
+        return Ok(result, "Account restricted.");
+    }
+
+    /// <summary>POST /api/admin/fraud/{customerId}/lift-restriction – Reinstate a restricted account</summary>
+    [HttpPost("fraud/{customerId:guid}/lift-restriction")]
+    public async Task<IActionResult> LiftRestriction(
+        Guid customerId, [FromServices] IFraudDetectionService fraudService, CancellationToken ct)
+    {
+        var result = await fraudService.LiftRestrictionAsync(customerId, CurrentUserId, ct);
+        return Ok(result, "Restriction lifted.");
     }
 }

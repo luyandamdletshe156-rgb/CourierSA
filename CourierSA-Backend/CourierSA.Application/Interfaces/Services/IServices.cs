@@ -1,6 +1,7 @@
 using CourierSA.Application.DTOs.Auth;
 using CourierSA.Application.DTOs.Bulk;
 using CourierSA.Application.DTOs.CollectionDamage;
+using CourierSA.Application.DTOs.Fraud;
 using CourierSA.Application.DTOs.Invoices;
 using CourierSA.Application.DTOs.LostParcel;
 using CourierSA.Application.DTOs.Parcels;
@@ -241,4 +242,19 @@ public interface IReschedulingService
 {
     Task<RescheduleQuoteDto> PreviewFeeAsync(Guid parcelId, DateTime proposedDate, Guid customerUserId, CancellationToken ct = default);
     Task<RescheduleResultDto> RescheduleAsync(Guid parcelId, RescheduleCollectionDto dto, Guid customerUserId, CancellationToken ct = default);
+}
+
+// ── UC-FRAUD-01 — Detect and Restrict High-Risk Customer Accounts ─────────────
+public interface IFraudDetectionService
+{
+    /// <summary>Recomputes the risk score from the customer's booking/delivery/claims
+    /// history and persists it. Auto-restricts the account if the score lands in the
+    /// High band (SRS: system must both detect AND restrict without waiting on an admin).</summary>
+    Task<FraudRiskAssessmentDto> EvaluateAsync(Guid customerId, CancellationToken ct = default);
+
+    Task<FraudRiskAssessmentDto> RestrictAsync(Guid customerId, RestrictAccountDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<FraudRiskAssessmentDto> LiftRestrictionAsync(Guid customerId, Guid adminUserId, CancellationToken ct = default);
+
+    Task<IEnumerable<FraudRiskAssessmentDto>> GetFlaggedAccountsAsync(CancellationToken ct = default);
+    Task<FraudRiskAssessmentDto?> GetAssessmentAsync(Guid customerId, CancellationToken ct = default);
 }

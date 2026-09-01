@@ -268,6 +268,14 @@ public enum LostParcelCaseStatus
     Closed
 }
 
+// ── UC-FRAUD-01 — Detect and Restrict High-Risk Customer Accounts ─────────────
+public enum CustomerRiskLevel
+{
+    Low,
+    Medium,
+    High
+}
+
 public enum LostParcelResolution
 {
     Found,

@@ -61,6 +61,7 @@ public class ParcelService : IParcelService
     public async Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
     {
         var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
+        ThrowIfRestricted(customer); // UC-FRAUD-01
         var parcel = await BuildAndAddParcelAsync(dto, customer, ct);
 
         await _uow.SaveChangesAsync(ct);
@@ -83,6 +84,7 @@ public class ParcelService : IParcelService
             throw new BadRequestException("Batch must contain at least one parcel.");
 
         var customer = await GetCustomerProfileOrThrowAsync(customerId, ct);
+        ThrowIfRestricted(customer); // UC-FRAUD-01
         var bookedParcels = new List<Parcel>();
 
         await _uow.ExecuteInTransactionAsync(async innerCt =>
@@ -132,6 +134,17 @@ public class ParcelService : IParcelService
             .Query()
             .FirstOrDefaultAsync(c => c.UserId == customerId, ct)
             ?? throw new NotFoundException("Customer profile not found.");
+    }
+
+    // UC-FRAUD-01 — blocks new bookings from restricted accounts. Deliberately not
+    // folded into GetCustomerProfileOrThrowAsync itself: that helper backs cancellation,
+    // rescheduling, etc. too, and a restricted customer should still be able to manage
+    // parcels they already booked — only *new* bookings are blocked.
+    private static void ThrowIfRestricted(CustomerProfile customer)
+    {
+        if (customer.IsRestricted)
+            throw new ForbiddenException(
+                "This account has been restricted due to a fraud risk review and cannot book new parcels. Please contact support.");
     }
 
     private async Task<Parcel> BuildAndAddParcelAsync(
@@ -613,6 +626,25 @@ public class ParcelService : IParcelService
         if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
             throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
 
+        // ── UC-CAPACITY-01 — Validate Vehicle Payload Capacity Before Route Assignment
+        var vehicle = await _uow.Query<Vehicle>().Query()
+            .FirstOrDefaultAsync(v => v.AssignedDriverId == driver.Id && v.Status == VehicleStatus.Active, ct)
+            ?? throw new BadRequestException(
+                $"Driver {driver.User?.FullName ?? driver.Id.ToString()} has no active vehicle assigned. " +
+                "Assign a vehicle to this driver before dispatching a route.");
+
+        var totalWeightKg = parcels.Sum(p => p.WeightKg);
+
+        if (totalWeightKg > vehicle.PayloadCapacityKg)
+            throw new BadRequestException(
+                $"Route rejected: total parcel weight ({totalWeightKg:0.##} kg) exceeds " +
+                $"{vehicle.RegistrationNumber}'s payload capacity ({vehicle.PayloadCapacityKg:0.##} kg). " +
+                "Remove parcels from this route or assign a vehicle with greater capacity.");
+
+        var capacityUtilizationPercent = vehicle.PayloadCapacityKg > 0
+            ? Math.Round(totalWeightKg / vehicle.PayloadCapacityKg * 100m, 1)
+            : 0m;
+
         var route = new DeliveryRoute
         {
             Id = Guid.NewGuid(),
@@ -739,7 +771,9 @@ public class ParcelService : IParcelService
             catch (Exception ex) { Console.WriteLine($"[SECURE-DELIVERY] OTP email failed for {item.Parcel.TrackingNumber}: {ex.Message}"); }
         }
 
-        return new RouteSummaryDto(route.Id, primaryZone?.ToString() ?? "Mixed Route", route.Status.ToString(), route.DispatchedAt, stops);
+        return new RouteSummaryDto(
+            route.Id, primaryZone?.ToString() ?? "Mixed Route", route.Status.ToString(), route.DispatchedAt, stops,
+            vehicle.Id, vehicle.RegistrationNumber, totalWeightKg, vehicle.PayloadCapacityKg, capacityUtilizationPercent);
     }
 
     public async Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverUserId, CancellationToken ct = default)

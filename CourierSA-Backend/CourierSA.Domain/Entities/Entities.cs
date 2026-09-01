@@ -52,6 +52,16 @@ public class CustomerProfile : BaseEntity
     public string? DefaultPickupAddress { get; set; }
     public decimal WalletBalanceZAR { get; set; }
 
+    // ── UC-FRAUD-01 — Detect and Restrict High-Risk Customer Accounts ─────────
+    public CustomerRiskLevel RiskLevel { get; set; } = CustomerRiskLevel.Low;
+    public int RiskScore { get; set; }
+    public DateTime? RiskEvaluatedAt { get; set; }
+    public string? RiskFactorsJson { get; set; }
+    public bool IsRestricted { get; set; }
+    public DateTime? RestrictedAt { get; set; }
+    public Guid? RestrictedByUserId { get; set; }
+    public string? RestrictionReason { get; set; }
+
     public User? User { get; set; }
     public ICollection<Parcel> Parcels { get; set; } = [];
     public ICollection<Quote> Quotes { get; set; } = [];

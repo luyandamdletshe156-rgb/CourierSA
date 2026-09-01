@@ -566,13 +566,38 @@ namespace CourierSA.Application.DTOs.Routing
         string City
     );
 
+    // ── UC-CAPACITY-01 — Validate Vehicle Payload Capacity Before Route Assignment
     public record RouteSummaryDto(
         Guid RouteId,
         string Zone,
         string Status,
         DateTime? DispatchedAt,
-        List<RouteStopDto> Stops
+        List<RouteStopDto> Stops,
+        Guid VehicleId,
+        string VehicleRegistration,
+        decimal TotalWeightKg,
+        decimal PayloadCapacityKg,
+        decimal CapacityUtilizationPercent
     );
+}
+
+namespace CourierSA.Application.DTOs.Fraud
+{
+    // ── UC-FRAUD-01 — Detect and Restrict High-Risk Customer Accounts ─────────
+    public record FraudRiskAssessmentDto(
+        Guid CustomerId,
+        Guid UserId,
+        string CustomerName,
+        string Email,
+        string RiskLevel,
+        int RiskScore,
+        bool IsRestricted,
+        DateTime? RiskEvaluatedAt,
+        string? RestrictionReason,
+        List<string> RiskFactors
+    );
+
+    public record RestrictAccountDto(string Reason);
 }
 
 

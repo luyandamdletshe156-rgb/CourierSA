@@ -116,6 +116,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ISecureDeliveryService, SecureDeliveryService>();
         services.AddScoped<IReschedulingService, ReschedulingService>();
         services.AddScoped<ICollectionDamageService, CollectionDamageService>();
+        services.AddScoped<IFraudDetectionService, FraudDetectionService>();
 
 
         // ── SignalR ───────────────────────────────────────────────────────────
