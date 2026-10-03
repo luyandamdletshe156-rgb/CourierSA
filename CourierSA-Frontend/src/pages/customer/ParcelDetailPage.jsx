@@ -4,6 +4,7 @@ import { useParams, Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import { StatusPill, Alert, PageLoader, TrackingBadge } from '@/components/ui'
 import CancelParcelModal from '@/components/modals/CancelParcelModal'
+import UpgradeRequestPanel from '@/components/UpgradeRequestPanel'
 import { parcelApi, reschedulingApi } from '@/api'
 import { formatDate, formatZAR } from '@/utils'
 import {
@@ -186,6 +187,8 @@ export default function ParcelDetailPage() {
             </div>
 
             <RescheduleCollectionPanel parcel={parcel} onRescheduled={refetch} />
+
+            <UpgradeRequestPanel parcel={parcel} onChanged={refetch} />
 
             <div className="card bg-white p-5 rounded-2xl border border-[#D8E4F5] flex flex-col sm:flex-row gap-6">
               <AddressBlock title="Pickup" address={parcel.pickupAddress} />

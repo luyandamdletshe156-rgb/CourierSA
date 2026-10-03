@@ -253,7 +253,12 @@ export function DispatchQueue() {
   const pickups = extractItems(approvedData)
   
   // Combine both into one queue
-  const parcels = [...pickups, ...deliveries]
+  // Plan Route Dispatch: order by the service level chosen at booking
+  // (SameDay first ... Economy last), then by booking time within a level.
+  const SERVICE_RANK = { SameDay: 4, Overnight: 3, Express: 2, Standard: 1, Economy: 0 }
+  const parcels = [...pickups, ...deliveries].sort((a, b) =>
+    (SERVICE_RANK[b.serviceType] ?? 1) - (SERVICE_RANK[a.serviceType] ?? 1) ||
+    new Date(a.createdAt) - new Date(b.createdAt))
   const parcelsLoading = checkedOutLoading || approvedLoading
 
   const { data: driversData, isLoading: driversLoading } = useQuery({
@@ -265,8 +270,8 @@ export function DispatchQueue() {
     refetchInterval: 15000,
   })
 
-  // UC-CAPACITY-01 — pull vehicle payload capacity so we can warn before the
-  // server rejects an overweight route.
+  // Validate & Adjust Vehicle Payload — pull vehicle capacity so we can warn
+  // before an overweight route is held for review.
   const { data: vehiclesData } = useQuery({
     queryKey: ['dispatcher-vehicles-capacity'],
     queryFn: () => dispatcherApi.vehicles(),
@@ -307,22 +312,23 @@ export function DispatchQueue() {
 
   const dispatchMutation = useMutation({
     mutationFn: () => {
-      if (selectedParcelIds.length === 1) {
-        return parcelApi.dispatch(selectedParcelIds[0], selectedDriverId)
-      }
-      return parcelApi.dispatchRoute({
+      // Plan Route Dispatch: the route is planned and validated here, then released
+      // to the driver by warehouse staff after they verify the manifest.
+      return parcelApi.planRoute({
         parcelIds: selectedParcelIds,
         driverId: selectedDriverId
       })
     },
     onSuccess: (result) => {
       const summary = result?.data ?? result
-      if (summary?.capacityUtilizationPercent != null) {
+      if (summary?.status === 'PendingPayloadReview') {
+        setDispatchSuccessMessage('Route is over the vehicle limit and was held. Open Payload Review to reallocate or split it.')
+      } else if (summary?.capacityUtilizationPercent != null) {
         setDispatchSuccessMessage(
-          `Route dispatched — ${summary.capacityUtilizationPercent}% of ${summary.vehicleRegistration ?? 'vehicle'}'s capacity used.`
+          `Route planned — ${summary.capacityUtilizationPercent}% of ${summary.vehicleRegistration ?? 'vehicle'}'s capacity used. Waiting for warehouse release.`
         )
       } else {
-        setDispatchSuccessMessage('Dispatched successfully.')
+        setDispatchSuccessMessage('Route planned. Waiting for warehouse release.')
       }
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
@@ -506,7 +512,7 @@ export function DispatchQueue() {
                 </p>
                 <p className="mt-0.5">
                   {isOverCapacity
-                    ? `Exceeds ${selectedVehicle.registrationNumber}'s payload capacity — remove parcels or pick a different vehicle.`
+                    ? `Exceeds ${selectedVehicle.registrationNumber}'s payload capacity — it will be held for payload review, where you can reallocate parcels or split the route.`
                     : `${selectedVehicle.registrationNumber} has enough capacity for this route.`}
                 </p>
               </div>
@@ -523,17 +529,17 @@ export function DispatchQueue() {
 
           <button
             className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending || isOverCapacity}
+            disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending}
             onClick={() => { setDispatchSuccessMessage(''); dispatchMutation.mutate() }}
           >
             <Send size={16} /> 
             {dispatchMutation.isPending 
-              ? 'Assigning...' 
+              ? 'Planning...' 
               : isOverCapacity
-                ? 'Exceeds Vehicle Capacity'
+                ? 'Send for Payload Review'
                 : selectedParcelIds.length > 1 
-                  ? `Dispatch ${selectedParcelIds.length} Tasks` 
-                  : 'Assign & Dispatch Driver'}
+                  ? `Plan Route (${selectedParcelIds.length} Tasks)` 
+                  : 'Plan Route'}
           </button>
         </div>
       </div>

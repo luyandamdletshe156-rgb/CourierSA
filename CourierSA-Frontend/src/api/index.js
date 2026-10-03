@@ -90,6 +90,12 @@ export const parcelApi = {
                          api.put(`/parcels/${id}/dispatch`, { driverId }),
   dispatchRoute:    ({ parcelIds, driverId }) =>
                          api.post('/parcels/dispatch-route', { parcelIds, driverId }),
+  planRoute:           ({ parcelIds, driverId }) =>
+                         api.post('/parcels/routes/plan', { parcelIds, driverId }),
+  cancelRoute:         id             => api.delete(`/parcels/routes/${id}`),
+  routesReadyForRelease: ()           => api.get('/parcels/routes/ready-for-release'),
+  releaseRoute:        (id, trackingNumbers) =>
+                         api.post(`/parcels/routes/${id}/release`, { trackingNumbers }),
   bulkUpload:       file   => {
     const form = new FormData()
     form.append('file', file)
@@ -97,6 +103,47 @@ export const parcelApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+}
+
+// UC14 Validate and Adjust Vehicle Payload / UC15 Split Overloaded Routes
+export const payloadApi = {
+  overview:      date          => api.get('/payload/overview', { params: date ? { date } : {} }),
+  reallocate:    (id, body)    => api.put(`/payload/runs/${id}/reallocate`, body),
+  signOff:       (id, body)    => api.post(`/payload/runs/${id}/sign-off`, body ?? {}),
+  splitOptions:  id            => api.get(`/payload/runs/${id}/split/options`),
+  splitPreview:  (id, body)    => api.post(`/payload/runs/${id}/split/preview`, body),
+  splitConfirm:  (id, body)    => api.post(`/payload/runs/${id}/split/confirm`, body),
+}
+
+export const upgradeApi = {
+  request: (parcelId, body) => api.post(`/parcels/${parcelId}/upgrade-requests`, body),
+  mine:    ()               => api.get('/upgrade-requests/mine'),
+  pay:     id               => api.post(`/upgrade-requests/${id}/pay`),
+  pending: ()               => api.get('/upgrade-requests/pending'),
+  review:  (id, body)       => api.put(`/upgrade-requests/${id}/review`, body),
+}
+
+export const shiftApi = {
+  // admin
+  drivers:      ()            => api.get('/roster/drivers'),
+  roster:       (from, to)    => api.get('/roster', { params: { from, to } }),
+  schedule:     body          => api.post('/roster', body),
+  publish:      body          => api.post('/roster/publish', body),
+  openShifts:   ()            => api.get('/roster/open'),
+  assignShift:  (id, driverId) => api.put(`/roster/shifts/${id}/assign`, { driverId }),
+  pendingLeave: ()            => api.get('/leave-requests/pending'),
+  reviewLeave:  (id, body)    => api.put(`/leave-requests/${id}/review`, body),
+  pendingSwaps: ()            => api.get('/shift-swaps/pending'),
+  reviewSwap:   (id, body)    => api.put(`/shift-swaps/${id}/review`, body),
+  // driver
+  myShifts:     (from, to)    => api.get('/driver/shifts', { params: { from, to } }),
+  myLeave:      ()            => api.get('/driver/leave-requests'),
+  requestLeave: body          => api.post('/driver/leave-requests', body),
+  cancelLeave:  id            => api.delete(`/driver/leave-requests/${id}`),
+  swapPeers:    shiftId       => api.get(`/driver/shifts/${shiftId}/swap-peers`),
+  mySwaps:      ()            => api.get('/driver/shift-swaps'),
+  requestSwap:  body          => api.post('/driver/shift-swaps', body),
+  respondSwap:  (id, accept)  => api.put(`/driver/shift-swaps/${id}/respond`, { accept }),
 }
 
 export const trackingApi = {

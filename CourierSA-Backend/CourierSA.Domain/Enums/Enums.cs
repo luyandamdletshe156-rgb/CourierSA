@@ -256,7 +256,11 @@ public enum RouteStatus
 {
     Planned,
     InProgress,
-    Completed
+    Completed,
+    // Appended (not inserted) so any existing numeric values stay valid.
+    PendingPayloadReview,   // Overweight route held for dispatcher review (Validate & Adjust Vehicle Payload)
+    PayloadCompliant,       // Reviewed and now within the vehicle limit; awaiting warehouse release
+    Cancelled               // Plan discarded by the dispatcher; parcels return to the queue
 }
 
 public enum LostParcelCaseStatus
@@ -354,3 +358,20 @@ public enum ExceptionResolutionAction
     RouteToReturnToSender,                   // recipient refused — route back through reverse logistics
     RequiresManualReview                     // ambiguous / "Other" — dispatcher must triage manually
 }
+
+// ── Request / Review Priority Upgrade ─────────────────────────────────────────
+public enum UpgradeRequestStatus
+{
+    Pending,
+    Approved,   // dispatcher approved; customer must now pay the fee difference
+    Rejected,
+    Paid        // fee paid, the parcel's service level has been upgraded
+}
+
+
+// ── Driver Roster, Leave & Shift Swaps ────────────────────────────────────────
+public enum ShiftType { Morning, Afternoon }          // 07:30–13:00 and 13:30–19:00
+public enum ShiftStatus { Scheduled, Open, Cancelled } // Open = unstaffed, needs a driver
+public enum LeaveType { Annual, Sick, Emergency }
+public enum LeaveRequestStatus { Pending, Approved, Rejected, Cancelled }
+public enum SwapRequestStatus { AwaitingPeer, AwaitingAdmin, Approved, Rejected, DeclinedByPeer, Cancelled }

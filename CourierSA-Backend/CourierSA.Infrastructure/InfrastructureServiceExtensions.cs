@@ -102,6 +102,9 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPasswordService, PasswordService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IParcelService, ParcelService>();
+        services.AddScoped<IPriorityUpgradeService, PriorityUpgradeService>();
+        services.AddScoped<IShiftService, ShiftService>();
+        services.AddScoped<IPayloadService, PayloadService>();
         services.AddScoped<ILostParcelService, LostParcelService>();
         services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<IQuoteService, QuoteService>();

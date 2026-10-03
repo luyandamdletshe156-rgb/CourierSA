@@ -8,3 +8,5 @@ CourierSA-Frontend/node_modules/
 CourierSA-Frontend/dist/
 CourierSA-Frontend/.env
 CourierSA-Backend/CourierSA.API/appsettings.Development.json
+*.patch
+*.local

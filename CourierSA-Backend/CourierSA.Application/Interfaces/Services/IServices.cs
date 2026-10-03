@@ -11,6 +11,8 @@ using CourierSA.Application.DTOs.Returns;
 using CourierSA.Application.DTOs.Routing;
 using CourierSA.Application.DTOs.SecureDelivery;
 using CourierSA.Application.DTOs.Sorting;
+using CourierSA.Application.DTOs.Shifts;
+using CourierSA.Application.DTOs.Upgrades;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using System.Security.Claims;
@@ -68,6 +70,10 @@ public interface IParcelService
     Task<IEnumerable<DeliveryDto>> GetDriverDeliveriesAsync(Guid driverId, CancellationToken ct = default);
     Task<Guid?> UpdateDriverLocationAsync(Guid userId, decimal lat, decimal lng, CancellationToken ct = default);
     Task<RouteSummaryDto> DispatchRouteAsync(CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default);
+    Task<RouteSummaryDto> PlanRouteAsync(CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default);
+    Task<IEnumerable<PayloadReviewRouteDto>> GetRoutesReadyForReleaseAsync(CancellationToken ct = default);
+    Task CancelPlannedRouteAsync(Guid routeId, Guid dispatcherId, CancellationToken ct = default);
+    Task<RouteSummaryDto> ReleaseRouteAsync(Guid routeId, ReleaseRouteDto dto, Guid warehouseUserId, CancellationToken ct = default);
     Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default);
     Task<ParcelInspectionDto> LogInspectionAsync(Guid parcelId, LogParcelInspectionDto dto, Guid staffId, CancellationToken ct = default);
     Task<IEnumerable<ParcelInspectionDto>> GetInspectionsAsync(CancellationToken ct = default);
@@ -257,4 +263,42 @@ public interface IFraudDetectionService
 
     Task<IEnumerable<FraudRiskAssessmentDto>> GetFlaggedAccountsAsync(CancellationToken ct = default);
     Task<FraudRiskAssessmentDto?> GetAssessmentAsync(Guid customerId, CancellationToken ct = default);
+}
+
+// ── Priority Upgrade ──────────────────────────────────────────────────────────
+public interface IPriorityUpgradeService
+{
+    Task<UpgradeRequestDto> RequestAsync(Guid parcelId, CreateUpgradeRequestDto dto, Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<UpgradeRequestDto>> GetMineAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<UpgradeRequestDto>> GetPendingAsync(CancellationToken ct = default);
+    Task<UpgradeRequestDto> ReviewAsync(Guid requestId, ReviewUpgradeRequestDto dto, Guid dispatcherUserId, CancellationToken ct = default);
+    Task<UpgradeRequestDto> PayAsync(Guid requestId, Guid customerUserId, CancellationToken ct = default);
+}
+
+// ── Driver Roster, Leave & Shift Swaps ────────────────────────────────────────
+public interface IShiftService
+{
+    // Admin: Schedule Driver Roster
+    Task<IEnumerable<DriverOptionDto>> GetDriversAsync(CancellationToken ct = default);
+    Task<IEnumerable<ShiftDto>> GetRosterAsync(DateTime from, DateTime to, CancellationToken ct = default);
+    Task<IEnumerable<ShiftDto>> ScheduleRosterAsync(ScheduleRosterDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<int> PublishRosterAsync(PublishRosterDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<IEnumerable<ShiftDto>> GetOpenShiftsAsync(CancellationToken ct = default);
+    Task<ShiftDto> AssignOpenShiftAsync(Guid shiftId, AssignShiftDto dto, Guid adminUserId, CancellationToken ct = default);
+
+    // Admin: Approve Leave & Reassign Shifts
+    Task<IEnumerable<LeaveRequestDto>> GetPendingLeaveAsync(CancellationToken ct = default);
+    Task<LeaveReviewResultDto> ReviewLeaveAsync(Guid requestId, ReviewLeaveDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<IEnumerable<SwapRequestDto>> GetPendingSwapsAsync(CancellationToken ct = default);
+    Task<SwapRequestDto> ReviewSwapAsync(Guid requestId, ReviewSwapDto dto, Guid adminUserId, CancellationToken ct = default);
+
+    // Driver: Request Driver Leave, Request Shift Swap
+    Task<IEnumerable<ShiftDto>> GetMyShiftsAsync(DateTime from, DateTime to, Guid driverUserId, CancellationToken ct = default);
+    Task<LeaveRequestDto> RequestLeaveAsync(CreateLeaveRequestDto dto, Guid driverUserId, CancellationToken ct = default);
+    Task<IEnumerable<LeaveRequestDto>> GetMyLeaveAsync(Guid driverUserId, CancellationToken ct = default);
+    Task CancelLeaveAsync(Guid requestId, Guid driverUserId, CancellationToken ct = default);
+    Task<IEnumerable<DriverOptionDto>> GetSwapPeersAsync(Guid shiftId, Guid driverUserId, CancellationToken ct = default);
+    Task<SwapRequestDto> RequestSwapAsync(CreateSwapRequestDto dto, Guid driverUserId, CancellationToken ct = default);
+    Task<IEnumerable<SwapRequestDto>> GetMySwapsAsync(Guid driverUserId, CancellationToken ct = default);
+    Task<SwapRequestDto> RespondToSwapAsync(Guid requestId, RespondSwapDto dto, Guid driverUserId, CancellationToken ct = default);
 }

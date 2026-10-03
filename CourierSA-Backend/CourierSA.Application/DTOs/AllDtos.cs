@@ -484,7 +484,8 @@ namespace CourierSA.Application.DTOs.Vehicles
         string Status,
         Guid? AssignedDriverId,
         DispatcherDriverDto? AssignedDriver,
-        LastInspectionDto? LastInspection
+        LastInspectionDto? LastInspection,
+        decimal PayloadCapacityKg
     );
 
     // Sub-records for the Dispatcher view
@@ -566,7 +567,7 @@ namespace CourierSA.Application.DTOs.Routing
         string City
     );
 
-    // ── UC-CAPACITY-01 — Validate Vehicle Payload Capacity Before Route Assignment
+    // ── Plan Route Dispatch / UC14 Validate and Adjust Vehicle Payload / UC15 Split Overloaded Routes
     public record RouteSummaryDto(
         Guid RouteId,
         string Zone,
@@ -579,6 +580,18 @@ namespace CourierSA.Application.DTOs.Routing
         decimal PayloadCapacityKg,
         decimal CapacityUtilizationPercent
     );
+
+    // ── Validate & Adjust Vehicle Payload / Split Overloaded Routes ───────────
+    public record HeldParcelDto(
+        Guid ParcelId, string TrackingNumber, decimal WeightKg, string Recipient, string City, bool IsPickup = false);
+
+    public record PayloadReviewRouteDto(
+        Guid RouteId, string Status, Guid DriverId, Guid? VehicleId, string? VehicleRegistration,
+        decimal TotalWeightKg, decimal PayloadCapacityKg, decimal OverageKg,
+        List<HeldParcelDto> Parcels, DateTime CreatedAt);
+
+    /// <summary>Tracking numbers scanned by warehouse staff against the route manifest.</summary>
+    public record ReleaseRouteDto(List<string> TrackingNumbers);
 }
 
 namespace CourierSA.Application.DTOs.Fraud
@@ -721,4 +734,48 @@ namespace CourierSA.Application.DTOs.Parcels
         bool RequiresDispatcherReview);
 
     public record ResolveDeliveryEscalationDto(string Resolution, string? Notes);
+}
+
+namespace CourierSA.Application.DTOs.Upgrades
+{
+    public record CreateUpgradeRequestDto(ServiceType RequestedServiceType, string Reason);
+
+    public record ReviewUpgradeRequestDto(bool Approve, string? Notes);
+
+    public record UpgradeRequestDto(
+        Guid Id, Guid ParcelId, string TrackingNumber, string Status,
+        string CurrentServiceType, string RequestedServiceType, string Reason,
+        decimal FeeZAR, string? DispatcherNotes, string DestinationCity,
+        DateTime CreatedAt, DateTime? ReviewedAt);
+}
+
+namespace CourierSA.Application.DTOs.Shifts
+{
+    public record ShiftDto(
+        Guid Id, DateTime Date, string ShiftType, string StartTime, string EndTime,
+        Guid? DriverId, string? DriverName, string Status, bool IsPublished, string? Note);
+
+    public record ScheduleShiftItemDto(Guid DriverId, DateTime Date, ShiftType ShiftType);
+    public record ScheduleRosterDto(List<ScheduleShiftItemDto> Shifts, bool Publish);
+    public record PublishRosterDto(DateTime From, DateTime To);
+    public record AssignShiftDto(Guid DriverId);
+    public record DriverOptionDto(Guid DriverId, string Name);
+
+    public record CreateLeaveRequestDto(LeaveType LeaveType, DateTime StartDate, DateTime EndDate, string? Reason);
+    public record ReviewLeaveDto(bool Approve, string? Notes, bool AllowUnderstaffed = false);
+
+    public record LeaveRequestDto(
+        Guid Id, Guid DriverId, string DriverName, string LeaveType, DateTime StartDate, DateTime EndDate,
+        string? Reason, string Status, string? AdminNotes, int AffectedShifts, DateTime CreatedAt);
+
+    public record LeaveReviewResultDto(LeaveRequestDto Request, int ReassignedShifts, int OpenShifts);
+
+    public record CreateSwapRequestDto(Guid ShiftId, Guid PeerDriverId, string? Reason);
+    public record RespondSwapDto(bool Accept);
+    public record ReviewSwapDto(bool Approve, string? Notes);
+
+    public record SwapRequestDto(
+        Guid Id, Guid ShiftId, DateTime Date, string ShiftType,
+        Guid RequesterDriverId, string RequesterName, Guid PeerDriverId, string PeerName,
+        string Status, string? Reason, string? AdminNotes, DateTime CreatedAt, bool AwaitingMyReply = false);
 }

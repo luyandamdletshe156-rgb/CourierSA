@@ -9,7 +9,7 @@ import {
   BarChart3, Settings, LogOut, Menu, X,
   ClipboardCheck, MapPin, CreditCard, AlertTriangle, 
   RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search,
-  ShieldAlert
+  ShieldAlert, CalendarDays
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -20,6 +20,7 @@ const NAV = {
     { label: 'Parcels',     icon: Package,         to: '/admin/parcels'     },
     { label: 'Users',       icon: Users,           to: '/admin/users'       },
     { label: 'Vehicles',    icon: Truck,           to: '/admin/vehicles'    },
+    { label: 'Roster & Leave', icon: CalendarDays, to: '/admin/roster'      },
     { label: 'Lost Parcels',icon: PackageX,        to: '/admin/lost-parcels'},
     { label: 'Refunds',     icon: HandCoins,       to: '/admin/returns/refunds' },
     { label: 'Fraud Risk',  icon: ShieldAlert,     to: '/admin/fraud'       },
@@ -32,6 +33,7 @@ const NAV = {
     { label: 'Inventory',    icon: Archive,         to: '/warehouse/inventory'  },
     { label: 'Processing',   icon: ClipboardCheck,  to: '/warehouse/inspections'},
     { label: 'Returns',      icon: RotateCcw,       to: '/warehouse/returns'    },
+    { label: 'Route Release', icon: Truck,          to: '/warehouse/route-release' },
     { label: 'Track Parcel', icon: Search,          to: '/warehouse/track'      },
   ],
   Customer: [
@@ -47,6 +49,7 @@ const NAV = {
   Driver: [
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,           to: '/driver/deliveries'  },
+    { label: 'My Schedule',   icon: CalendarDays,    to: '/driver/schedule'    },
     { label: 'Return Collections', icon: RotateCcw,  to: '/driver/collections' },
     { label: 'History',       icon: FileText,        to: '/driver/history'     },
   ],
@@ -54,6 +57,8 @@ const NAV = {
     { label: 'Dashboard',    icon: LayoutDashboard, to: '/dispatcher/dashboard'    },
     { label: 'Dispatch Queue', icon: ClipboardCheck, to: '/dispatcher/dispatch'    },
     { label: 'Return Collections', icon: RotateCcw, to: '/dispatcher/return-collections' },
+    { label: 'Priority Upgrades', icon: ClipboardCheck, to: '/dispatcher/upgrades' },
+    { label: 'Payload Review', icon: Truck, to: '/dispatcher/payload-review' },
     { label: 'Live Map',     icon: MapPin,          to: '/dispatcher/map'          },
     { label: 'Track',        icon: Search,          to: '/dispatcher/track'        },
     { label: 'Reassign',     icon: RefreshCw,       to: '/dispatcher/reassign'      },

@@ -297,14 +297,40 @@ public class ParcelsController : CourierSABaseController
         return Ok(result);
     }
 
-    /// <summary>POST /api/parcels/dispatch-route – Dispatcher assigns multiple same-zone parcels to one driver</summary>
+    /// <summary>POST /api/parcels/routes/plan – Dispatcher plans a route (held for payload review if overweight; see /api/payload).
+    /// The route is released to the driver later by warehouse staff. "dispatch-route" is kept as an alias.</summary>
+    [HttpPost("routes/plan")]
     [HttpPost("dispatch-route")]
     [Authorize(Policy = "DispatcherOrAdmin")]
-    public async Task<IActionResult> DispatchRoute(
+    public async Task<IActionResult> PlanRoute(
         [FromBody] CreateRouteDto dto, CancellationToken ct)
     {
-        var result = await _parcelService.DispatchRouteAsync(dto, CurrentUserId, ct);
-        return Created(result, $"Route dispatched with {result.Stops.Count} stop(s).");
+        var result = await _parcelService.PlanRouteAsync(dto, CurrentUserId, ct);
+        return Created(result, result.Status == nameof(RouteStatus.PendingPayloadReview)
+            ? $"Route is {result.TotalWeightKg - result.PayloadCapacityKg:0.##} kg over the vehicle limit and was held for payload review."
+            : "Route planned. It is ready for warehouse release.");
+    }
+
+    /// <summary>GET /api/parcels/routes/ready-for-release – Planned, payload-compliant routes awaiting the warehouse</summary>
+    [HttpGet("routes/ready-for-release")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> GetRoutesReadyForRelease(CancellationToken ct)
+        => Ok(await _parcelService.GetRoutesReadyForReleaseAsync(ct));
+
+    /// <summary>POST /api/parcels/routes/{routeId}/release – Warehouse staff verify the manifest and release the route</summary>
+    [HttpPost("routes/{routeId:guid}/release")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> ReleaseRoute(
+        Guid routeId, [FromBody] ReleaseRouteDto dto, CancellationToken ct)
+        => Ok(await _parcelService.ReleaseRouteAsync(routeId, dto, CurrentUserId, ct), "Manifest verified. Route released to the driver.");
+
+    /// <summary>DELETE /api/parcels/routes/{routeId} – Dispatcher discards a plan that has not been released</summary>
+    [HttpDelete("routes/{routeId:guid}")]
+    [Authorize(Policy = "DispatcherOrAdmin")]
+    public async Task<IActionResult> CancelPlannedRoute(Guid routeId, CancellationToken ct)
+    {
+        await _parcelService.CancelPlannedRouteAsync(routeId, CurrentUserId, ct);
+        return NoContent("Route plan cancelled.");
     }
 
     // ══════════════════════════════════════════════════════════════════════════════

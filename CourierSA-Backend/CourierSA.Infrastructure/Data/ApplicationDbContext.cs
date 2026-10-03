@@ -43,6 +43,10 @@ public class ApplicationDbContext : DbContext
     public DbSet<ParcelSortingAssignment> ParcelSortingAssignments { get; set; }
 
     public DbSet<DeliveryRoute> DeliveryRoutes { get; set; }
+    public DbSet<PriorityUpgradeRequest> PriorityUpgradeRequests { get; set; }
+    public DbSet<DriverShift> DriverShifts { get; set; }
+    public DbSet<LeaveRequest> LeaveRequests { get; set; }
+    public DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; }
 
     // ── Platform ───────────────────────────────────────────────────────────────
 

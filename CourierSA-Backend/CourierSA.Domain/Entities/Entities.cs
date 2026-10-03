@@ -434,6 +434,24 @@ public class DeliveryRoute : BaseEntity
     public DateTime? DispatchedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
 
+    // ── UC14 Validate and Adjust Vehicle Payload / UC15 Split Overloaded Routes ──
+    public Guid? VehicleId { get; set; }
+    public decimal TotalWeightKg { get; set; }
+    public decimal PayloadCapacityKg { get; set; }
+    public decimal PayloadOverageKg { get; set; }
+    /// <summary>JSON array of parcel Ids on a planned/held route until the warehouse releases it.</summary>
+    public string? HeldParcelIdsJson { get; set; }
+    public string? PayloadReviewNotes { get; set; }
+    public DateTime? PayloadReviewedAt { get; set; }
+    public Guid? PayloadReviewedByUserId { get; set; }
+    /// <summary>Set on the secondary run created by Split Overloaded Routes.</summary>
+    public Guid? ParentRouteId { get; set; }
+    /// <summary>Warehouse staff member who verified the manifest and released the route.</summary>
+    public Guid? ReleasedByUserId { get; set; }
+    /// <summary>UC14 "Confirm and sign off". Warehouse release is blocked until this is set; any manifest change clears it.</summary>
+    public DateTime? SignedOffAt { get; set; }
+    public Guid? SignedOffByUserId { get; set; }
+
     public DriverProfile? Driver { get; set; }
     public ICollection<Delivery> Deliveries { get; set; } = [];
 }
@@ -508,4 +526,67 @@ public class ReturnRequest : BaseEntity
     public Parcel? Parcel { get; set; }
     public ParcelAddress? CollectionAddress { get; set; }
     public DriverProfile? AssignedDriver { get; set; }
+}
+
+// ── Priority Upgrade Request ──────────────────────────────────────────────────
+public class PriorityUpgradeRequest : BaseEntity
+{
+    public Guid ParcelId { get; set; }
+    public Guid CustomerId { get; set; }
+    public ServiceType CurrentServiceType { get; set; }
+    public ServiceType RequestedServiceType { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public decimal FeeZAR { get; set; }
+    public UpgradeRequestStatus Status { get; set; } = UpgradeRequestStatus.Pending;
+    public string? DispatcherNotes { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
+    public DateTime? PaidAt { get; set; }
+
+    public Parcel? Parcel { get; set; }
+}
+
+
+// ── Driver Shift (roster) ─────────────────────────────────────────────────────
+public class DriverShift : BaseEntity
+{
+    public DateTime Date { get; set; }              // date part only
+    public ShiftType ShiftType { get; set; }
+    public Guid? DriverId { get; set; }             // null while the shift is Open
+    public ShiftStatus Status { get; set; } = ShiftStatus.Scheduled;
+    public bool IsPublished { get; set; }
+    public string? Note { get; set; }
+
+    public DriverProfile? Driver { get; set; }
+}
+
+// ── Driver Leave Request ──────────────────────────────────────────────────────
+public class LeaveRequest : BaseEntity
+{
+    public Guid DriverId { get; set; }
+    public LeaveType LeaveType { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public string? Reason { get; set; }
+    public LeaveRequestStatus Status { get; set; } = LeaveRequestStatus.Pending;
+    public string? AdminNotes { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
+
+    public DriverProfile? Driver { get; set; }
+}
+
+// ── Shift Swap Request ────────────────────────────────────────────────────────
+public class ShiftSwapRequest : BaseEntity
+{
+    public Guid ShiftId { get; set; }
+    public Guid RequesterDriverId { get; set; }
+    public Guid PeerDriverId { get; set; }          // the off-duty driver who would take the shift
+    public string? Reason { get; set; }
+    public SwapRequestStatus Status { get; set; } = SwapRequestStatus.AwaitingPeer;
+    public string? AdminNotes { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
+
+    public DriverShift? Shift { get; set; }
 }

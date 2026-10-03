@@ -47,7 +47,9 @@ public class DispatcherController : CourierSABaseController
                 v.Inspections
                     .OrderByDescending(i => i.CreatedAt)
                     .Select(i => new LastInspectionDto(i.Result.ToString(), i.CreatedAt))
-                    .FirstOrDefault()
+                    .FirstOrDefault(),
+
+                v.PayloadCapacityKg
             ))
             .ToListAsync(ct);
 

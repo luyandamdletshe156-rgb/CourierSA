@@ -28,6 +28,8 @@ import RequestReturnPage from '@/pages/customer/RequestReturnPage'
 // Dispatcher
 import { DispatcherDashboard, DispatchQueue, ReturnCollectionsQueue } from '@/pages/dispatcher/DispatcherPages'
 import FailedDeliveriesPage from '@/pages/dispatcher/FailedDeliveriesPage'
+import PayloadReviewPage from '@/pages/dispatcher/PayloadReviewPage'
+import UpgradeRequestsPage from '@/pages/dispatcher/UpgradeRequestsPage'
 import DamageEscalationQueuePage from '@/pages/dispatcher/DamageEscalationQueuePage'
 import LiveMapPage from '@/pages/dispatcher/LiveMapPage'
 import DispatcherReassignmentPage from '@/pages/dispatcher/DispatcherReassignmentPage'
@@ -48,9 +50,12 @@ import { WarehouseInventoryPage } from '@/pages/warehouse/WarehouseInventory'
 import { ParcelProcessingPage } from '@/pages/warehouse/ParcelProcessing'
 import { WarehouseTrackPage } from '@/pages/warehouse/WarehouseTrack'
 import ReturnIntakeQueuePage from '@/pages/warehouse/ReturnIntakeQueuePage'
+import RouteReleasePage from '@/pages/warehouse/RouteReleasePage'
 
 // Admin
 import { AdminDashboard } from '@/pages/admin/AdminDashboard'
+import RosterPage from '@/pages/admin/RosterPage'
+import DriverSchedulePage from '@/pages/driver/DriverSchedulePage'
 import { AdminReportsPage } from '@/pages/admin/AdminReports'
 import { VehicleInspectionsPage } from '@/pages/admin/VehicleInspections'
 import CreateStaffPage from '@/pages/admin/CreateStaffPage'
@@ -135,6 +140,8 @@ export default function App() {
                   <Route path="/dispatcher/return-collections" element={<ReturnCollectionsQueue />} />
                   <Route path="/dispatcher/map" element={<LiveMapPage />} />
                   <Route path="/dispatcher/failed" element={<FailedDeliveriesPage />} />
+                  <Route path="/dispatcher/payload-review" element={<PayloadReviewPage />} />
+                  <Route path="/dispatcher/upgrades" element={<UpgradeRequestsPage />} />
                   <Route path="/dispatcher/damage-escalations" element={<DamageEscalationQueuePage />} />
                   <Route path="/dispatcher/flag-high-value" element={<FlagHighValuePage />} />
                   <Route path="/dispatcher/reassign" element={<DispatcherReassignmentPage />} />
@@ -146,6 +153,7 @@ export default function App() {
                 {/* Driver */}
                 <Route element={<RequireRole roles={['Driver']} />}>
                   <Route path="/driver/dashboard" element={<DriverDashboard />} />
+                  <Route path="/driver/schedule" element={<DriverSchedulePage />} />
                   <Route path="/driver/deliveries" element={<DriverDeliveries />} />
                   <Route path="/driver/collections" element={<DriverReturnCollections />} />
                   <Route path="/driver/route" element={<DriverRoute />} />
@@ -156,6 +164,7 @@ export default function App() {
                 <Route element={<RequireRole roles={['WarehouseStaff', 'Administrator']} />}>
                   <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
                   <Route path="/warehouse/returns" element={<ReturnIntakeQueuePage />} />
+                  <Route path="/warehouse/route-release" element={<RouteReleasePage />} />
                   <Route path="/warehouse/inventory" element={<WarehouseInventoryPage />} />
                   <Route path="/warehouse/inspections" element={<ParcelProcessingPage />} />
                   <Route path="/warehouse/track" element={<WarehouseTrackPage />} />
@@ -164,6 +173,7 @@ export default function App() {
                 {/* Admin */}
                 <Route element={<RequireRole roles={['Administrator']} />}>
                   <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                  <Route path="/admin/roster" element={<RosterPage />} />
                   <Route path="/admin/parcels" element={<AdminParcelsPage />} />
                   <Route path="/admin/users" element={<AdminDashboard />} />
                   <Route path="/admin/fleet" element={<AdminFleetPage />} />

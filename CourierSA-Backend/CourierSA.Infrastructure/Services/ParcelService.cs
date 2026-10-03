@@ -587,7 +587,25 @@ public class ParcelService : IParcelService
         }
     }
 
-    public async Task<RouteSummaryDto> DispatchRouteAsync(
+    // ═════════════════════════════════════════════════════════════════════════
+    // Plan Route Dispatch → UC14 Validate and Adjust Vehicle Payload → UC15 Split Overloaded Routes (PayloadService)
+    //
+    // Within-limit routes are activated immediately, as before. An overweight
+    // route is no longer rejected: it is held as PendingPayloadReview so the
+    // dispatcher can reallocate parcels or split it across a standby driver.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Kept for existing callers. Dispatch is now a two-step process: plan, then warehouse release.</summary>
+    public Task<RouteSummaryDto> DispatchRouteAsync(
+        CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
+        => PlanRouteAsync(dto, dispatcherId, ct);
+
+    /// <summary>
+    /// Plan Route Dispatch. Validates the parcels, driver and vehicle payload and saves the
+    /// route as Planned (within the limit) or PendingPayloadReview (overweight). Nothing
+    /// reaches the driver until warehouse staff verify the manifest (ReleaseRouteAsync).
+    /// </summary>
+    public async Task<RouteSummaryDto> PlanRouteAsync(
         CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
     {
         if (dto.ParcelIds is null || dto.ParcelIds.Count == 0)
@@ -605,11 +623,13 @@ public class ParcelService : IParcelService
 
         foreach (var p in parcels)
         {
-            // ✅ FIX: Allow route dispatching parcels that are currently in FailedDelivery status
+            // Allow route dispatching parcels that are currently in FailedDelivery status
             if (p.Status != ParcelStatus.CheckedOut && p.Status != ParcelStatus.Approved && p.Status != ParcelStatus.FailedDelivery)
                 throw new BadRequestException(
                     $"Parcel {p.TrackingNumber} is not ready for dispatch (status: {p.Status}).");
         }
+
+        await EnsureParcelsNotHeldAsync(dto.ParcelIds, null, ct);
 
         var routingAreas = parcels.Select(p =>
             p.Status == ParcelStatus.Approved ? p.PickupAddress?.City : p.Zone?.ToString()
@@ -626,36 +646,222 @@ public class ParcelService : IParcelService
         if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
             throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
 
-        // ── UC-CAPACITY-01 — Validate Vehicle Payload Capacity Before Route Assignment
-        var vehicle = await _uow.Query<Vehicle>().Query()
-            .FirstOrDefaultAsync(v => v.AssignedDriverId == driver.Id && v.Status == VehicleStatus.Active, ct)
-            ?? throw new BadRequestException(
-                $"Driver {driver.User?.FullName ?? driver.Id.ToString()} has no active vehicle assigned. " +
-                "Assign a vehicle to this driver before dispatching a route.");
-
+        var vehicle = await GetActiveVehicleAsync(driver, ct);
         var totalWeightKg = parcels.Sum(p => p.WeightKg);
-
-        if (totalWeightKg > vehicle.PayloadCapacityKg)
-            throw new BadRequestException(
-                $"Route rejected: total parcel weight ({totalWeightKg:0.##} kg) exceeds " +
-                $"{vehicle.RegistrationNumber}'s payload capacity ({vehicle.PayloadCapacityKg:0.##} kg). " +
-                "Remove parcels from this route or assign a vehicle with greater capacity.");
-
-        var capacityUtilizationPercent = vehicle.PayloadCapacityKg > 0
-            ? Math.Round(totalWeightKg / vehicle.PayloadCapacityKg * 100m, 1)
-            : 0m;
+        var overweight = totalWeightKg > vehicle.PayloadCapacityKg;
 
         var route = new DeliveryRoute
         {
             Id = Guid.NewGuid(),
             DriverId = driver.Id,
             Zone = primaryZone ?? SortingZone.Local,
-            Status = RouteStatus.InProgress,
-            DispatchedAt = DateTime.UtcNow,
+            Status = overweight ? RouteStatus.PendingPayloadReview : RouteStatus.Planned,
+            VehicleId = vehicle.Id,
+            TotalWeightKg = totalWeightKg,
+            PayloadCapacityKg = vehicle.PayloadCapacityKg,
+            PayloadOverageKg = overweight ? totalWeightKg - vehicle.PayloadCapacityKg : 0m,
+            HeldParcelIdsJson = System.Text.Json.JsonSerializer.Serialize(parcels.Select(p => p.Id)),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
         await _uow.Query<DeliveryRoute>().AddAsync(route, ct);
+        await SaveRouteChangesAsync(ct);
+
+        await _audit.LogAsync(overweight ? "ROUTE_HELD_PAYLOAD_REVIEW" : "ROUTE_PLANNED", "DeliveryRoute", route.Id,
+            null, new { ParcelCount = parcels.Count, TotalWeightKg = totalWeightKg, vehicle.PayloadCapacityKg, route.PayloadOverageKg },
+            dispatcherId, null, ct);
+
+        return BuildSummary(route, [], vehicle);
+    }
+
+    public async Task<IEnumerable<PayloadReviewRouteDto>> GetRoutesReadyForReleaseAsync(CancellationToken ct = default)
+    {
+        var routes = await _uow.Query<DeliveryRoute>().Query().AsNoTracking()
+            .Where(r => (r.Status == RouteStatus.Planned || r.Status == RouteStatus.PayloadCompliant)
+                     && r.SignedOffAt != null)   // UC14: only signed-off manifests can be loaded
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        var result = new List<PayloadReviewRouteDto>();
+        foreach (var route in routes)
+            result.Add(await BuildReviewDtoAsync(route, ct));
+        return result;
+    }
+
+    public async Task CancelPlannedRouteAsync(Guid routeId, Guid dispatcherId, CancellationToken ct = default)
+    {
+        var route = await GetHeldRouteAsync(routeId, ct);
+        route.Status = RouteStatus.Cancelled;
+        route.HeldParcelIdsJson = null;
+        route.UpdatedAt = DateTime.UtcNow;
+        await SaveRouteChangesAsync(ct);   // parcels were never changed, so they are back in the queue
+
+        await _audit.LogAsync("ROUTE_PLAN_CANCELLED", "DeliveryRoute", route.Id,
+            null, new { route.TotalWeightKg }, dispatcherId, null, ct);
+    }
+
+    /// <summary>
+    /// Dispatch Consolidated Shipment. Warehouse staff scan the parcels against the route manifest;
+    /// the route is released to the driver only when the scan matches exactly.
+    /// Pickup tasks (Approved parcels) are not in the warehouse, so they are not scanned.
+    /// </summary>
+    public async Task<RouteSummaryDto> ReleaseRouteAsync(
+        Guid routeId, ReleaseRouteDto dto, Guid warehouseUserId, CancellationToken ct = default)
+    {
+        var route = await GetHeldRouteAsync(routeId, ct);
+        if (route.Status == RouteStatus.PendingPayloadReview)
+            throw new BadRequestException("This route is over the vehicle limit. The dispatcher must reallocate or split it before it can be released.");
+        if (route.TotalWeightKg > route.PayloadCapacityKg)
+            throw new BadRequestException("This route is over the vehicle limit and cannot be released.");
+        if (route.SignedOffAt is null)
+            throw new BadRequestException("The dispatcher has not signed off this manifest yet. It cannot be released for loading until they do.");
+
+        var parcels = await LoadParcelsAsync(ReadHeldIds(route), ct);
+
+        var expected = parcels.Where(p => p.Status != ParcelStatus.Approved)
+            .Select(p => p.TrackingNumber.Trim().ToUpperInvariant()).ToHashSet();
+        var scanned = (dto.TrackingNumbers ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim().ToUpperInvariant()).ToHashSet();
+
+        var missing = expected.Except(scanned).ToList();
+        var unexpected = scanned.Except(expected).ToList();
+        if (missing.Count > 0 || unexpected.Count > 0)
+        {
+            var parts = new List<string>();
+            if (missing.Count > 0) parts.Add($"Missing: {string.Join(", ", missing)}");
+            if (unexpected.Count > 0) parts.Add($"Not on this manifest: {string.Join(", ", unexpected)}");
+            throw new BadRequestException("Manifest does not match the scanned parcels. " + string.Join(". ", parts) + ".");
+        }
+
+        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(route.DriverId, ct)
+            ?? throw new NotFoundException("Driver not found.");
+        if (driver.Status is DriverStatus.OffDuty or DriverStatus.Suspended)
+            throw new BadRequestException("Driver is off duty or suspended and cannot be dispatched.");
+        // Use the vehicle chosen when the run was planned or split (UC15 can pick a vehicle that is not the driver's own).
+        var vehicle = (route.VehicleId is Guid vehicleId ? await _uow.Query<Vehicle>().GetByIdAsync(vehicleId, ct) : null)
+            ?? await GetActiveVehicleAsync(driver, ct);
+        if (vehicle.Status != VehicleStatus.Active)
+            throw new BadRequestException($"Vehicle {vehicle.RegistrationNumber} is not active and cannot be released.");
+
+        route.ReleasedByUserId = warehouseUserId;
+        route.HeldParcelIdsJson = null;
+        var activation = await ApplyRouteActivationAsync(route, parcels, driver, ct);
+        await SaveRouteChangesAsync(ct);
+        await FinishRouteActivationAsync(route, parcels, driver, route.Zone, activation, warehouseUserId, ct);
+        return BuildSummary(route, activation.Stops, vehicle);
+    }
+
+    // ── Route helpers ─────────────────────────────────────────────────────────
+
+    private record RouteActivation(
+        List<RouteStopDto> Stops,
+        List<(Parcel Parcel, FlagHighValueResultDto FlagResult)> OtpFlagResults);
+
+    private async Task<Vehicle> GetActiveVehicleAsync(DriverProfile driver, CancellationToken ct)
+        => await _uow.Query<Vehicle>().Query()
+            .FirstOrDefaultAsync(v => v.AssignedDriverId == driver.Id && v.Status == VehicleStatus.Active, ct)
+            ?? throw new BadRequestException(
+                $"Driver {driver.User?.FullName ?? driver.Id.ToString()} has no active vehicle assigned. " +
+                "Assign a vehicle to this driver before dispatching a route.");
+
+    private async Task<DeliveryRoute> GetHeldRouteAsync(Guid routeId, CancellationToken ct)
+    {
+        var route = await _uow.Query<DeliveryRoute>().GetByIdAsync(routeId, ct)
+            ?? throw new NotFoundException("Route not found.");
+        if (route.Status != RouteStatus.PendingPayloadReview
+            && route.Status != RouteStatus.Planned
+            && route.Status != RouteStatus.PayloadCompliant)
+            throw new BadRequestException($"Route has already been released or cancelled (status: {route.Status}).");
+        return route;
+    }
+
+    private static List<Guid> ReadHeldIds(DeliveryRoute route)
+        => string.IsNullOrWhiteSpace(route.HeldParcelIdsJson)
+            ? []
+            : System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(route.HeldParcelIdsJson) ?? [];
+
+    private async Task<List<Parcel>> LoadParcelsAsync(List<Guid> ids, CancellationToken ct)
+    {
+        var parcels = await _uow.Query<Parcel>().Query()
+            .Include(p => p.DeliveryAddress)
+            .Include(p => p.PickupAddress)
+            .Where(p => ids.Contains(p.Id))
+            .ToListAsync(ct);
+        if (parcels.Count != ids.Count)
+            throw new NotFoundException("One or more parcels on this route no longer exist.");
+        foreach (var p in parcels)
+            if (p.Status != ParcelStatus.CheckedOut && p.Status != ParcelStatus.Approved && p.Status != ParcelStatus.FailedDelivery)
+                throw new BadRequestException($"Parcel {p.TrackingNumber} is no longer ready for dispatch (status: {p.Status}).");
+        return parcels;
+    }
+
+    /// <summary>Prevents a parcel from sitting on two held routes at once.</summary>
+    private async Task EnsureParcelsNotHeldAsync(IEnumerable<Guid> parcelIds, Guid? exceptRouteId, CancellationToken ct)
+    {
+        var heldRoutes = await _uow.Query<DeliveryRoute>().Query().AsNoTracking()
+            .Where(r => (r.Status == RouteStatus.PendingPayloadReview
+                         || r.Status == RouteStatus.Planned
+                         || r.Status == RouteStatus.PayloadCompliant)
+                        && r.Id != exceptRouteId)
+            .Select(r => r.HeldParcelIdsJson)
+            .ToListAsync(ct);
+
+        var alreadyHeld = heldRoutes
+            .SelectMany(j => string.IsNullOrWhiteSpace(j) ? [] : System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(j) ?? [])
+            .ToHashSet();
+        if (parcelIds.Any(alreadyHeld.Contains))
+            throw new BadRequestException("One or more parcels are already on a route awaiting payload review.");
+    }
+
+    private async Task<PayloadReviewRouteDto> BuildReviewDtoAsync(DeliveryRoute route, CancellationToken ct)
+    {
+        var ids = ReadHeldIds(route);
+        var parcels = await _uow.Query<Parcel>().Query().AsNoTracking()
+            .Include(p => p.DeliveryAddress)
+            .Where(p => ids.Contains(p.Id))
+            .ToListAsync(ct);
+        var reg = route.VehicleId is null ? null
+            : (await _uow.Query<Vehicle>().GetByIdAsync(route.VehicleId.Value, ct))?.RegistrationNumber;
+
+        return new PayloadReviewRouteDto(
+            route.Id, route.Status.ToString(), route.DriverId, route.VehicleId, reg,
+            route.TotalWeightKg, route.PayloadCapacityKg, route.PayloadOverageKg,
+            parcels.Select(p => new HeldParcelDto(
+                p.Id, p.TrackingNumber, p.WeightKg,
+                p.DeliveryAddress?.RecipientName ?? "—", p.DeliveryAddress?.City ?? "—",
+                p.Status == ParcelStatus.Approved)).ToList(),
+            route.CreatedAt);
+    }
+
+    private static RouteSummaryDto BuildSummary(DeliveryRoute route, List<RouteStopDto> stops, Vehicle vehicle)
+    {
+        var utilization = vehicle.PayloadCapacityKg > 0
+            ? Math.Round(route.TotalWeightKg / vehicle.PayloadCapacityKg * 100m, 1)
+            : 0m;
+        return new RouteSummaryDto(
+            route.Id, route.Zone.ToString(), route.Status.ToString(), route.DispatchedAt, stops,
+            vehicle.Id, vehicle.RegistrationNumber, route.TotalWeightKg, vehicle.PayloadCapacityKg, utilization);
+    }
+
+    private async Task SaveRouteChangesAsync(CancellationToken ct)
+    {
+        try { await _uow.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
+            throw new BadRequestException(
+                $"The {string.Join(", ", failedTypes)} was updated by another process. Please refresh and try again.");
+        }
+    }
+
+    /// <summary>Creates deliveries and updates parcel/bin/driver state. Does not save.</summary>
+    private async Task<RouteActivation> ApplyRouteActivationAsync(
+        DeliveryRoute route, List<Parcel> parcels, DriverProfile driver, CancellationToken ct)
+    {
+        route.Status = RouteStatus.InProgress;
+        route.DispatchedAt = DateTime.UtcNow;
+        route.UpdatedAt = DateTime.UtcNow;
 
         var stops = new List<RouteStopDto>();
         var otpFlagResults = new List<(Parcel Parcel, FlagHighValueResultDto FlagResult)>();
@@ -737,43 +943,36 @@ public class ParcelService : IParcelService
 
         driver.Status = DriverStatus.OnDelivery;
         driver.UpdatedAt = DateTime.UtcNow;
+        return new RouteActivation(stops, otpFlagResults);
+    }
 
-        try
-        {
-            await _uow.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateConcurrencyException ex)
-        {
-            var failedTypes = ex.Entries.Select(e => e.Entity.GetType().Name).Distinct();
-            throw new BadRequestException(
-                $"The {string.Join(", ", failedTypes)} was updated by another process. Please refresh and try again.");
-        }
-
+    /// <summary>Audit, notifications, SignalR and OTP emails. Runs after a successful save.</summary>
+    private async Task FinishRouteActivationAsync(
+        DeliveryRoute route, List<Parcel> parcels, DriverProfile driver, SortingZone? zone,
+        RouteActivation activation, Guid dispatcherId, CancellationToken ct)
+    {
         await _audit.LogAsync("ROUTE_DISPATCHED", "DeliveryRoute", route.Id,
-            null, new { ParcelCount = parcels.Count, Zone = primaryZone?.ToString(), DriverId = driver.Id },
+            null, new { ParcelCount = parcels.Count, Zone = zone?.ToString(), DriverId = driver.Id, route.TotalWeightKg },
             dispatcherId, null, ct);
 
         try
         {
-            var routeSummary = primaryZone?.ToString() ?? $"{parcels.Count}-stop route";
-            await _notificationService.SendRouteAssignedAsync(driver.UserId, routeSummary, stops.Count, ct);
+            var routeSummary = zone?.ToString() ?? $"{parcels.Count}-stop route";
+            await _notificationService.SendRouteAssignedAsync(driver.UserId, routeSummary, activation.Stops.Count, ct);
         }
         catch (Exception ex) { Console.WriteLine($"[NOTIFY] Driver route assignment notification failed for route {route.Id}: {ex.Message}"); }
 
         foreach (var parcel in parcels)
         {
-            await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct);
+            try { await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, parcel.Status.ToString(), ct: ct); }
+            catch (Exception ex) { Console.WriteLine($"[HUB] SignalR notify failed for {parcel.TrackingNumber}: {ex.Message}"); }
         }
 
-        foreach (var item in otpFlagResults)
+        foreach (var item in activation.OtpFlagResults)
         {
             try { await _secureDelivery.SendOtpEmailForParcelAsync(item.Parcel, item.FlagResult.Otp!); }
             catch (Exception ex) { Console.WriteLine($"[SECURE-DELIVERY] OTP email failed for {item.Parcel.TrackingNumber}: {ex.Message}"); }
         }
-
-        return new RouteSummaryDto(
-            route.Id, primaryZone?.ToString() ?? "Mixed Route", route.Status.ToString(), route.DispatchedAt, stops,
-            vehicle.Id, vehicle.RegistrationNumber, totalWeightKg, vehicle.PayloadCapacityKg, capacityUtilizationPercent);
     }
 
     public async Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverUserId, CancellationToken ct = default)
