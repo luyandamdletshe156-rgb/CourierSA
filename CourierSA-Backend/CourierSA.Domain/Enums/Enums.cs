@@ -82,7 +82,8 @@ public enum TrackingEventType
     OtpVerified,
     CollectionRescheduled,
     ReturnCollectionDispatched,
-    ReturnCollected
+    ReturnCollected,
+    PickupDispatched
 }
 public enum DeliveryStatus
 {

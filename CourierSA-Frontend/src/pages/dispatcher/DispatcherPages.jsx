@@ -239,7 +239,8 @@ export function DispatchQueue() {
     refetchInterval: 15000,
   })
 
-  // 2. Fetch Pickups (Freshly approved bookings that need to be collected)
+  // 2. Fetch Pickups (Freshly approved bookings that need to be collected).
+  //    The API hides pickups that already have an active driver assigned.
   const { data: approvedData, isLoading: approvedLoading } = useQuery({
     queryKey: ['dispatcher-ready-queue', 'Approved'],
     queryFn: () => parcelApi.queue({ status: 'Approved', pageSize: 50 }),
@@ -251,7 +252,7 @@ export function DispatchQueue() {
 
   const deliveries = extractItems(checkedOutData)
   const pickups = extractItems(approvedData)
-  
+
   // Combine both into one queue
   // Plan Route Dispatch: order by the service level chosen at booking
   // (SameDay first ... Economy last), then by booking time within a level.
@@ -295,10 +296,18 @@ export function DispatchQueue() {
     ? Math.round((totalWeightKg / selectedVehicle.payloadCapacityKg) * 1000) / 10
     : null
 
+  // A route made only of pickups goes straight to the driver (no warehouse release step)
+  const isPickupOnly = selectedParcels.length > 0 && selectedParcels.every(p => p.status === 'Approved')
+
+  // The city a task is routed by: where it is collected (pickups) or where it is delivered (deliveries)
+  const taskCityOf = (p) =>
+    (p.status === 'Approved' ? p.pickupCity : (p.city || p.destinationCity)) || ''
+
   // Proximity Lock: Lock selection to the city of the FIRST selected item
-  const activeCity = selectedParcels.length > 0 
-    ? (selectedParcels[0].city || selectedParcels[0].destinationCity) 
-    : null
+  const activeCity = selectedParcels.length > 0 ? taskCityOf(selectedParcels[0]) : null
+
+  // Pickups are collected from customers and deliveries leave the warehouse, so they can't share a route
+  const activeIsPickup = selectedParcels.length > 0 ? selectedParcels[0].status === 'Approved' : null
 
   const handleToggleParcel = (id) => {
     setSelectedParcelIds(prev => {
@@ -312,8 +321,9 @@ export function DispatchQueue() {
 
   const dispatchMutation = useMutation({
     mutationFn: () => {
-      // Plan Route Dispatch: the route is planned and validated here, then released
-      // to the driver by warehouse staff after they verify the manifest.
+      // Plan Route Dispatch: the route is planned and validated here. Pickup-only routes
+      // within the vehicle limit go straight to the driver; routes with deliveries are
+      // released by warehouse staff after they verify the manifest.
       return parcelApi.planRoute({
         parcelIds: selectedParcelIds,
         driverId: selectedDriverId
@@ -323,6 +333,8 @@ export function DispatchQueue() {
       const summary = result?.data ?? result
       if (summary?.status === 'PendingPayloadReview') {
         setDispatchSuccessMessage('Route is over the vehicle limit and was held. Open Payload Review to reallocate or split it.')
+      } else if (summary?.status === 'InProgress') {
+        setDispatchSuccessMessage('Pickup route sent straight to the driver.')
       } else if (summary?.capacityUtilizationPercent != null) {
         setDispatchSuccessMessage(
           `Route planned — ${summary.capacityUtilizationPercent}% of ${summary.vehicleRegistration ?? 'vehicle'}'s capacity used. Waiting for warehouse release.`
@@ -375,10 +387,11 @@ export function DispatchQueue() {
                   {parcels.map(p => {
                     const isPickup = p.status === 'Approved'
                     const isSelected = selectedParcelIds.includes(p.id)
-                    const taskCity = p.city || p.destinationCity || ''
-                    
-                    // Disable checkbox if task is outside the currently active city selection
-                    const isOutOfArea = activeCity && taskCity !== activeCity
+                    const taskCity = taskCityOf(p)
+
+                    // Disable checkbox if the task is a different type (pickup vs delivery) or outside the active city
+                    const isWrongType = activeIsPickup !== null && isPickup !== activeIsPickup
+                    const isOutOfArea = isWrongType || (activeCity && taskCity !== activeCity)
 
                     return (
                       <tr
@@ -399,7 +412,7 @@ export function DispatchQueue() {
                             disabled={isOutOfArea && !isSelected}
                             onChange={() => handleToggleParcel(p.id)}
                             className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] disabled:cursor-not-allowed"
-                            title={isOutOfArea ? "Cannot batch tasks from different cities" : ""}
+                            title={isWrongType ? "Pickups and deliveries can't share a route" : isOutOfArea ? "Cannot batch tasks from different cities" : ""}
                           />
                         </td>
                         <td><TrackingBadge value={p.trackingNumber} /></td>
@@ -457,6 +470,12 @@ export function DispatchQueue() {
                   </div>
                 ))}
               </div>
+
+              {isPickupOnly && (
+                <p className="text-[11px] text-[#4338CA] bg-[#E0E7FF] px-2.5 py-1.5 rounded-lg">
+                  Pickups are collected from the customer, so this route goes straight to the driver.
+                </p>
+              )}
             </div>
           )}
 
@@ -478,15 +497,15 @@ export function DispatchQueue() {
               >
                 {/* FIX: Prevent duplicate placeholder from populating the list */}
                 <option value="" disabled hidden>Choose Driver...</option>
-                
+
                 {drivers.map((d, index) => {
                   const actualId = d?.id || d?.driverId || d?.userId;
-                  
+
                   // FIX: Properly handle mapping driver's first and last name so it doesn't default to the ID fallback
-                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—") 
-                    ? `${d.firstName} ${d.lastName}` 
+                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—")
+                    ? `${d.firstName} ${d.lastName}`
                     : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`);
-                  
+
                   return (
                     <option key={actualId || index} value={actualId || ''}>
                       {actualName}
@@ -532,14 +551,18 @@ export function DispatchQueue() {
             disabled={selectedParcelIds.length === 0 || !selectedDriverId || dispatchMutation.isPending}
             onClick={() => { setDispatchSuccessMessage(''); dispatchMutation.mutate() }}
           >
-            <Send size={16} /> 
-            {dispatchMutation.isPending 
-              ? 'Planning...' 
+            <Send size={16} />
+            {dispatchMutation.isPending
+              ? 'Planning...'
               : isOverCapacity
                 ? 'Send for Payload Review'
-                : selectedParcelIds.length > 1 
-                  ? `Plan Route (${selectedParcelIds.length} Tasks)` 
-                  : 'Plan Route'}
+                : isPickupOnly
+                  ? (selectedParcelIds.length > 1
+                      ? `Send to Driver (${selectedParcelIds.length} Pickups)`
+                      : 'Send to Driver')
+                  : selectedParcelIds.length > 1
+                    ? `Plan Route (${selectedParcelIds.length} Tasks)`
+                    : 'Plan Route'}
           </button>
         </div>
       </div>

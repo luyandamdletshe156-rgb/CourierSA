@@ -7,7 +7,11 @@ import { formatDate } from '@/utils'
 import clsx from 'clsx'
 
 // Schedule Driver Roster, and Approve Leave & Reassign Shifts (admin).
-const iso = d => d.toISOString().slice(0, 10)
+// Local-date formatter (toISOString is UTC and can show yesterday just after midnight in SAST)
+const iso = d => {
+  const x = new Date(d)
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+}
 const unwrap = d => (Array.isArray(d) ? d : d?.data ?? [])
 const mondayOf = (d = new Date()) => {
   const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x
@@ -22,12 +26,16 @@ function RosterTab() {
   const [date, setDate] = useState(iso(new Date()))
   const [shiftType, setShiftType] = useState('Morning')
 
-  const { data: drivers } = useQuery({ queryKey: ['roster-drivers'], queryFn: () => shiftApi.drivers() })
-  const { data, isLoading } = useQuery({
+  const { data: drivers, error: driversError } = useQuery({
+    queryKey: ['roster-drivers'],
+    queryFn: () => shiftApi.drivers(),
+  })
+  const { data, isLoading, error: rosterError } = useQuery({
     queryKey: ['roster', weekStart],
     queryFn: () => shiftApi.roster(weekStart, weekEnd),
   })
   const shifts = unwrap(data)
+  const driverList = unwrap(drivers)
   const refresh = () => qc.invalidateQueries({ queryKey: ['roster'] })
 
   const add = useMutation({
@@ -42,12 +50,18 @@ function RosterTab() {
 
   return (
     <div className="space-y-5">
+      {driversError && <Alert type="error" message={`Could not load drivers: ${driversError.message}`} />}
+      {rosterError && <Alert type="error" message={`Could not load roster: ${rosterError.message}`} />}
+      {!driversError && drivers && driverList.length === 0 && (
+        <Alert type="error" message="No active drivers found. Create a driver account under Users first." />
+      )}
+
       <div className="card p-5 space-y-3">
         <h3 className="text-sm font-bold">Add a shift</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <select className="input" value={driverId} onChange={e => setDriverId(e.target.value)}>
             <option value="">Driver…</option>
-            {unwrap(drivers).map(d => <option key={d.driverId} value={d.driverId}>{d.name}</option>)}
+            {driverList.map(d => <option key={d.driverId} value={d.driverId}>{d.name}</option>)}
           </select>
           <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
           <select className="input" value={shiftType} onChange={e => setShiftType(e.target.value)}>
@@ -68,7 +82,7 @@ function RosterTab() {
       </div>
       {publish.error && <Alert type="error" message={publish.error.message} />}
 
-      {isLoading ? <PageLoader /> : shifts.length === 0 ? (
+      {isLoading ? <PageLoader /> : rosterError ? null : shifts.length === 0 ? (
         <EmptyState title="No shifts this week" description="Add shifts above, then publish the week so drivers can see it." />
       ) : (
         <div className="card divide-y divide-[#E2E8F0]">
@@ -177,6 +191,7 @@ function OpenShiftCard({ s, drivers }) {
 
 function List({ query, empty, render }) {
   if (query.isLoading) return <PageLoader />
+  if (query.error) return <Alert type="error" message={`Could not load data: ${query.error.message}`} />
   const items = unwrap(query.data)
   if (items.length === 0) return <EmptyState title={empty.title} description={empty.description} />
   return <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">{items.map(render)}</div>

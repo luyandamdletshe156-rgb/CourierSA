@@ -556,8 +556,8 @@ public class ParcelService : IParcelService
         {
             Id = Guid.NewGuid(),
             ParcelId = parcel.Id,
-            EventType = TrackingEventType.OutForDelivery,
-            Description = isPickup ? $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()} for pickup" : $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()} for delivery",
+            EventType = isPickup ? TrackingEventType.PickupDispatched : TrackingEventType.OutForDelivery,
+            Description = isPickup ? $"Driver {driver.User?.FullName ?? driverId.ToString()} assigned to collect the parcel" : $"Dispatched to driver {driver.User?.FullName ?? driverId.ToString()} for delivery",
             OccurredAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -593,6 +593,9 @@ public class ParcelService : IParcelService
     // Within-limit routes are activated immediately, as before. An overweight
     // route is no longer rejected: it is held as PendingPayloadReview so the
     // dispatcher can reallocate parcels or split it across a standby driver.
+    //
+    // Pickup-only routes (every parcel still with the customer) skip the warehouse:
+    // they are activated straight away when within the vehicle limit.
     // ═════════════════════════════════════════════════════════════════════════
 
     /// <summary>Kept for existing callers. Dispatch is now a two-step process: plan, then warehouse release.</summary>
@@ -603,7 +606,8 @@ public class ParcelService : IParcelService
     /// <summary>
     /// Plan Route Dispatch. Validates the parcels, driver and vehicle payload and saves the
     /// route as Planned (within the limit) or PendingPayloadReview (overweight). Nothing
-    /// reaches the driver until warehouse staff verify the manifest (ReleaseRouteAsync).
+    /// reaches the driver until warehouse staff verify the manifest (ReleaseRouteAsync),
+    /// except pickup-only routes within the limit, which go straight to the driver.
     /// </summary>
     public async Task<RouteSummaryDto> PlanRouteAsync(
         CreateRouteDto dto, Guid dispatcherId, CancellationToken ct = default)
@@ -630,6 +634,13 @@ public class ParcelService : IParcelService
         }
 
         await EnsureParcelsNotHeldAsync(dto.ParcelIds, null, ct);
+
+        // A pickup stays "Approved" once a driver is assigned, so make sure none is already with a driver.
+        var alreadyAssigned = await _uow.Deliveries.Query().AnyAsync(d =>
+            dto.ParcelIds.Contains(d.ParcelId) &&
+            (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
+        if (alreadyAssigned)
+            throw new BadRequestException("One or more parcels are already assigned to a driver.");
 
         var routingAreas = parcels.Select(p =>
             p.Status == ParcelStatus.Approved ? p.PickupAddress?.City : p.Zone?.ToString()
@@ -665,6 +676,22 @@ public class ParcelService : IParcelService
             UpdatedAt = DateTime.UtcNow
         };
         await _uow.Query<DeliveryRoute>().AddAsync(route, ct);
+
+        // Pickups are collected from the customer, not the warehouse, so a pickup-only
+        // route within the vehicle limit goes straight to the driver.
+        var pickupOnly = parcels.All(p => p.Status == ParcelStatus.Approved);
+        if (pickupOnly && !overweight)
+        {
+            route.SignedOffAt = DateTime.UtcNow;
+            route.SignedOffByUserId = dispatcherId;
+            route.HeldParcelIdsJson = null;
+
+            var activation = await ApplyRouteActivationAsync(route, parcels, driver, ct);
+            await SaveRouteChangesAsync(ct);
+            await FinishRouteActivationAsync(route, parcels, driver, route.Zone, activation, dispatcherId, ct);
+            return BuildSummary(route, activation.Stops, vehicle);
+        }
+
         await SaveRouteChangesAsync(ct);
 
         await _audit.LogAsync(overweight ? "ROUTE_HELD_PAYLOAD_REVIEW" : "ROUTE_PLANNED", "DeliveryRoute", route.Id,
@@ -910,9 +937,9 @@ public class ParcelService : IParcelService
             {
                 Id = Guid.NewGuid(),
                 ParcelId = parcel.Id,
-                EventType = TrackingEventType.OutForDelivery,
+                EventType = isPickup ? TrackingEventType.PickupDispatched : TrackingEventType.OutForDelivery,
                 Description = isPickup
-                    ? $"Dispatched to driver {driver.User?.FullName ?? driver.Id.ToString()} for pickup route"
+                    ? $"Driver {driver.User?.FullName ?? driver.Id.ToString()} assigned to collect the parcel"
                     : $"Dispatched to driver {driver.User?.FullName ?? driver.Id.ToString()} as part of a {parcels.Count}-stop route",
                 OccurredAt = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow,
@@ -1178,7 +1205,15 @@ public class ParcelService : IParcelService
     public async Task<PagedResult<ParcelSummaryDto>> GetQueueAsync(ParcelFilterDto filter, CancellationToken ct = default)
     {
         var query = _uow.Query<Parcel>().Query().AsNoTracking().Include(p => p.DeliveryAddress).Include(p => p.PickupAddress).AsQueryable();
-        if (!string.IsNullOrWhiteSpace(filter.Status) && Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum)) query = query.Where(p => p.Status == statusEnum);
+        if (!string.IsNullOrWhiteSpace(filter.Status) && Enum.TryParse<ParcelStatus>(filter.Status, true, out var statusEnum))
+        {
+            query = query.Where(p => p.Status == statusEnum);
+
+            // Pickups stay "Approved" after a driver is assigned, so hide the ones that already have an active driver.
+            if (statusEnum == ParcelStatus.Approved)
+                query = query.Where(p => !p.Deliveries.Any(d =>
+                    d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress));
+        }
         if (!string.IsNullOrWhiteSpace(filter.Search)) { var search = filter.Search.Trim().ToLower(); query = query.Where(p => p.TrackingNumber.ToLower().Contains(search) || (p.DeliveryAddress != null && p.DeliveryAddress.City.ToLower().Contains(search))); }
 
         query = query.OrderByDescending(p => p.CreatedAt);
@@ -1282,7 +1317,7 @@ public class ParcelService : IParcelService
     }
 
     private static ParcelAddress MapAddress(CreateAddressDto dto) => new() { Id = Guid.NewGuid(), RecipientName = dto.RecipientName, RecipientPhone = dto.RecipientPhone, RecipientEmail = dto.RecipientEmail, StreetAddress = dto.StreetAddress, Suburb = dto.Suburb, City = dto.City, Province = dto.Province, PostalCode = dto.PostalCode, Country = dto.Country ?? "South Africa", SpecialInstructions = dto.SpecialInstructions, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-    private static ParcelSummaryDto MapToSummary(Parcel p, string? binCode = null) => new(p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(), p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—", p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate, binCode, p.Zone?.ToString());
+    private static ParcelSummaryDto MapToSummary(Parcel p, string? binCode = null) => new(p.Id, p.TrackingNumber, p.Status.ToString(), p.ServiceType.ToString(), p.DeliveryAddress?.City ?? "—", p.DeliveryAddress?.Province.ToString() ?? "—", p.WeightKg, p.QuoteAmountZAR, p.CreatedAt, p.EstimatedDeliveryDate, binCode, p.Zone?.ToString(), p.PickupAddress?.City);
 
     private static ParcelDetailDto MapToDetail(Parcel p)
     {
@@ -1328,10 +1363,91 @@ public class ParcelService : IParcelService
         if (routeId is null) return;
         var route = await _uow.Query<DeliveryRoute>().GetByIdAsync(routeId.Value, ct);
         if (route is null || route.Status == RouteStatus.Completed) return;
-        var allTerminal = await _uow.Deliveries.Query().Where(d => d.RouteId == routeId.Value).AllAsync(d => d.Status == DeliveryStatus.Delivered || d.Status == DeliveryStatus.Failed, ct);
+        var allTerminal = await _uow.Deliveries.Query().Where(d => d.RouteId == routeId.Value).AllAsync(d => d.Status == DeliveryStatus.Delivered || d.Status == DeliveryStatus.Failed || d.Status == DeliveryStatus.Returned, ct);
         if (allTerminal) { route.Status = RouteStatus.Completed; route.CompletedAt = DateTime.UtcNow; route.UpdatedAt = DateTime.UtcNow; }
     }
 
+
+    /// <summary>
+    /// Closes the active pickup leg of a parcel the customer is cancelling, frees the driver when it was
+    /// their last stop, and tells them. Does not save. Returns the routes that were touched.
+    /// </summary>
+    private async Task<List<Guid?>> CloseActivePickupDeliveriesAsync(Parcel parcel, CancellationToken ct)
+    {
+        var active = await _uow.Deliveries.Query()
+            .Where(d => d.ParcelId == parcel.Id
+                     && (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress))
+            .ToListAsync(ct);
+        if (active.Count == 0) return [];
+
+        var closedIds = active.Select(d => d.Id).ToList();
+        foreach (var d in active)
+        {
+            d.Status = DeliveryStatus.Returned;
+            d.AttemptNotes = "Cancelled by the customer before collection.";
+            d.UpdatedAt = DateTime.UtcNow;
+        }
+
+        foreach (var driverId in active.Select(d => d.DriverId).Distinct())
+        {
+            var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
+            if (driver is null) continue;
+
+            var hasOtherStops = await _uow.Deliveries.Query().AnyAsync(d =>
+                d.DriverId == driverId && !closedIds.Contains(d.Id) &&
+                (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
+            if (!hasOtherStops && driver.Status == DriverStatus.OnDelivery)
+            {
+                driver.Status = DriverStatus.Available;
+                driver.UpdatedAt = DateTime.UtcNow;
+            }
+
+            try
+            {
+                await _notificationService.SendSystemAlertAsync(
+                    driver.UserId, "Pickup cancelled",
+                    $"{parcel.TrackingNumber} was cancelled by the customer. It has been removed from your route.", ct);
+            }
+            catch (Exception ex) { Console.WriteLine($"[NOTIFY] Driver cancellation alert failed for {parcel.TrackingNumber}: {ex.Message}"); }
+        }
+
+        return active.Select(d => d.RouteId).Distinct().ToList();
+    }
+
+    /// <summary>
+    /// Takes a cancelled parcel off any route that has not been released yet. The manifest changed,
+    /// so its sign-off is cleared; a route left with no parcels is cancelled. Does not save.
+    /// </summary>
+    private async Task RemoveFromHeldRoutesAsync(Parcel parcel, CancellationToken ct)
+    {
+        var routes = await _uow.Query<DeliveryRoute>().Query()
+            .Where(r => r.Status == RouteStatus.PendingPayloadReview
+                     || r.Status == RouteStatus.Planned
+                     || r.Status == RouteStatus.PayloadCompliant)
+            .ToListAsync(ct);
+
+        foreach (var route in routes)
+        {
+            var ids = ReadHeldIds(route);
+            if (!ids.Remove(parcel.Id)) continue;
+
+            route.UpdatedAt = DateTime.UtcNow;
+            route.SignedOffAt = null;
+            route.SignedOffByUserId = null;
+
+            if (ids.Count == 0)
+            {
+                route.Status = RouteStatus.Cancelled;
+                route.HeldParcelIdsJson = null;
+                continue;
+            }
+
+            route.HeldParcelIdsJson = System.Text.Json.JsonSerializer.Serialize(ids);
+            route.TotalWeightKg = Math.Max(0m, route.TotalWeightKg - parcel.WeightKg);
+            route.PayloadOverageKg = Math.Max(0m, route.TotalWeightKg - route.PayloadCapacityKg);
+            route.Status = route.PayloadOverageKg > 0 ? RouteStatus.PendingPayloadReview : RouteStatus.PayloadCompliant;
+        }
+    }
 
     private const decimal WarehouseCancellationFeeZAR = 50.00m;
 
@@ -1443,6 +1559,11 @@ public class ParcelService : IParcelService
 
         string chargeMethod = "None";
 
+        // A pickup can already be with a driver (Approved + active delivery) or sit on a route that has not
+        // been released yet. Close those out so the driver no longer sees the stop.
+        var closedRouteIds = await CloseActivePickupDeliveriesAsync(parcel, ct);
+        await RemoveFromHeldRoutesAsync(parcel, ct);
+
         var assignment = await _uow.Query<ParcelSortingAssignment>().Query()
             .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null && a.ReleasedAt == null, ct);
         if (assignment?.ConfirmedBinId != null)
@@ -1504,6 +1625,12 @@ public class ParcelService : IParcelService
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
 
         await _uow.SaveChangesAsync(ct);
+
+        // Complete any route whose last open stop was this pickup (needs the first save to be visible).
+        foreach (var closedRouteId in closedRouteIds)
+            await CheckRouteCompletionAsync(closedRouteId, ct);
+        if (closedRouteIds.Count > 0)
+            await _uow.SaveChangesAsync(ct);
 
         await _audit.LogAsync("PARCEL_CANCELLED_BY_CUSTOMER", "Parcel", parcel.Id,
             new { PreviousStatus = previousStatus.ToString() },

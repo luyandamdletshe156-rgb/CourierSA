@@ -152,8 +152,9 @@ public record ParcelSummaryDto(
     decimal? QuoteAmountZAR,
     DateTime CreatedAt,
     DateTime? EstimatedDeliveryDate,
-   string? BinCode = null,
-    string? Zone = null
+    string? BinCode = null,
+    string? Zone = null,
+    string? PickupCity = null
 );
 
 public record ParcelAddressDto(

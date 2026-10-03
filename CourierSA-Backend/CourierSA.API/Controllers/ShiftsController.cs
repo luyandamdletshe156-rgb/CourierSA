@@ -7,7 +7,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace CourierSA.API.Controllers;
 
 // Driver roster, leave and shift swaps
+
 [Authorize]
+[Route("")]
 public class ShiftsController : CourierSABaseController
 {
     private readonly IShiftService _service;

@@ -59,7 +59,7 @@ public class RouteWorkflowTests
     }
 
     private static PayloadService BuildPayload(ApplicationDbContext db)
-        => new(new UnitOfWork(db), new Mock<IAuditService>().Object);
+    => new(new UnitOfWork(db), new Mock<IAuditService>().Object, new Mock<IParcelService>().Object);
 
     private static Task SignOffAsync(ApplicationDbContext db, Guid routeId)
         => BuildPayload(db).SignOffAsync(routeId, new SignOffDto(null), Guid.NewGuid());

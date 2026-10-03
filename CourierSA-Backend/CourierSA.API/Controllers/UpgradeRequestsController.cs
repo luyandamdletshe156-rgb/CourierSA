@@ -8,6 +8,7 @@ namespace CourierSA.API.Controllers;
 
 // Request Priority Upgrade / Review Priority Upgrade
 [Authorize]
+[Route("")]
 public class UpgradeRequestsController : CourierSABaseController
 {
     private readonly IPriorityUpgradeService _service;

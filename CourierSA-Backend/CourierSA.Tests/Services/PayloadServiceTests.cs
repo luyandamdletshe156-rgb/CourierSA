@@ -25,7 +25,8 @@ public class PayloadServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
     private static PayloadService BuildSut(ApplicationDbContext db)
-        => new(new UnitOfWork(db), new Mock<IAuditService>().Object);
+    => new(new UnitOfWork(db), new Mock<IAuditService>().Object, new Mock<IParcelService>().Object);
+
 
     private static async Task<(DriverProfile Driver, Vehicle Vehicle)> SeedDriverAsync(
         ApplicationDbContext db, decimal capacityKg, DriverStatus status = DriverStatus.Available)

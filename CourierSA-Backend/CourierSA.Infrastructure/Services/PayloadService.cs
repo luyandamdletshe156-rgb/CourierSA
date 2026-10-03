@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CourierSA.Application.DTOs.Payload;
+using CourierSA.Application.DTOs.Routing;
 using CourierSA.Application.Interfaces.Repositories;
 using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
@@ -19,6 +20,9 @@ namespace CourierSA.Infrastructure.Services;
 ///
 /// UC15: for an overloaded run the dispatcher picks a standby driver and a standby vehicle,
 /// previews the proposed split, then confirms. Confirming finalises (signs off) both manifests.
+///
+/// Pickup-only runs (every parcel still with the customer) skip the warehouse: once signed off
+/// they are released straight to the driver.
 /// </summary>
 public class PayloadService : IPayloadService
 {
@@ -30,10 +34,11 @@ public class PayloadService : IPayloadService
 
     private readonly IUnitOfWork _uow;
     private readonly IAuditService _audit;
+    private readonly IParcelService _parcels;
 
-    public PayloadService(IUnitOfWork uow, IAuditService audit)
+    public PayloadService(IUnitOfWork uow, IAuditService audit, IParcelService parcels)
     {
-        _uow = uow; _audit = audit;
+        _uow = uow; _audit = audit; _parcels = parcels;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -109,8 +114,11 @@ public class PayloadService : IPayloadService
         await _audit.LogAsync("ROUTE_PAYLOAD_REALLOCATED", "DeliveryRoute", source.Id, before,
             new
             {
-                source.TotalWeightKg, ParcelCount = remaining.Count, Moved = moving.Count,
-                TargetRouteId = target?.Id, Status = source.Status.ToString()
+                source.TotalWeightKg,
+                ParcelCount = remaining.Count,
+                Moved = moving.Count,
+                TargetRouteId = target?.Id,
+                Status = source.Status.ToString()
             },
             dispatcherId, null, ct);
 
@@ -161,7 +169,13 @@ public class PayloadService : IPayloadService
             new { route.TotalWeightKg, route.PayloadCapacityKg, ParcelCount = ids.Count },
             dispatcherId, null, ct);
 
-        return await BuildRunAsync(route, null, ct);
+        var result = await BuildRunAsync(route, null, ct);   // build the view before release clears the manifest
+
+        // Pickup-only runs never visit the warehouse, so they go straight to the driver.
+        if (IsPickupOnly(parcels))
+            await ReleasePickupRunAsync(route.Id, dispatcherId, ct);
+
+        return result;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -197,15 +211,23 @@ public class PayloadService : IPayloadService
         // Transient copies: nothing here is attached to the context, so nothing is saved.
         var original = new DeliveryRoute
         {
-            Id = plan.Route.Id, DriverId = plan.Route.DriverId, VehicleId = plan.Route.VehicleId,
-            Zone = plan.Route.Zone, Status = RouteStatus.PayloadCompliant,
-            TotalWeightKg = plan.OriginalKg, PayloadCapacityKg = plan.Route.PayloadCapacityKg
+            Id = plan.Route.Id,
+            DriverId = plan.Route.DriverId,
+            VehicleId = plan.Route.VehicleId,
+            Zone = plan.Route.Zone,
+            Status = RouteStatus.PayloadCompliant,
+            TotalWeightKg = plan.OriginalKg,
+            PayloadCapacityKg = plan.Route.PayloadCapacityKg
         };
         var standby = new DeliveryRoute
         {
-            Id = Guid.Empty, DriverId = plan.StandbyDriver.Id, VehicleId = plan.StandbyVehicle.Id,
-            Zone = plan.Route.Zone, Status = RouteStatus.PayloadCompliant,
-            TotalWeightKg = plan.StandbyKg, PayloadCapacityKg = plan.StandbyVehicle.PayloadCapacityKg
+            Id = Guid.Empty,
+            DriverId = plan.StandbyDriver.Id,
+            VehicleId = plan.StandbyVehicle.Id,
+            Zone = plan.Route.Zone,
+            Status = RouteStatus.PayloadCompliant,
+            TotalWeightKg = plan.StandbyKg,
+            PayloadCapacityKg = plan.StandbyVehicle.PayloadCapacityKg
         };
 
         return new SplitResultDto(
@@ -251,16 +273,26 @@ public class PayloadService : IPayloadService
         await _audit.LogAsync("ROUTE_SPLIT_CONFIRMED", "DeliveryRoute", route.Id, null,
             new
             {
-                OriginalKg = plan.OriginalKg, StandbyKg = plan.StandbyKg,
-                StandbyRouteId = standbyRoute.Id, StandbyDriverId = plan.StandbyDriver.Id,
+                OriginalKg = plan.OriginalKg,
+                StandbyKg = plan.StandbyKg,
+                StandbyRouteId = standbyRoute.Id,
+                StandbyDriverId = plan.StandbyDriver.Id,
                 StandbyVehicleId = plan.StandbyVehicle.Id
             },
             dispatcherId, null, ct);
 
-        return new SplitResultDto(
+        var result = new SplitResultDto(
             await ViewAsync(route, "Original run", plan.Original, ct),
             await ViewAsync(standbyRoute, "Standby run", plan.Standby, ct),
             Confirmed: true);
+
+        // Pickup-only halves never visit the warehouse, so they go straight to their drivers.
+        if (IsPickupOnly(plan.Original))
+            await ReleasePickupRunAsync(route.Id, dispatcherId, ct);
+        if (IsPickupOnly(plan.Standby))
+            await ReleasePickupRunAsync(standbyRoute.Id, dispatcherId, ct);
+
+        return result;
     }
 
     private record SplitPlan(
@@ -322,6 +354,14 @@ public class PayloadService : IPayloadService
     // ═════════════════════════════════════════════════════════════════════════
     // Helpers
     // ═════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Pickups are collected from the customer, not the warehouse, so a pickup-only run needs no warehouse scan.</summary>
+    private static bool IsPickupOnly(IReadOnlyCollection<Parcel> parcels)
+        => parcels.Count > 0 && parcels.All(p => p.Status == ParcelStatus.Approved);
+
+    /// <summary>Sends a signed-off pickup-only run straight to its driver. The scan list is empty because pickups are never scanned.</summary>
+    private Task ReleasePickupRunAsync(Guid routeId, Guid dispatcherId, CancellationToken ct)
+        => _parcels.ReleaseRouteAsync(routeId, new ReleaseRouteDto(new List<string>()), dispatcherId, ct);
 
     private static string RunLabel(int index)
         => index < 26 ? $"Run {(char)('A' + index)}" : $"Run {index + 1}";

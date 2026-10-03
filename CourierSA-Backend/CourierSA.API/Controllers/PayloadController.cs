@@ -8,6 +8,7 @@ namespace CourierSA.API.Controllers;
 
 // UC14 Validate and Adjust Vehicle Payload / UC15 Split Overloaded Routes
 [Authorize(Policy = "DispatcherOrAdmin")]
+[Route("")]
 public class PayloadController : CourierSABaseController
 {
     private readonly IPayloadService _service;
