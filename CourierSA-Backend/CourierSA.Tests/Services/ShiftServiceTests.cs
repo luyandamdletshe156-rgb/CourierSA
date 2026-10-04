@@ -31,10 +31,25 @@ public class ShiftServiceTests
 
     private static async Task<DriverProfile> SeedDriverAsync(ApplicationDbContext db, string name = "Driver")
     {
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Guid.NewGuid()}@t.com", FirstName = name, LastName = "X",
-            PhoneNumber = "+27000000000", PasswordHash = "x", Role = UserRole.Driver, Status = UserStatus.Active };
-        var driver = new DriverProfile { Id = Guid.NewGuid(), UserId = user.Id, LicenseNumber = "L",
-            LicenseExpiry = DateTime.UtcNow.AddYears(1), Status = DriverStatus.Available };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = $"{Guid.NewGuid()}@t.com",
+            FirstName = name,
+            LastName = "X",
+            PhoneNumber = "+27000000000",
+            PasswordHash = "x",
+            Role = UserRole.Driver,
+            Status = UserStatus.Active
+        };
+        var driver = new DriverProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            LicenseNumber = "L",
+            LicenseExpiry = DateTime.UtcNow.AddYears(1),
+            Status = DriverStatus.Available
+        };
         db.Users.Add(user); db.DriverProfiles.Add(driver);
         await db.SaveChangesAsync();
         return driver;
@@ -43,8 +58,15 @@ public class ShiftServiceTests
     private static async Task<DriverShift> SeedShiftAsync(ApplicationDbContext db, Guid driverId, int daysAhead,
         ShiftType type = ShiftType.Morning, bool published = true)
     {
-        var s = new DriverShift { Id = Guid.NewGuid(), Date = Today.AddDays(daysAhead), ShiftType = type,
-            DriverId = driverId, Status = ShiftStatus.Scheduled, IsPublished = published };
+        var s = new DriverShift
+        {
+            Id = Guid.NewGuid(),
+            Date = Today.AddDays(daysAhead),
+            ShiftType = type,
+            DriverId = driverId,
+            Status = ShiftStatus.Scheduled,
+            IsPublished = published
+        };
         db.DriverShifts.Add(s); await db.SaveChangesAsync();
         return s;
     }
@@ -405,5 +427,213 @@ public class ShiftServiceTests
 
         peers.Should().ContainSingle(p => p.DriverId == off.Id);
         peers.Should().NotContain(p => p.DriverId == working.Id);
+    }
+
+    // ── Coverage impact + standby replacement (UC20) ─────────────────────────
+
+    [Fact]
+    public async Task LeaveImpact_ShowsScheduledRemainingAndMinimumPerShift()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db, "Leaving"); var other = await SeedDriverAsync(db, "Other");
+        await SeedShiftAsync(db, leaving.Id, 3); await SeedShiftAsync(db, other.Id, 3);   // same slot
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        var impact = await sut.GetLeaveImpactAsync(req.Id);
+
+        impact.Rows.Should().ContainSingle();
+        var row = impact.Rows[0];
+        row.Scheduled.Should().Be(2);
+        row.AfterLeave.Should().Be(1);
+        row.Minimum.Should().Be(1);
+        row.BelowMinimum.Should().BeFalse();
+        impact.ShortSlots.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task LeaveImpact_FlagsSlotsBelowMinimum_AndListsTheStandbyPool()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db, "Leaving"); var free = await SeedDriverAsync(db, "Free");
+        await SeedShiftAsync(db, leaving.Id, 3);                                           // alone in the slot
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        var impact = await sut.GetLeaveImpactAsync(req.Id);
+
+        impact.Rows.Should().ContainSingle(r => r.BelowMinimum && r.AfterLeave == 0 && r.AvailableCover == 1);
+        impact.ShortSlots.Should().Be(1);
+        impact.StandbyPool.Should().ContainSingle(o => o.DriverId == free.Id && o.CanCover == 1);
+    }
+
+    [Fact]
+    public async Task LeaveImpact_ExcludesDriversWhoAreBusyThatDay()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db); var busy = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, busy.Id, 3, ShiftType.Afternoon);
+        await SeedShiftAsync(db, leaving.Id, 3);
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        var impact = await sut.GetLeaveImpactAsync(req.Id);
+
+        impact.StandbyPool.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task LeaveImpact_ForAnAlreadyReviewedRequest_ThrowsBadRequest()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db);
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+        await sut.ReviewLeaveAsync(req.Id, new ReviewLeaveDto(false, "No"), Guid.NewGuid());
+
+        Func<Task> act = () => sut.GetLeaveImpactAsync(req.Id);
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task ApproveLeave_WithAStandbyDriver_AssignsThatDriver()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db, "Leaving");
+        var light = await SeedDriverAsync(db, "Light"); var standby = await SeedDriverAsync(db, "Standby");
+        await SeedShiftAsync(db, standby.Id, 1); await SeedShiftAsync(db, standby.Id, 2);  // heavier week than 'Light'
+        var target = await SeedShiftAsync(db, leaving.Id, 3);
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        var result = await sut.ReviewLeaveAsync(req.Id,
+            new ReviewLeaveDto(true, null, StandbyDriverId: standby.Id), Guid.NewGuid());
+
+        result.ReassignedShifts.Should().Be(1);
+        var updated = await db.DriverShifts.FindAsync(target.Id);
+        updated!.DriverId.Should().Be(standby.Id);
+        updated.Note.Should().Contain("Standby");
+    }
+
+    [Fact]
+    public async Task ApproveLeave_StandbyAlreadyWorkingThatDay_FallsBackToAnotherDriver()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db); var standby = await SeedDriverAsync(db); var free = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, standby.Id, 3, ShiftType.Afternoon);                      // busy that day
+        var target = await SeedShiftAsync(db, leaving.Id, 3);
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        await sut.ReviewLeaveAsync(req.Id, new ReviewLeaveDto(true, null, true, standby.Id), Guid.NewGuid());
+
+        (await db.DriverShifts.FindAsync(target.Id))!.DriverId.Should().Be(free.Id);
+    }
+
+    [Fact]
+    public async Task ApproveLeave_SuspendedStandby_ThrowsBadRequest()
+    {
+        var (sut, db) = Build();
+        var leaving = await SeedDriverAsync(db); var standby = await SeedDriverAsync(db);
+        standby.Status = DriverStatus.Suspended; await db.SaveChangesAsync();
+        await SeedShiftAsync(db, leaving.Id, 3);
+        var req = await sut.RequestLeaveAsync(Leave(3, 3), leaving.UserId);
+
+        Func<Task> act = () => sut.ReviewLeaveAsync(req.Id,
+            new ReviewLeaveDto(true, null, true, standby.Id), Guid.NewGuid());
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
+    // ── Leave balance (UC18) ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task LeaveBalance_StartsAtTheYearlyEntitlement()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        var balance = await sut.GetLeaveBalanceAsync(d.UserId);
+
+        var annual = balance.Items.Single(i => i.LeaveType == nameof(LeaveType.Annual));
+        annual.Entitlement.Should().Be(12); annual.Remaining.Should().Be(12);
+        var sick = balance.Items.Single(i => i.LeaveType == nameof(LeaveType.Sick));
+        sick.Entitlement.Should().Be(8); sick.Remaining.Should().Be(8);
+        balance.Items.Single(i => i.LeaveType == nameof(LeaveType.Emergency)).Remaining.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task LeaveBalance_PendingRequestsReserveDays()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        await sut.RequestLeaveAsync(Leave(3, 5), d.UserId);                  // 3 days, still pending
+
+        var annual = (await sut.GetLeaveBalanceAsync(d.UserId)).Items.Single(i => i.LeaveType == nameof(LeaveType.Annual));
+
+        annual.Pending.Should().Be(3); annual.Used.Should().Be(0); annual.Remaining.Should().Be(9);
+    }
+
+    [Fact]
+    public async Task LeaveBalance_ApprovedRequestsAreUsed_AndCancelledOnesAreReleased()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db); await SeedDriverAsync(db, "Cover");
+        var approved = await sut.RequestLeaveAsync(Leave(3, 4), d.UserId);
+        await sut.ReviewLeaveAsync(approved.Id, new ReviewLeaveDto(true, null, true), Guid.NewGuid());
+        var cancelled = await sut.RequestLeaveAsync(Leave(10, 12), d.UserId);
+        await sut.CancelLeaveAsync(cancelled.Id, d.UserId);
+
+        var annual = (await sut.GetLeaveBalanceAsync(d.UserId)).Items.Single(i => i.LeaveType == nameof(LeaveType.Annual));
+
+        annual.Used.Should().Be(2); annual.Pending.Should().Be(0); annual.Remaining.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task RequestLeave_MoreThanTheBalance_ThrowsBadRequest()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        Func<Task> act = () => sut.RequestLeaveAsync(Leave(2, 14, LeaveType.Annual), d.UserId);   // 13 days > 12
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*annual leave day(s) left*");
+    }
+
+    [Fact]
+    public async Task RequestLeave_BalanceIsReducedByEarlierRequests()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        await sut.RequestLeaveAsync(Leave(2, 9, LeaveType.Annual), d.UserId);                      // 8 days
+
+        Func<Task> act = () => sut.RequestLeaveAsync(Leave(20, 24, LeaveType.Annual), d.UserId);   // 5 days > 4 left
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task RequestLeave_EmergencyLeave_HasNoCap()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        var result = await sut.RequestLeaveAsync(Leave(2, 20, LeaveType.Emergency), d.UserId);   // 19 days
+
+        result.Status.Should().Be(nameof(LeaveRequestStatus.Pending));
+    }
+
+    [Fact]
+    public async Task PreviewLeave_ReportsDaysBalanceAndPublishedShiftClashes()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, d.Id, 3); await SeedShiftAsync(db, d.Id, 4, published: false);
+
+        var preview = await sut.PreviewLeaveAsync(LeaveType.Annual, Today.AddDays(3), Today.AddDays(5), d.UserId);
+
+        preview.DaysRequested.Should().Be(3);
+        preview.BalanceRemaining.Should().Be(12);
+        preview.PublishedShiftClashes.Should().Be(1);          // the draft shift does not count
+        preview.CanSubmit.Should().BeTrue(); preview.Problem.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PreviewLeave_WhenBalanceIsInsufficient_CannotSubmit()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        var preview = await sut.PreviewLeaveAsync(LeaveType.Sick, Today.AddDays(2), Today.AddDays(11), d.UserId);   // 10 days > 8
+
+        preview.CanSubmit.Should().BeFalse();
+        preview.Problem.Should().Contain("sick leave day(s) left");
     }
 }

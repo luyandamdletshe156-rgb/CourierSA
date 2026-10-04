@@ -763,13 +763,29 @@ namespace CourierSA.Application.DTOs.Shifts
     public record DriverOptionDto(Guid DriverId, string Name);
 
     public record CreateLeaveRequestDto(LeaveType LeaveType, DateTime StartDate, DateTime EndDate, string? Reason);
-    public record ReviewLeaveDto(bool Approve, string? Notes, bool AllowUnderstaffed = false);
+    // Leave balance (Annual and Sick are capped per year; Emergency has no cap, so Entitlement/Remaining are null)
+    public record LeaveBalanceItemDto(string LeaveType, int? Entitlement, int Used, int Pending, int? Remaining);
+    public record LeaveBalanceDto(int Year, List<LeaveBalanceItemDto> Items);
+    public record LeavePreviewDto(
+        string LeaveType, DateTime StartDate, DateTime EndDate, int DaysRequested,
+        int? BalanceRemaining, bool CanSubmit, int PublishedShiftClashes, string? Problem);
+
+    public record ReviewLeaveDto(bool Approve, string? Notes, bool AllowUnderstaffed = false, Guid? StandbyDriverId = null);
 
     public record LeaveRequestDto(
         Guid Id, Guid DriverId, string DriverName, string LeaveType, DateTime StartDate, DateTime EndDate,
         string? Reason, string Status, string? AdminNotes, int AffectedShifts, DateTime CreatedAt);
 
     public record LeaveReviewResultDto(LeaveRequestDto Request, int ReassignedShifts, int OpenShifts);
+
+    // Coverage-impact simulation shown to the admin before approving leave
+    public record CoverageImpactRowDto(
+        DateTime Date, string ShiftType, int Scheduled, int AfterLeave, int Minimum,
+        int AvailableCover, bool BelowMinimum);
+    public record StandbyOptionDto(Guid DriverId, string Name, int CanCover);
+    public record LeaveImpactDto(
+        Guid RequestId, string DriverName, int AffectedShifts, int Minimum, int ShortSlots,
+        List<CoverageImpactRowDto> Rows, List<StandbyOptionDto> StandbyPool);
 
     public record CreateSwapRequestDto(Guid ShiftId, Guid PeerDriverId, string? Reason);
     public record RespondSwapDto(bool Accept);

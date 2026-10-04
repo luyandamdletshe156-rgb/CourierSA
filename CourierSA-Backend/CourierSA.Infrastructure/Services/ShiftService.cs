@@ -24,12 +24,16 @@ public class ShiftService : IShiftService
     private readonly INotificationService _notifications;
     private readonly IAuditService _audit;
     private readonly int _minDrivers;
+    private readonly int _annualDays;
+    private readonly int _sickDays;
 
     public ShiftService(IUnitOfWork uow, INotificationService notifications, IAuditService audit,
         IConfiguration? config = null)
     {
         _uow = uow; _notifications = notifications; _audit = audit;
         _minDrivers = int.TryParse(config?["Roster:MinDriversPerShift"], out var n) && n > 0 ? n : 1;
+        _annualDays = int.TryParse(config?["Leave:AnnualDays"], out var a) && a >= 0 ? a : 12;
+        _sickDays = int.TryParse(config?["Leave:SickDays"], out var sd) && sd >= 0 ? sd : 8;
     }
 
     // South Africa is UTC+2 all year, so "today" for rostering is the SAST date.
@@ -87,9 +91,14 @@ public class ShiftService : IShiftService
 
             var shift = new DriverShift
             {
-                Id = Guid.NewGuid(), Date = date, ShiftType = item.ShiftType, DriverId = item.DriverId,
-                Status = ShiftStatus.Scheduled, IsPublished = dto.Publish,
-                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+                Id = Guid.NewGuid(),
+                Date = date,
+                ShiftType = item.ShiftType,
+                DriverId = item.DriverId,
+                Status = ShiftStatus.Scheduled,
+                IsPublished = dto.Publish,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
             await _uow.Query<DriverShift>().AddAsync(shift, ct);
             created.Add(shift);
@@ -192,11 +201,21 @@ public class ShiftService : IShiftService
             && l.StartDate <= end && l.EndDate >= start, ct);
         if (overlaps) throw new ConflictException("You already have a leave request covering some of these dates.");
 
+        // Leave balance: pending and approved requests both count, so a driver cannot over-book.
+        var shortfall = await BalanceShortfallAsync(driver.Id, dto.LeaveType, start, end, ct);
+        if (shortfall is not null) throw new BadRequestException(shortfall);
+
         var request = new LeaveRequest
         {
-            Id = Guid.NewGuid(), DriverId = driver.Id, LeaveType = dto.LeaveType,
-            StartDate = start, EndDate = end, Reason = dto.Reason?.Trim(),
-            Status = LeaveRequestStatus.Pending, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            DriverId = driver.Id,
+            LeaveType = dto.LeaveType,
+            StartDate = start,
+            EndDate = end,
+            Reason = dto.Reason?.Trim(),
+            Status = LeaveRequestStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
         await _uow.Query<LeaveRequest>().AddAsync(request, ct);
         await _uow.SaveChangesAsync(ct);
@@ -204,6 +223,105 @@ public class ShiftService : IShiftService
         await _audit.LogAsync("LEAVE_REQUESTED", "LeaveRequest", request.Id, null,
             new { dto.LeaveType, start, end }, driverUserId, null, ct);
         return (await ToLeaveDtosAsync([request], ct)).First();
+    }
+
+    // ── Leave balance (computed, nothing extra is stored) ────────────────────
+    // Entitlement comes from config (Leave:AnnualDays = 12, Leave:SickDays = 8 by default).
+    // Emergency leave has no cap. Used = approved days, Pending = days reserved by open requests.
+
+    private int? EntitlementFor(LeaveType t) => t switch
+    {
+        LeaveType.Annual => _annualDays,
+        LeaveType.Sick => _sickDays,
+        _ => null
+    };
+
+    private static int DaysInYear(DateTime start, DateTime end, int year)
+    {
+        var from = start.Date > new DateTime(year, 1, 1) ? start.Date : new DateTime(year, 1, 1);
+        var to = end.Date < new DateTime(year, 12, 31) ? end.Date : new DateTime(year, 12, 31);
+        return to < from ? 0 : (int)(to - from).TotalDays + 1;
+    }
+
+    private async Task<(int Used, int Pending)> UsageAsync(Guid driverId, LeaveType type, int year, CancellationToken ct)
+    {
+        var yearStart = new DateTime(year, 1, 1); var yearEnd = new DateTime(year, 12, 31);
+        var items = await _uow.Query<LeaveRequest>().Query().AsNoTracking()
+            .Where(l => l.DriverId == driverId && l.LeaveType == type
+                        && (l.Status == LeaveRequestStatus.Pending || l.Status == LeaveRequestStatus.Approved)
+                        && l.StartDate <= yearEnd && l.EndDate >= yearStart)
+            .ToListAsync(ct);
+        var used = items.Where(l => l.Status == LeaveRequestStatus.Approved).Sum(l => DaysInYear(l.StartDate, l.EndDate, year));
+        var pending = items.Where(l => l.Status == LeaveRequestStatus.Pending).Sum(l => DaysInYear(l.StartDate, l.EndDate, year));
+        return (used, pending);
+    }
+
+    /// <summary>Returns a message when the request needs more days than remain, otherwise null.</summary>
+    private async Task<string?> BalanceShortfallAsync(Guid driverId, LeaveType type, DateTime start, DateTime end, CancellationToken ct)
+    {
+        var entitlement = EntitlementFor(type);
+        if (entitlement is null) return null;
+
+        for (var year = start.Year; year <= end.Year; year++)
+        {
+            var needed = DaysInYear(start, end, year);
+            if (needed == 0) continue;
+            var (used, pending) = await UsageAsync(driverId, type, year, ct);
+            var remaining = Math.Max(0, entitlement.Value - used - pending);
+            if (needed > remaining)
+                return $"You have {remaining} {type.ToString().ToLower()} leave day(s) left for {year}, " +
+                       $"but this request needs {needed}.";
+        }
+        return null;
+    }
+
+    public async Task<LeaveBalanceDto> GetLeaveBalanceAsync(Guid driverUserId, CancellationToken ct = default)
+    {
+        var driver = await GetDriverAsync(driverUserId, ct);
+        var year = Today.Year;
+        var items = new List<LeaveBalanceItemDto>();
+        foreach (var type in new[] { LeaveType.Annual, LeaveType.Sick, LeaveType.Emergency })
+        {
+            var (used, pending) = await UsageAsync(driver.Id, type, year, ct);
+            var entitlement = EntitlementFor(type);
+            items.Add(new LeaveBalanceItemDto(type.ToString(), entitlement, used, pending,
+                entitlement is null ? null : Math.Max(0, entitlement.Value - used - pending)));
+        }
+        return new LeaveBalanceDto(year, items);
+    }
+
+    /// <summary>
+    /// Live check shown on the leave form before submitting: days requested, balance left,
+    /// and how many of the driver's published shifts fall inside the dates. Read-only.
+    /// </summary>
+    public async Task<LeavePreviewDto> PreviewLeaveAsync(
+        LeaveType leaveType, DateTime startDate, DateTime endDate, Guid driverUserId, CancellationToken ct = default)
+    {
+        var driver = await GetDriverAsync(driverUserId, ct);
+        var start = startDate.Date; var end = endDate.Date;
+
+        if (end < start)
+            return new LeavePreviewDto(leaveType.ToString(), start, end, 0, null, false, 0,
+                "The end date must be on or after the start date.");
+
+        var days = (int)(end - start).TotalDays + 1;
+        var clashes = await _uow.Query<DriverShift>().Query().CountAsync(s => s.DriverId == driver.Id
+            && s.Status == ShiftStatus.Scheduled && s.IsPublished && s.Date >= start && s.Date <= end, ct);
+
+        string? problem = null;
+        if (start < Today) problem = "Leave cannot start in the past.";
+        else if ((end - start).TotalDays > 60) problem = "Leave requests are limited to 60 days.";
+        else problem = await BalanceShortfallAsync(driver.Id, leaveType, start, end, ct);
+
+        int? remaining = null;
+        var entitlement = EntitlementFor(leaveType);
+        if (entitlement is not null)
+        {
+            var (used, pending) = await UsageAsync(driver.Id, leaveType, start.Year, ct);
+            remaining = Math.Max(0, entitlement.Value - used - pending);
+        }
+
+        return new LeavePreviewDto(leaveType.ToString(), start, end, days, remaining, problem is null, clashes, problem);
     }
 
     public async Task<IEnumerable<LeaveRequestDto>> GetMyLeaveAsync(Guid driverUserId, CancellationToken ct = default)
@@ -265,42 +383,17 @@ public class ShiftService : IShiftService
         }
 
         // ── Plan the reassignment first, without changing anything ─────────────
-        var affected = await _uow.Query<DriverShift>().Query()
-            .Where(s => s.DriverId == driver.Id && s.Status == ShiftStatus.Scheduled
-                        && s.Date >= request.StartDate && s.Date <= request.EndDate)
-            .OrderBy(s => s.Date).ToListAsync(ct);
-
-        var windowFrom = request.StartDate.AddDays(-7);
-        var windowTo = request.EndDate.AddDays(7);
-        var window = await _uow.Query<DriverShift>().Query().AsNoTracking()
-            .Where(s => s.Date >= windowFrom && s.Date <= windowTo && s.Status != ShiftStatus.Cancelled).ToListAsync(ct);
-        var leaves = await _uow.Query<LeaveRequest>().Query().AsNoTracking()
-            .Where(l => l.Status == LeaveRequestStatus.Approved && l.StartDate <= request.EndDate && l.EndDate >= request.StartDate)
-            .ToListAsync(ct);
-        var pool = await _uow.Query<DriverProfile>().Query().AsNoTracking()
-            .Where(d => d.Status != DriverStatus.Suspended && d.Id != driver.Id).ToListAsync(ct);
-
-        static DateTime WeekStart(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
-        var load = window.Where(s => s.DriverId != null && s.Status == ShiftStatus.Scheduled)
-            .GroupBy(s => (s.DriverId!.Value, WeekStart(s.Date))).ToDictionary(g => g.Key, g => g.Count());
-        var busy = window.Where(s => s.DriverId != null).Select(s => (s.DriverId!.Value, s.Date.Date)).ToHashSet();
-
-        var plan = new List<(DriverShift Shift, Guid? NewDriverId)>();
-        foreach (var shift in affected)
+        if (dto.StandbyDriverId is not null)
         {
-            var date = shift.Date.Date;
-            var pick = pool
-                .Where(d => !busy.Contains((d.Id, date))
-                            && !leaves.Any(l => l.DriverId == d.Id && l.StartDate <= date && l.EndDate >= date))
-                .OrderBy(d => load.GetValueOrDefault((d.Id, WeekStart(date))))
-                .ThenBy(d => d.Id)
-                .FirstOrDefault();
-
-            if (pick is null) { plan.Add((shift, null)); continue; }
-            plan.Add((shift, pick.Id));
-            busy.Add((pick.Id, date));
-            load[(pick.Id, WeekStart(date))] = load.GetValueOrDefault((pick.Id, WeekStart(date))) + 1;
+            var standby = await _uow.Query<DriverProfile>().GetByIdAsync(dto.StandbyDriverId.Value, ct)
+                ?? throw new NotFoundException("Standby driver not found.");
+            if (standby.Status == DriverStatus.Suspended || standby.Id == driver.Id)
+                throw new BadRequestException("That driver cannot be used as a standby replacement.");
         }
+
+        var leavePlan = await BuildLeavePlanAsync(request, driver, dto.StandbyDriverId, ct);
+        var plan = leavePlan.Plan;
+        var window = leavePlan.Window;
 
         // ── Depot coverage check ───────────────────────────────────────────────
         var short_ = new List<string>();
@@ -333,7 +426,10 @@ public class ShiftService : IShiftService
             else
             {
                 shift.DriverId = newDriver;
-                shift.Note = "Reassigned to cover approved leave"; reassigned++;
+                shift.Note = newDriver == dto.StandbyDriverId
+                    ? "Standby replacement for approved leave"
+                    : "Reassigned to cover approved leave";
+                reassigned++;
             }
             shift.UpdatedAt = DateTime.UtcNow;
         }
@@ -356,6 +452,119 @@ public class ShiftService : IShiftService
         }
 
         return new LeaveReviewResultDto((await ToLeaveDtosAsync([request], ct)).First(), reassigned, open);
+    }
+
+    /// <summary>
+    /// Coverage-impact simulation for a pending leave request: per affected shift slot, how many
+    /// drivers are scheduled, how many would remain, the depot minimum, and who could stand in.
+    /// Read-only; nothing is changed.
+    /// </summary>
+    public async Task<LeaveImpactDto> GetLeaveImpactAsync(Guid requestId, CancellationToken ct = default)
+    {
+        var request = await _uow.Query<LeaveRequest>().GetByIdAsync(requestId, ct)
+            ?? throw new NotFoundException("Leave request not found.");
+        if (request.Status != LeaveRequestStatus.Pending)
+            throw new BadRequestException($"This request has already been {request.Status.ToString().ToLower()}.");
+
+        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(request.DriverId, ct)
+            ?? throw new NotFoundException("Driver not found.");
+
+        var lp = await BuildLeavePlanAsync(request, driver, null, ct);
+
+        bool IsFree(Guid driverId, DateTime date)
+            => !lp.BaseBusy.Contains((driverId, date.Date))
+               && !lp.Leaves.Any(l => l.DriverId == driverId && l.StartDate <= date.Date && l.EndDate >= date.Date);
+
+        var rows = new List<CoverageImpactRowDto>();
+        foreach (var (shift, _) in lp.Plan)
+        {
+            var date = shift.Date.Date;
+            var sameSlot = lp.Window.Where(w => w.Date.Date == date && w.ShiftType == shift.ShiftType
+                                                && w.Status == ShiftStatus.Scheduled && w.DriverId != null).ToList();
+            var scheduled = sameSlot.Count;
+            var afterLeave = sameSlot.Count(w => w.DriverId != driver.Id);
+            var availableCover = lp.Pool.Count(d => IsFree(d.Id, date));
+            rows.Add(new CoverageImpactRowDto(date, shift.ShiftType.ToString(), scheduled, afterLeave,
+                _minDrivers, availableCover, afterLeave < _minDrivers));
+        }
+
+        var dates = lp.Plan.Select(p => p.Shift.Date.Date).ToList();
+        var names = await NamesAsync(lp.Pool.Select(d => d.Id), ct);
+        var standbyPool = lp.Pool
+            .Select(d => new StandbyOptionDto(d.Id, names.GetValueOrDefault(d.Id, "Driver"), dates.Count(dt => IsFree(d.Id, dt))))
+            .Where(o => o.CanCover > 0)
+            .OrderByDescending(o => o.CanCover).ThenBy(o => o.Name)
+            .ToList();
+
+        var driverNames = await NamesAsync([driver.Id], ct);
+        return new LeaveImpactDto(request.Id, driverNames.GetValueOrDefault(driver.Id, "Driver"),
+            rows.Count, _minDrivers, rows.Count(r => r.BelowMinimum), rows, standbyPool);
+    }
+
+    private sealed record LeavePlan(
+        List<(DriverShift Shift, Guid? NewDriverId)> Plan,
+        List<DriverShift> Window,
+        List<DriverProfile> Pool,
+        List<LeaveRequest> Leaves,
+        HashSet<(Guid, DateTime)> BaseBusy);
+
+    /// <summary>
+    /// Works out who would cover each of the leaving driver's scheduled shifts. A chosen standby
+    /// driver is preferred wherever they are free; otherwise the least-loaded free driver is used.
+    /// Does not change anything.
+    /// </summary>
+    private async Task<LeavePlan> BuildLeavePlanAsync(
+        LeaveRequest request, DriverProfile driver, Guid? standbyId, CancellationToken ct)
+    {
+        var affected = await _uow.Query<DriverShift>().Query()
+            .Where(s => s.DriverId == driver.Id && s.Status == ShiftStatus.Scheduled
+                        && s.Date >= request.StartDate && s.Date <= request.EndDate)
+            .OrderBy(s => s.Date).ToListAsync(ct);
+
+        var windowFrom = request.StartDate.AddDays(-7);
+        var windowTo = request.EndDate.AddDays(7);
+        var window = await _uow.Query<DriverShift>().Query().AsNoTracking()
+            .Where(s => s.Date >= windowFrom && s.Date <= windowTo && s.Status != ShiftStatus.Cancelled).ToListAsync(ct);
+        var leaves = await _uow.Query<LeaveRequest>().Query().AsNoTracking()
+            .Where(l => l.Status == LeaveRequestStatus.Approved && l.StartDate <= request.EndDate && l.EndDate >= request.StartDate)
+            .ToListAsync(ct);
+        var pool = await _uow.Query<DriverProfile>().Query().AsNoTracking()
+            .Where(d => d.Status != DriverStatus.Suspended && d.Id != driver.Id).ToListAsync(ct);
+
+        static DateTime WeekStart(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
+        var load = window.Where(s => s.DriverId != null && s.Status == ShiftStatus.Scheduled)
+            .GroupBy(s => (s.DriverId!.Value, WeekStart(s.Date))).ToDictionary(g => g.Key, g => g.Count());
+        var busy = window.Where(s => s.DriverId != null).Select(s => (s.DriverId!.Value, s.Date.Date)).ToHashSet();
+        var baseBusy = busy.ToHashSet();
+
+        bool Free(DriverProfile d, DateTime date)
+            => !busy.Contains((d.Id, date))
+               && !leaves.Any(l => l.DriverId == d.Id && l.StartDate <= date && l.EndDate >= date);
+
+        var plan = new List<(DriverShift Shift, Guid? NewDriverId)>();
+        foreach (var shift in affected)
+        {
+            var date = shift.Date.Date;
+
+            DriverProfile? pick = null;
+            if (standbyId is not null)
+            {
+                var standby = pool.FirstOrDefault(d => d.Id == standbyId.Value);
+                if (standby is not null && Free(standby, date)) pick = standby;
+            }
+            pick ??= pool
+                .Where(d => Free(d, date))
+                .OrderBy(d => load.GetValueOrDefault((d.Id, WeekStart(date))))
+                .ThenBy(d => d.Id)
+                .FirstOrDefault();
+
+            if (pick is null) { plan.Add((shift, null)); continue; }
+            plan.Add((shift, pick.Id));
+            busy.Add((pick.Id, date));
+            load[(pick.Id, WeekStart(date))] = load.GetValueOrDefault((pick.Id, WeekStart(date))) + 1;
+        }
+
+        return new LeavePlan(plan, window, pool, leaves, baseBusy);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -407,9 +616,14 @@ public class ShiftService : IShiftService
 
         var request = new ShiftSwapRequest
         {
-            Id = Guid.NewGuid(), ShiftId = shift.Id, RequesterDriverId = driver.Id, PeerDriverId = peer.Id,
-            Reason = dto.Reason?.Trim(), Status = SwapRequestStatus.AwaitingPeer,
-            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            ShiftId = shift.Id,
+            RequesterDriverId = driver.Id,
+            PeerDriverId = peer.Id,
+            Reason = dto.Reason?.Trim(),
+            Status = SwapRequestStatus.AwaitingPeer,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
         await _uow.Query<ShiftSwapRequest>().AddAsync(request, ct);
         await _uow.SaveChangesAsync(ct);

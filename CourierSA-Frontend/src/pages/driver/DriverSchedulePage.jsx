@@ -7,7 +7,10 @@ import { formatDate } from '@/utils'
 import { CalendarDays, Repeat, Plane } from 'lucide-react'
 
 // Request Driver Leave and Request Shift Swap (driver).
-const iso = d => d.toISOString().slice(0, 10)
+const iso = d => {
+  const x = new Date(d)
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+}
 const unwrap = d => (Array.isArray(d) ? d : d?.data ?? [])
 const LEAVE_TYPES = ['Annual', 'Sick', 'Emergency']
 
@@ -41,13 +44,44 @@ function LeaveForm({ onDone }) {
   const [start, setStart] = useState(today)
   const [end, setEnd] = useState(today)
   const [reason, setReason] = useState('')
+
+  const { data: balanceRes } = useQuery({ queryKey: ['leave-balance'], queryFn: () => shiftApi.leaveBalance() })
+  const balance = balanceRes?.data ?? balanceRes
+  const items = balance?.items ?? []
+
+  // Live check: days requested, balance left, and clashes with published shifts
+  const { data: previewRes, error: previewError } = useQuery({
+    queryKey: ['leave-preview', type, start, end],
+    queryFn: () => shiftApi.previewLeave({ leaveType: type, startDate: start, endDate: end }),
+    enabled: !!start && !!end,
+  })
+  const preview = previewRes?.data ?? previewRes
+
   const send = useMutation({
     mutationFn: () => shiftApi.requestLeave({ leaveType: type, startDate: start, endDate: end, reason }),
     onSuccess: () => { setReason(''); onDone() },
   })
+  const blocked = !!preview && !preview.canSubmit
+
   return (
     <div className="card p-5 space-y-3">
       <h3 className="text-sm font-bold flex items-center gap-1.5"><Plane size={15} /> Request leave</h3>
+
+      {items.length > 0 && (
+        <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748B] mb-1">Leave balance · {balance.year}</p>
+          {items.map(i => (
+            <div key={i.leaveType} className="flex justify-between text-sm">
+              <span>{i.leaveType}</span>
+              <span className="font-semibold">
+                {i.remaining == null ? 'No cap' : `${i.remaining} of ${i.entitlement} days`}
+                {i.pending > 0 && <span className="text-xs font-normal text-[#64748B]"> ({i.pending} pending)</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <select className="input" value={type} onChange={e => setType(e.target.value)}>
         {LEAVE_TYPES.map(t => <option key={t}>{t}</option>)}
       </select>
@@ -55,10 +89,24 @@ function LeaveForm({ onDone }) {
         <input type="date" className="input" min={today} value={start} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value) }} />
         <input type="date" className="input" min={start} value={end} onChange={e => setEnd(e.target.value)} />
       </div>
-      <textarea className="input" rows={2} placeholder="Reason (optional)" value={reason} onChange={e => setReason(e.target.value)} />
+      <textarea className="input" rows={2} placeholder="Notes (optional)" value={reason} onChange={e => setReason(e.target.value)} />
+
+      {previewError && <Alert type="error" message={`Could not check your request: ${previewError.message}`} />}
+      {preview && preview.problem && <Alert type="error" message={preview.problem} />}
+      {preview && !preview.problem && (
+        <div className="space-y-2">
+          <Alert type="success" message={`${preview.daysRequested} day(s) requested · balance sufficient${preview.balanceRemaining == null ? ' (no cap for this type)' : ` · ${preview.balanceRemaining - preview.daysRequested} day(s) will remain`}`} />
+          {preview.publishedShiftClashes > 0 ? (
+            <Alert type="warning" message={`${preview.publishedShiftClashes} of your published shift(s) fall in these dates. If approved they will be reassigned to other drivers.`} />
+          ) : (
+            <Alert type="info" message="No clash with your published shifts." />
+          )}
+        </div>
+      )}
+
       {send.error && <Alert type="error" message={send.error.message} />}
       {send.isSuccess && <Alert type="success" message="Leave request sent for approval." />}
-      <button className="btn-primary text-sm" disabled={send.isPending} onClick={() => send.mutate()}>
+      <button className="btn-primary text-sm" disabled={send.isPending || blocked} onClick={() => send.mutate()}>
         {send.isPending ? 'Sending…' : 'Submit leave request'}
       </button>
     </div>
@@ -77,7 +125,7 @@ export default function DriverSchedulePage() {
   const shifts = unwrap(shiftsData), leave = unwrap(leaveData), swaps = unwrap(swapData)
 
   const refresh = () => {
-    ['my-shifts', 'my-leave', 'my-swaps'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
+    ['my-shifts', 'my-leave', 'my-swaps', 'leave-balance', 'leave-preview'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
   }
   const cancel = useMutation({ mutationFn: id => shiftApi.cancelLeave(id), onSuccess: refresh })
   const respond = useMutation({ mutationFn: ({ id, accept }) => shiftApi.respondSwap(id, accept), onSuccess: refresh })

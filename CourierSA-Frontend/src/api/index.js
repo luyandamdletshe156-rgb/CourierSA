@@ -139,6 +139,8 @@ export const shiftApi = {
   // driver
   myShifts:     (from, to)    => api.get('/driver/shifts', { params: { from, to } }),
   myLeave:      ()            => api.get('/driver/leave-requests'),
+  leaveBalance: ()            => api.get('/driver/leave-balance'),
+  previewLeave: params        => api.get('/driver/leave-requests/preview', { params }),
   requestLeave: body          => api.post('/driver/leave-requests', body),
   cancelLeave:  id            => api.delete(`/driver/leave-requests/${id}`),
   swapPeers:    shiftId       => api.get(`/driver/shifts/${shiftId}/swap-peers`),

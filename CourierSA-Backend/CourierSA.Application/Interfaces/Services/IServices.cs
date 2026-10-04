@@ -289,6 +289,7 @@ public interface IShiftService
     // Admin: Approve Leave & Reassign Shifts
     Task<IEnumerable<LeaveRequestDto>> GetPendingLeaveAsync(CancellationToken ct = default);
     Task<LeaveReviewResultDto> ReviewLeaveAsync(Guid requestId, ReviewLeaveDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<LeaveImpactDto> GetLeaveImpactAsync(Guid requestId, CancellationToken ct = default);
     Task<IEnumerable<SwapRequestDto>> GetPendingSwapsAsync(CancellationToken ct = default);
     Task<SwapRequestDto> ReviewSwapAsync(Guid requestId, ReviewSwapDto dto, Guid adminUserId, CancellationToken ct = default);
 
@@ -296,6 +297,8 @@ public interface IShiftService
     Task<IEnumerable<ShiftDto>> GetMyShiftsAsync(DateTime from, DateTime to, Guid driverUserId, CancellationToken ct = default);
     Task<LeaveRequestDto> RequestLeaveAsync(CreateLeaveRequestDto dto, Guid driverUserId, CancellationToken ct = default);
     Task<IEnumerable<LeaveRequestDto>> GetMyLeaveAsync(Guid driverUserId, CancellationToken ct = default);
+    Task<LeaveBalanceDto> GetLeaveBalanceAsync(Guid driverUserId, CancellationToken ct = default);
+    Task<LeavePreviewDto> PreviewLeaveAsync(LeaveType leaveType, DateTime startDate, DateTime endDate, Guid driverUserId, CancellationToken ct = default);
     Task CancelLeaveAsync(Guid requestId, Guid driverUserId, CancellationToken ct = default);
     Task<IEnumerable<DriverOptionDto>> GetSwapPeersAsync(Guid shiftId, Guid driverUserId, CancellationToken ct = default);
     Task<SwapRequestDto> RequestSwapAsync(CreateSwapRequestDto dto, Guid driverUserId, CancellationToken ct = default);
