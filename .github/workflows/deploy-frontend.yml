@@ -38,7 +38,7 @@ jobs:
           inlineScript: |
             az storage blob upload-batch \
               --account-name couriersa3frontend \
-              --connection-string DefaultEndpointsProtocol=https;AccountName=couriersa3frontend;AccountKey=MMkGMYjAqznxBVXk/Nb9rxBbwq98x+FOGt59ZHhduG4+126aKTD9kCwjdaHgu0voLOJ0sUShA1fV+ASt9wd3rA==;EndpointSuffix=core.windows.net \
+              --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
               --destination '$web' \
               --source ./CourierSA-Frontend/dist \
               --overwrite
