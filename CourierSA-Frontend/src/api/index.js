@@ -132,6 +132,7 @@ export const shiftApi = {
   openShifts:   ()            => api.get('/roster/open'),
   assignShift:  (id, driverId) => api.put(`/roster/shifts/${id}/assign`, { driverId }),
   pendingLeave: ()            => api.get('/leave-requests/pending'),
+  leaveImpact:  id            => api.get(`/leave-requests/${id}/impact`),
   reviewLeave:  (id, body)    => api.put(`/leave-requests/${id}/review`, body),
   pendingSwaps: ()            => api.get('/shift-swaps/pending'),
   reviewSwap:   (id, body)    => api.put(`/shift-swaps/${id}/review`, body),

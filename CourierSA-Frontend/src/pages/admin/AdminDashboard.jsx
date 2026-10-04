@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import { StatCard, EmptyState, PageLoader, Modal, Alert, Avatar } from '@/components/ui'
-import { adminApi } from '@/api'
+import api, { adminApi, returnApi } from '@/api'
 import { 
   Package, 
   Truck, 
@@ -89,11 +89,9 @@ function AdminReturnApprovalsSection() {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-pending-returns'],
     queryFn: async () => {
-      // Calls GET /api/return-requests?status=Requested
-      const res = await adminApi.returnRequests?.('Requested') ?? 
-                  await fetch('/api/return-requests?status=Requested', {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                  }).then(r => r.json())
+      // GET /api/return-requests?status=Requested via the shared axios client
+      // (attaches the JWT from 'accessToken', handles 401 refresh, unwraps the envelope)
+      const res = await returnApi.queue('Requested')
       return Array.isArray(res) ? res : res?.data || []
     },
     refetchInterval: 30000,
@@ -103,23 +101,7 @@ function AdminReturnApprovalsSection() {
 
   // Mutation to approve the return request: PUT /api/return-requests/{id}/approve
   const approveMutation = useMutation({
-    mutationFn: async (returnId) => {
-      if (adminApi.approveReturn) {
-        return adminApi.approveReturn(returnId)
-      }
-      const res = await fetch(`/api/return-requests/${returnId}/approve`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}` 
-        }
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.message || 'Failed to approve return request.')
-      }
-      return res.json()
-    },
+    mutationFn: returnId => api.put(`/return-requests/${returnId}/approve`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-pending-returns'] })
       qc.invalidateQueries({ queryKey: ['admin-stats'] })

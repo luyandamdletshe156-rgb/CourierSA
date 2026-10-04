@@ -109,14 +109,29 @@ function LeaveCard({ r }) {
   const qc = useQueryClient()
   const [notes, setNotes] = useState('')
   const [override, setOverride] = useState(false)
+  const [standbyId, setStandbyId] = useState('')
   const [result, setResult] = useState(null)
+
+  // Coverage-impact simulation: scheduled vs. remaining drivers per affected shift
+  const { data: impactRes, isLoading: impactLoading, error: impactError } = useQuery({
+    queryKey: ['leave-impact', r.id],
+    queryFn: () => shiftApi.leaveImpact(r.id),
+  })
+  const impact = impactRes?.data ?? impactRes
+  const rows = impact?.rows ?? []
+  const standbyPool = impact?.standbyPool ?? []
+  const short = impact?.shortSlots ?? 0
+
   const review = useMutation({
-    mutationFn: approve => shiftApi.reviewLeave(r.id, { approve, notes, allowUnderstaffed: override }),
+    mutationFn: approve => shiftApi.reviewLeave(r.id, {
+      approve, notes, allowUnderstaffed: override, standbyDriverId: standbyId || null,
+    }),
     onSuccess: res => {
       setResult(res?.data ?? res)
       qc.invalidateQueries({ queryKey: ['pending-leave'] })
       qc.invalidateQueries({ queryKey: ['open-shifts'] })
       qc.invalidateQueries({ queryKey: ['roster'] })
+      qc.invalidateQueries({ queryKey: ['leave-impact', r.id] })
     },
   })
   return (
@@ -129,6 +144,70 @@ function LeaveCard({ r }) {
         <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#EFF6FF] text-[#1D4ED8] h-fit">{r.affectedShifts} shift(s) affected</span>
       </div>
       {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
+
+      {/* Coverage impact simulation */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Coverage impact</p>
+        {impactLoading && <p className="text-xs text-[#64748B]">Calculating coverage…</p>}
+        {impactError && <Alert type="error" message={`Could not load coverage impact: ${impactError.message}`} />}
+        {!impactLoading && !impactError && rows.length === 0 && (
+          <p className="text-xs text-[#64748B]">This driver has no scheduled shifts in the leave period, so depot coverage is not affected.</p>
+        )}
+        {rows.length > 0 && (
+          <div className="border border-[#E2E8F0] rounded-xl overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[#64748B] bg-[#F8FAFC]">
+                  <th className="px-3 py-2">Day</th>
+                  <th className="px-3 py-2">Shift</th>
+                  <th className="px-3 py-2">Scheduled</th>
+                  <th className="px-3 py-2">After leave</th>
+                  <th className="px-3 py-2">Minimum</th>
+                  <th className="px-3 py-2">Cover free</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E2E8F0]">
+                {rows.map(row => (
+                  <tr key={`${row.date}-${row.shiftType}`}>
+                    <td className="px-3 py-2 font-semibold">{formatDate(row.date)}</td>
+                    <td className="px-3 py-2">{row.shiftType}</td>
+                    <td className="px-3 py-2">{row.scheduled}</td>
+                    <td className="px-3 py-2">
+                      <span className={clsx('font-bold px-2 py-0.5 rounded-full',
+                        row.belowMinimum ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F0FDF4] text-[#166534]')}>
+                        {row.afterLeave} {row.belowMinimum ? '✕' : '✓'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">{row.minimum}</td>
+                    <td className="px-3 py-2">{row.availableCover}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {short > 0 && (
+          <Alert type="error" message={`Coverage drops below the minimum on ${short} shift(s). Select a standby replacement below, or approve anyway and fill the open shifts afterwards.`} />
+        )}
+      </div>
+
+      {rows.length > 0 && (
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Standby replacement (available pool)</label>
+          <select className="input mt-1" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
+            <option value="">Automatic (least-loaded available driver)</option>
+            {standbyPool.map(d => (
+              <option key={d.driverId} value={d.driverId}>
+                {d.name} · can cover {d.canCover} of {rows.length} shift(s)
+              </option>
+            ))}
+          </select>
+          {standbyPool.length === 0 && (
+            <p className="text-xs text-[#B91C1C] mt-1">No driver is free on any affected day, so shifts will be left open.</p>
+          )}
+        </div>
+      )}
+
       <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
       <label className="flex items-center gap-2 text-xs text-[#475569]">
         <input type="checkbox" checked={override} onChange={e => setOverride(e.target.checked)} />
