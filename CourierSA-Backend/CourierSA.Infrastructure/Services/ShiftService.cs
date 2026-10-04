@@ -26,6 +26,9 @@ public class ShiftService : IShiftService
     private readonly int _minDrivers;
     private readonly int _annualDays;
     private readonly int _sickDays;
+    private readonly int _minRestHours;
+    private readonly int _maxConsecutiveDays;
+    private readonly string _depotName;
 
     public ShiftService(IUnitOfWork uow, INotificationService notifications, IAuditService audit,
         IConfiguration? config = null)
@@ -34,13 +37,27 @@ public class ShiftService : IShiftService
         _minDrivers = int.TryParse(config?["Roster:MinDriversPerShift"], out var n) && n > 0 ? n : 1;
         _annualDays = int.TryParse(config?["Leave:AnnualDays"], out var a) && a >= 0 ? a : 12;
         _sickDays = int.TryParse(config?["Leave:SickDays"], out var sd) && sd >= 0 ? sd : 8;
+        _minRestHours = int.TryParse(config?["Roster:MinRestHours"], out var rh) && rh >= 0 ? rh : 12;
+        _maxConsecutiveDays = int.TryParse(config?["Roster:MaxConsecutiveDays"], out var mc) && mc > 0 ? mc : 6;
+        _depotName = string.IsNullOrWhiteSpace(config?["Roster:Depot"]) ? "Durban Depot" : config!["Roster:Depot"]!;
     }
 
     // South Africa is UTC+2 all year, so "today" for rostering is the SAST date.
     private static DateTime Today => DateTime.UtcNow.AddHours(2).Date;
 
+    // Shift A (morning) 08:00–13:00 and Shift B (afternoon) 13:00–18:00, as in the SRS (UC17).
+    private static (TimeSpan Start, TimeSpan End) Times(ShiftType t)
+        => t == ShiftType.Morning
+            ? (TimeSpan.FromHours(8), TimeSpan.FromHours(13))
+            : (TimeSpan.FromHours(13), TimeSpan.FromHours(18));
+
+    private static string Clock(TimeSpan t) => $"{(int)t.TotalHours:00}:{t.Minutes:00}";
+
     private static (string Start, string End) Hours(ShiftType t)
-        => t == ShiftType.Morning ? ("07:30", "13:00") : ("13:30", "19:00");
+    {
+        var (start, end) = Times(t);
+        return (Clock(start), Clock(end));
+    }
 
     // ═════════════════════════════════════════════════════════════════════════
     // Schedule Driver Roster (admin)
@@ -88,6 +105,9 @@ public class ShiftService : IShiftService
                 throw new ConflictException($"The driver already has a shift on {date:dd MMM yyyy}.");
             if (await IsOnApprovedLeaveAsync(item.DriverId, date, ct))
                 throw new BadRequestException($"The driver is on approved leave on {date:dd MMM yyyy}.");
+            await EnsureRestRulesAsync(item.DriverId, date, item.ShiftType, null,
+                dto.Shifts.Where(o => !ReferenceEquals(o, item) && o.DriverId == item.DriverId)
+                    .Select(o => (Date: o.Date.Date, Type: o.ShiftType)), ct);
 
             var shift = new DriverShift
             {
@@ -168,6 +188,101 @@ public class ShiftService : IShiftService
             $"You have been assigned the {shift.ShiftType} shift on {shift.Date:dd MMM yyyy}.", ct);
 
         return (await ToDtosAsync([shift], ct)).First();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Weekly roster grid support (UC17): rules, validation, change and remove
+    // ═════════════════════════════════════════════════════════════════════════
+
+    public Task<RosterRulesDto> GetRosterRulesAsync(CancellationToken ct = default)
+    {
+        var (morningStart, morningEnd) = Hours(ShiftType.Morning);
+        var (afternoonStart, afternoonEnd) = Hours(ShiftType.Afternoon);
+        return Task.FromResult(new RosterRulesDto(_depotName, _minDrivers, _minRestHours, _maxConsecutiveDays,
+            $"{morningStart}–{morningEnd}", $"{afternoonStart}–{afternoonEnd}"));
+    }
+
+    /// <summary>
+    /// Checks a date range of the roster. Violations are broken rest rules; warnings are coverage
+    /// shortfalls (a slot with fewer than Roster:MinDriversPerShift drivers) and unfilled open shifts.
+    /// </summary>
+    public async Task<RosterValidationDto> ValidateRosterAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var f = from.Date; var t = to.Date;
+        if (t < f) throw new BadRequestException("The end date must be on or after the start date.");
+        if ((t - f).TotalDays > 31) throw new BadRequestException("Check at most 31 days at a time.");
+
+        var lo = f.AddDays(-(_maxConsecutiveDays + 1)); var hi = t.AddDays(_maxConsecutiveDays + 1);
+        var shifts = await _uow.Query<DriverShift>().Query().AsNoTracking()
+            .Where(s => s.Date >= lo && s.Date <= hi && s.Status != ShiftStatus.Cancelled).ToListAsync(ct);
+        var scheduled = shifts.Where(s => s.Status == ShiftStatus.Scheduled && s.DriverId != null).ToList();
+        var names = await NamesAsync(scheduled.Select(s => s.DriverId!.Value), ct);
+
+        var violations = new List<RosterIssueDto>();
+        foreach (var group in scheduled.GroupBy(s => s.DriverId!.Value))
+        {
+            var name = names.GetValueOrDefault(group.Key, "Driver");
+            foreach (var v in FindRestViolations(group.Select(s => (Date: s.Date.Date, Type: s.ShiftType))))
+                if (v.Date >= f && v.Date <= t)
+                    violations.Add(new RosterIssueDto("Violation", "Rest", v.Date, group.Key, name, $"{name}: {v.Message}"));
+        }
+
+        var warnings = new List<RosterIssueDto>();
+        for (var d = f; d <= t; d = d.AddDays(1))
+        {
+            if (d < Today) continue;
+            var day = scheduled.Where(s => s.Date.Date == d).ToList();
+            if (d.DayOfWeek == DayOfWeek.Sunday && day.Count == 0) continue;   // depot does not run on Sundays by default
+            foreach (var type in new[] { ShiftType.Morning, ShiftType.Afternoon })
+            {
+                var count = day.Count(s => s.ShiftType == type);
+                if (count < _minDrivers)
+                    warnings.Add(new RosterIssueDto("Warning", "Coverage", d, null, null,
+                        $"{d:ddd dd MMM} {type}: {count} of {_minDrivers} drivers."));
+            }
+        }
+        var open = shifts.Count(s => s.Status == ShiftStatus.Open && s.Date >= f && s.Date <= t && s.Date >= Today);
+        if (open > 0)
+            warnings.Add(new RosterIssueDto("Warning", "Open", null, null, null, $"{open} open shift(s) still need a driver."));
+
+        return new RosterValidationDto(violations, warnings);
+    }
+
+    public async Task<ShiftDto> ChangeShiftTypeAsync(
+        Guid shiftId, ChangeShiftDto dto, Guid adminUserId, CancellationToken ct = default)
+    {
+        var shift = await LoadEditableShiftAsync(shiftId, ct);
+        if (shift.DriverId is null)
+            throw new BadRequestException("Assign a driver to this open shift before changing it.");
+        if (shift.ShiftType == dto.ShiftType) return (await ToDtosAsync([shift], ct)).First();
+
+        await EnsureRestRulesAsync(shift.DriverId.Value, shift.Date, dto.ShiftType, shift.Id,
+            Array.Empty<(DateTime Date, ShiftType Type)>(), ct);
+
+        var old = shift.ShiftType;
+        shift.ShiftType = dto.ShiftType; shift.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("SHIFT_CHANGED", "DriverShift", shift.Id, null,
+            new { shift.Date, From = old, To = dto.ShiftType }, adminUserId, null, ct);
+        if (shift.IsPublished) await NotifyShiftChangeAsync(shift.DriverId.Value,
+            "Shift changed", $"Your {old.ToString().ToLower()} shift on {shift.Date:dd MMM yyyy} is now a {dto.ShiftType.ToString().ToLower()} shift.", ct);
+
+        return (await ToDtosAsync([shift], ct)).First();
+    }
+
+    public async Task RemoveShiftAsync(Guid shiftId, Guid adminUserId, CancellationToken ct = default)
+    {
+        var shift = await LoadEditableShiftAsync(shiftId, ct);
+        var driverId = shift.DriverId;
+
+        shift.Status = ShiftStatus.Cancelled; shift.Note = "Removed from the roster"; shift.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        await _audit.LogAsync("SHIFT_REMOVED", "DriverShift", shift.Id, null,
+            new { shift.Date, shift.ShiftType, DriverId = driverId }, adminUserId, null, ct);
+        if (shift.IsPublished && driverId is not null) await NotifyShiftChangeAsync(driverId.Value,
+            "Shift removed", $"Your {shift.ShiftType.ToString().ToLower()} shift on {shift.Date:dd MMM yyyy} was removed from the roster.", ct);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -729,6 +844,81 @@ public class ShiftService : IShiftService
     private async Task<DriverProfile> GetDriverAsync(Guid userId, CancellationToken ct)
         => await _uow.Query<DriverProfile>().FirstOrDefaultAsync(d => d.UserId == userId, ct)
            ?? throw new NotFoundException("Driver profile not found.");
+
+    private async Task<DriverShift> LoadEditableShiftAsync(Guid shiftId, CancellationToken ct)
+    {
+        var shift = await _uow.Query<DriverShift>().GetByIdAsync(shiftId, ct)
+            ?? throw new NotFoundException("Shift not found.");
+        if (shift.Status == ShiftStatus.Cancelled) throw new BadRequestException("This shift has already been removed.");
+        if (shift.Date.Date < Today) throw new BadRequestException("Past shifts cannot be changed.");
+
+        var hasOpenSwap = await _uow.Query<ShiftSwapRequest>().Query().AnyAsync(r => r.ShiftId == shiftId
+            && (r.Status == SwapRequestStatus.AwaitingPeer || r.Status == SwapRequestStatus.AwaitingAdmin), ct);
+        if (hasOpenSwap) throw new ConflictException("This shift has a pending swap request. Resolve the swap first.");
+        return shift;
+    }
+
+    private async Task NotifyShiftChangeAsync(Guid driverId, string title, string body, CancellationToken ct)
+    {
+        var driver = await _uow.Query<DriverProfile>().GetByIdAsync(driverId, ct);
+        if (driver is not null) await NotifyAsync(driver.UserId, title, body, ct);
+    }
+
+    private sealed record RestViolation(DateTime Date, string Message);
+
+    /// <summary>
+    /// Rest rules for one driver's shifts: at least Roster:MinRestHours between the end of one shift and
+    /// the start of the next-day shift, and no more than Roster:MaxConsecutiveDays working days in a row.
+    /// </summary>
+    private List<RestViolation> FindRestViolations(IEnumerable<(DateTime Date, ShiftType Type)> shifts)
+    {
+        var list = shifts.GroupBy(s => s.Date.Date).Select(g => g.First()).OrderBy(s => s.Date).ToList();
+        var result = new List<RestViolation>();
+
+        for (var i = 1; i < list.Count; i++)
+        {
+            var prev = list[i - 1]; var cur = list[i];
+            if ((cur.Date.Date - prev.Date.Date).TotalDays != 1) continue;
+            var rest = TimeSpan.FromDays(1) - Times(prev.Type).End + Times(cur.Type).Start;
+            if (rest.TotalHours < _minRestHours)
+                result.Add(new RestViolation(cur.Date.Date,
+                    $"only {rest.TotalHours:0.#}h rest between the {prev.Type.ToString().ToLower()} shift on {prev.Date:ddd dd MMM} " +
+                    $"and the {cur.Type.ToString().ToLower()} shift on {cur.Date:ddd dd MMM} (minimum {_minRestHours}h)."));
+        }
+
+        var run = 1;
+        for (var i = 1; i < list.Count; i++)
+        {
+            run = (list[i].Date.Date - list[i - 1].Date.Date).TotalDays == 1 ? run + 1 : 1;
+            if (run == _maxConsecutiveDays + 1)
+                result.Add(new RestViolation(list[i].Date.Date,
+                    $"{run} working days in a row ending {list[i].Date:ddd dd MMM}; a day off is required after {_maxConsecutiveDays} consecutive days."));
+        }
+        return result;
+    }
+
+    /// <summary>Throws if adding (or changing to) this shift creates a rest-rule violation that was not already there.</summary>
+    private async Task EnsureRestRulesAsync(Guid driverId, DateTime date, ShiftType type, Guid? exceptShiftId,
+        IEnumerable<(DateTime Date, ShiftType Type)> extra, CancellationToken ct)
+    {
+        var lo = date.Date.AddDays(-(_maxConsecutiveDays + 1));
+        var hi = date.Date.AddDays(_maxConsecutiveDays + 1);
+        var existing = await _uow.Query<DriverShift>().Query().AsNoTracking()
+            .Where(s => s.DriverId == driverId && s.Status == ShiftStatus.Scheduled
+                        && s.Date >= lo && s.Date <= hi && s.Id != exceptShiftId)
+            .ToListAsync(ct);
+
+        var before = existing.Select(s => (Date: s.Date.Date, Type: s.ShiftType)).Concat(extra).ToList();
+        var after = before.Append((date.Date, type)).ToList();
+
+        var fresh = FindRestViolations(after).Select(v => v.Message)
+            .Except(FindRestViolations(before).Select(v => v.Message)).FirstOrDefault();
+        if (fresh is null) return;
+
+        var names = await NamesAsync([driverId], ct);
+        var name = names.GetValueOrDefault(driverId, "This driver");
+        throw new BadRequestException($"{name}: {fresh}");
+    }
 
     private async Task<bool> HasShiftOnAsync(Guid driverId, DateTime date, Guid? exceptShiftId, CancellationToken ct)
         => await _uow.Query<DriverShift>().Query().AnyAsync(s => s.DriverId == driverId && s.Date == date.Date

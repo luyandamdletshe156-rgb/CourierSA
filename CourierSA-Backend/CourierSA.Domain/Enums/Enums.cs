@@ -371,7 +371,7 @@ public enum UpgradeRequestStatus
 
 
 // ── Driver Roster, Leave & Shift Swaps ────────────────────────────────────────
-public enum ShiftType { Morning, Afternoon }          // 07:30–13:00 and 13:30–19:00
+public enum ShiftType { Morning, Afternoon }          // Shift A 08:00–13:00 and Shift B 13:00–18:00
 public enum ShiftStatus { Scheduled, Open, Cancelled } // Open = unstaffed, needs a driver
 public enum LeaveType { Annual, Sick, Emergency }
 public enum LeaveRequestStatus { Pending, Approved, Rejected, Cancelled }

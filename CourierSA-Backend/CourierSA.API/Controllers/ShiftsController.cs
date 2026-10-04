@@ -48,6 +48,28 @@ public class ShiftsController : CourierSABaseController
     public async Task<IActionResult> Assign(Guid id, [FromBody] AssignShiftDto dto, CancellationToken ct)
         => Ok(await _service.AssignOpenShiftAsync(id, dto, CurrentUserId, ct));
 
+    [HttpGet("api/roster/rules")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> RosterRules(CancellationToken ct) => Ok(await _service.GetRosterRulesAsync(ct));
+
+    [HttpGet("api/roster/validate")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ValidateRoster([FromQuery] DateTime from, [FromQuery] DateTime to, CancellationToken ct)
+        => Ok(await _service.ValidateRosterAsync(from, to, ct));
+
+    [HttpPut("api/roster/shifts/{id:guid}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ChangeShift(Guid id, [FromBody] ChangeShiftDto dto, CancellationToken ct)
+        => Ok(await _service.ChangeShiftTypeAsync(id, dto, CurrentUserId, ct));
+
+    [HttpDelete("api/roster/shifts/{id:guid}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> RemoveShift(Guid id, CancellationToken ct)
+    {
+        await _service.RemoveShiftAsync(id, CurrentUserId, ct);
+        return NoContent("Shift removed.");
+    }
+
     // ── Admin: Approve Leave & Reassign Shifts ────────────────────────────────
     [HttpGet("api/leave-requests/pending")]
     [Authorize(Policy = "AdminOnly")]

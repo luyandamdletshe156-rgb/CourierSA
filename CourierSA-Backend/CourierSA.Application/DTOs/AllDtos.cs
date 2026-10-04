@@ -762,6 +762,15 @@ namespace CourierSA.Application.DTOs.Shifts
     public record AssignShiftDto(Guid DriverId);
     public record DriverOptionDto(Guid DriverId, string Name);
 
+    // Weekly roster grid (UC17)
+    public record ChangeShiftDto(ShiftType ShiftType);
+    public record RosterRulesDto(
+        string Depot, int MinDriversPerShift, int MinRestHours, int MaxConsecutiveDays,
+        string MorningHours, string AfternoonHours);
+    public record RosterIssueDto(
+        string Severity, string Kind, DateTime? Date, Guid? DriverId, string? DriverName, string Message);
+    public record RosterValidationDto(List<RosterIssueDto> Violations, List<RosterIssueDto> Warnings);
+
     public record CreateLeaveRequestDto(LeaveType LeaveType, DateTime StartDate, DateTime EndDate, string? Reason);
     // Leave balance (Annual and Sick are capped per year; Emergency has no cap, so Entitlement/Remaining are null)
     public record LeaveBalanceItemDto(string LeaveType, int? Entitlement, int Used, int Pending, int? Remaining);

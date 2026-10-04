@@ -285,6 +285,10 @@ public interface IShiftService
     Task<int> PublishRosterAsync(PublishRosterDto dto, Guid adminUserId, CancellationToken ct = default);
     Task<IEnumerable<ShiftDto>> GetOpenShiftsAsync(CancellationToken ct = default);
     Task<ShiftDto> AssignOpenShiftAsync(Guid shiftId, AssignShiftDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task<RosterRulesDto> GetRosterRulesAsync(CancellationToken ct = default);
+    Task<RosterValidationDto> ValidateRosterAsync(DateTime from, DateTime to, CancellationToken ct = default);
+    Task<ShiftDto> ChangeShiftTypeAsync(Guid shiftId, ChangeShiftDto dto, Guid adminUserId, CancellationToken ct = default);
+    Task RemoveShiftAsync(Guid shiftId, Guid adminUserId, CancellationToken ct = default);
 
     // Admin: Approve Leave & Reassign Shifts
     Task<IEnumerable<LeaveRequestDto>> GetPendingLeaveAsync(CancellationToken ct = default);

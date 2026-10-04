@@ -127,6 +127,10 @@ export const shiftApi = {
   // admin
   drivers:      ()            => api.get('/roster/drivers'),
   roster:       (from, to)    => api.get('/roster', { params: { from, to } }),
+  rosterRules:  ()            => api.get('/roster/rules'),
+  rosterValidate: (from, to)  => api.get('/roster/validate', { params: { from, to } }),
+  changeShift:  (id, shiftType) => api.put(`/roster/shifts/${id}`, { shiftType }),
+  removeShift:  id            => api.delete(`/roster/shifts/${id}`),
   schedule:     body          => api.post('/roster', body),
   publish:      body          => api.post('/roster/publish', body),
   openShifts:   ()            => api.get('/roster/open'),

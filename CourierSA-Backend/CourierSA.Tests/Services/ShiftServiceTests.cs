@@ -8,6 +8,7 @@ using CourierSA.Infrastructure.Data.Repositories;
 using CourierSA.Infrastructure.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
 
@@ -26,6 +27,18 @@ public class ShiftServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var sut = new ShiftService(new UnitOfWork(db), new Mock<INotificationService>().Object,
             new Mock<IAuditService>().Object);
+        return (sut, db);
+    }
+
+    // Same as Build() but with config overrides, e.g. ("Roster:MinRestHours", "15").
+    private static (ShiftService sut, ApplicationDbContext db) BuildWith(params (string Key, string Value)[] settings)
+    {
+        var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var config = new Mock<IConfiguration>();
+        foreach (var (key, value) in settings) config.Setup(c => c[key]).Returns(value);
+        var sut = new ShiftService(new UnitOfWork(db), new Mock<INotificationService>().Object,
+            new Mock<IAuditService>().Object, config.Object);
         return (sut, db);
     }
 
@@ -86,7 +99,7 @@ public class ShiftServiceTests
 
         result.Should().ContainSingle();
         result[0].IsPublished.Should().BeFalse();
-        result[0].StartTime.Should().Be("07:30");
+        result[0].StartTime.Should().Be("08:00");
     }
 
     [Fact]
@@ -635,5 +648,183 @@ public class ShiftServiceTests
 
         preview.CanSubmit.Should().BeFalse();
         preview.Problem.Should().Contain("sick leave day(s) left");
+    }
+
+    // ── Weekly roster grid (UC17) ────────────────────────────────────────────
+
+    [Fact]
+    public async Task Rules_ReturnTheSrsShiftHoursAndDefaults()
+    {
+        var (sut, _) = Build();
+
+        var rules = await sut.GetRosterRulesAsync();
+
+        rules.MorningHours.Should().Be("08:00–13:00");
+        rules.AfternoonHours.Should().Be("13:00–18:00");
+        rules.Depot.Should().Be("Durban Depot");
+        rules.MinDriversPerShift.Should().Be(1);
+        rules.MinRestHours.Should().Be(12);
+        rules.MaxConsecutiveDays.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task Schedule_AfternoonShiftEndsAtSixPm()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        var result = (await sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            [new ScheduleShiftItemDto(d.Id, Today.AddDays(3), ShiftType.Afternoon)], false), Guid.NewGuid())).ToList();
+
+        result[0].StartTime.Should().Be("13:00");
+        result[0].EndTime.Should().Be("18:00");
+    }
+
+    [Fact]
+    public async Task Schedule_SixConsecutiveDays_IsAllowed_ButTheSeventhIsBlocked()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        for (var i = 1; i <= 6; i++) await SeedShiftAsync(db, d.Id, i);
+
+        Func<Task> seventh = () => sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            [new ScheduleShiftItemDto(d.Id, Today.AddDays(7), ShiftType.Morning)], false), Guid.NewGuid());
+
+        await seventh.Should().ThrowAsync<BadRequestException>().WithMessage("*working days in a row*");
+    }
+
+    [Fact]
+    public async Task Schedule_ABatchThatBreaksTheConsecutiveDayRule_IsBlocked()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+
+        Func<Task> act = () => sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            Enumerable.Range(1, 7).Select(i => new ScheduleShiftItemDto(d.Id, Today.AddDays(i), ShiftType.Morning)).ToList(),
+            false), Guid.NewGuid());
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*working days in a row*");
+    }
+
+    [Fact]
+    public async Task Schedule_AfternoonThenMorning_ViolatesTheDailyRestRule_WhenMinimumRestIsRaised()
+    {
+        var (sut, db) = BuildWith(("Roster:MinRestHours", "15"));      // 18:00 -> 08:00 is only 14h
+        var d = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, d.Id, 3, ShiftType.Afternoon);
+
+        Func<Task> act = () => sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            [new ScheduleShiftItemDto(d.Id, Today.AddDays(4), ShiftType.Morning)], false), Guid.NewGuid());
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*rest between*");
+    }
+
+    [Fact]
+    public async Task Schedule_AfternoonThenMorning_IsFineWithTheDefaultTwelveHourRest()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, d.Id, 3, ShiftType.Afternoon);
+
+        var result = await sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            [new ScheduleShiftItemDto(d.Id, Today.AddDays(4), ShiftType.Morning)], false), Guid.NewGuid());
+
+        result.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ChangeShift_SwitchesTheShiftType()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        var shift = await SeedShiftAsync(db, d.Id, 3, ShiftType.Morning, published: false);
+
+        var result = await sut.ChangeShiftTypeAsync(shift.Id, new ChangeShiftDto(ShiftType.Afternoon), Guid.NewGuid());
+
+        result.ShiftType.Should().Be(nameof(ShiftType.Afternoon));
+        result.StartTime.Should().Be("13:00");
+    }
+
+    [Fact]
+    public async Task ChangeShift_ThatBreaksTheRestRule_IsBlockedAndNothingChanges()
+    {
+        var (sut, db) = BuildWith(("Roster:MinRestHours", "15"));
+        var d = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, d.Id, 3, ShiftType.Afternoon);
+        var next = await SeedShiftAsync(db, d.Id, 4, ShiftType.Afternoon);   // 18:00 -> 13:00 is 19h, fine
+
+        Func<Task> act = () => sut.ChangeShiftTypeAsync(next.Id, new ChangeShiftDto(ShiftType.Morning), Guid.NewGuid());
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*rest between*");
+        (await db.DriverShifts.AsNoTracking().SingleAsync(s => s.Id == next.Id)).ShiftType.Should().Be(ShiftType.Afternoon);
+    }
+
+    [Fact]
+    public async Task ChangeShift_InThePast_ThrowsBadRequest()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        var past = await SeedShiftAsync(db, d.Id, -2);
+
+        Func<Task> act = () => sut.ChangeShiftTypeAsync(past.Id, new ChangeShiftDto(ShiftType.Afternoon), Guid.NewGuid());
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task RemoveShift_TakesItOffTheRoster_AndTheDayCanBeRescheduled()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        var shift = await SeedShiftAsync(db, d.Id, 3);
+
+        await sut.RemoveShiftAsync(shift.Id, Guid.NewGuid());
+
+        (await sut.GetRosterAsync(Today, Today.AddDays(10))).Should().BeEmpty();
+        var again = await sut.ScheduleRosterAsync(new ScheduleRosterDto(
+            [new ScheduleShiftItemDto(d.Id, Today.AddDays(3), ShiftType.Afternoon)], false), Guid.NewGuid());
+        again.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task RemoveShift_WithAPendingSwap_ThrowsConflict()
+    {
+        var (sut, db) = Build();
+        var owner = await SeedDriverAsync(db); var peer = await SeedDriverAsync(db);
+        var shift = await SeedShiftAsync(db, owner.Id, 3);
+        await sut.RequestSwapAsync(new CreateSwapRequestDto(shift.Id, peer.Id, null), owner.UserId);
+
+        Func<Task> act = () => sut.RemoveShiftAsync(shift.Id, Guid.NewGuid());
+
+        await act.Should().ThrowAsync<ConflictException>().WithMessage("*swap*");
+    }
+
+    [Fact]
+    public async Task ValidateRoster_WarnsAboutSlotsBelowTheMinimum()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, d.Id, 3, ShiftType.Morning);                // nobody on the afternoon shift
+
+        var result = await sut.ValidateRosterAsync(Today.AddDays(3), Today.AddDays(3));
+
+        result.Violations.Should().BeEmpty();
+        result.Warnings.Should().Contain(w => w.Kind == "Coverage" && w.Message.Contains("Afternoon"));
+        result.Warnings.Should().NotContain(w => w.Kind == "Coverage" && w.Message.Contains("Morning"));
+    }
+
+    [Fact]
+    public async Task ValidateRoster_ReportsExistingRestViolations()
+    {
+        var (sut, db) = Build(); var d = await SeedDriverAsync(db);
+        for (var i = 1; i <= 7; i++) await SeedShiftAsync(db, d.Id, i);      // seeded directly, bypassing the checks
+
+        var result = await sut.ValidateRosterAsync(Today, Today.AddDays(10));
+
+        result.Violations.Should().ContainSingle(v => v.Kind == "Rest" && v.Message.Contains("working days in a row"));
+    }
+
+    [Fact]
+    public async Task ValidateRoster_CleanRoster_HasNoViolations()
+    {
+        var (sut, db) = Build(); var a = await SeedDriverAsync(db); var b = await SeedDriverAsync(db);
+        await SeedShiftAsync(db, a.Id, 3, ShiftType.Morning); await SeedShiftAsync(db, b.Id, 3, ShiftType.Afternoon);
+
+        var result = await sut.ValidateRosterAsync(Today.AddDays(3), Today.AddDays(3));
+
+        result.Violations.Should().BeEmpty();
+        result.Warnings.Should().BeEmpty();
     }
 }
