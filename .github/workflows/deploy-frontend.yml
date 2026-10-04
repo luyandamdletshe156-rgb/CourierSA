@@ -26,7 +26,7 @@ jobs:
 
       - name: Create .env file
         working-directory: ./CourierSA-Frontend
-        run: echo "VITE_API_BASE_URL=https://couriersa2-api-epccfjgagfbwa5cp.southafricanorth-01.azurewebsites.net/api" > .env
+        run: echo "VITE_API_BASE_URL=https://couriersa3-api-b6cqgbaufbe4amae.southafricanorth-01.azurewebsites.net/api" > .env
 
       - name: Build
         working-directory: ./CourierSA-Frontend
@@ -37,8 +37,7 @@ jobs:
         with:
           inlineScript: |
             az storage blob upload-batch \
-              --account-name couriersa2frontend \
-              --auth-mode key \
+              --account-name couriersa3frontend \
               --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
               --destination '$web' \
               --source ./CourierSA-Frontend/dist \
