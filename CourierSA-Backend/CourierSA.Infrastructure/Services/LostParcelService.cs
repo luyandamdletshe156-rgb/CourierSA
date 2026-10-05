@@ -213,15 +213,60 @@ public class LostParcelService : ILostParcelService
         var claim = await _uow.Query<InsuranceClaim>().GetByIdAsync(claimId, ct)
             ?? throw new NotFoundException($"Insurance claim {claimId} not found.");
 
+        if (claim.Status is ClaimStatus.Settled or ClaimStatus.Rejected)
+            throw new BadRequestException($"Claim is already '{claim.Status}' and can no longer be changed.");
+
         var previousStatus = claim.Status;
+        var approvedAmount = dto.ApprovedAmountZAR ?? claim.ApprovedAmountZAR;
+
+        if (dto.Status is ClaimStatus.Approved or ClaimStatus.PartiallyApproved or ClaimStatus.Settled)
+        {
+            // Default to the claimed amount when admin leaves the approved amount blank.
+            approvedAmount ??= claim.ClaimedAmountZAR;
+            if (approvedAmount <= 0)
+                throw new BadRequestException("Approved amount must be greater than zero.");
+            if (approvedAmount > claim.ClaimedAmountZAR)
+                throw new BadRequestException("Approved amount cannot exceed the amount claimed.");
+        }
+
         claim.Status = dto.Status;
-        claim.ApprovedAmountZAR = dto.ApprovedAmountZAR ?? claim.ApprovedAmountZAR;
+        claim.ApprovedAmountZAR = approvedAmount;
         claim.ResolutionNotes = dto.Notes;
         claim.UpdatedAt = DateTime.UtcNow;
+
+        // Settlement = payout. Credit the customer's wallet exactly once (guarded above by the Settled check).
+        if (dto.Status == ClaimStatus.Settled)
+        {
+            var customer = await _uow.Query<CustomerProfile>().GetByIdAsync(claim.CustomerId, ct)
+                ?? throw new NotFoundException("Customer profile not found.");
+
+            customer.WalletBalanceZAR += approvedAmount!.Value;
+            customer.UpdatedAt = DateTime.UtcNow;
+
+            await _uow.Query<WalletTransaction>().AddAsync(new WalletTransaction
+            {
+                Id = Guid.NewGuid(),
+                UserId = customer.UserId,
+                Type = WalletTransactionType.Refund,
+                AmountZAR = approvedAmount.Value,
+                BalanceAfterZAR = customer.WalletBalanceZAR,
+                ReferenceId = claim.Id,
+                ReferenceType = "InsuranceClaim",
+                Description = $"Insurance claim payout {claim.ClaimNumber}",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            }, ct);
+        }
+
         await _uow.SaveChangesAsync(ct);
 
-        await _audit.LogAsync("INSURANCE_CLAIM_STATUS_CHANGED", "InsuranceClaim", claim.Id,
-            new { Status = previousStatus.ToString() }, new { Status = claim.Status.ToString() }, staffUserId, null, ct);
+        try
+        {
+            await _audit.LogAsync("INSURANCE_CLAIM_STATUS_CHANGED", "InsuranceClaim", claim.Id,
+                new { Status = previousStatus.ToString() },
+                new { Status = claim.Status.ToString(), claim.ApprovedAmountZAR }, staffUserId, null, ct);
+        }
+        catch (Exception ex) { Console.WriteLine($"[AUDIT] UpdateClaimStatus log failed: {ex.Message}"); }
 
         var parcel = await _uow.Parcels.GetByIdAsync(claim.ParcelId, ct);
         return MapClaimToDto(claim, parcel?.TrackingNumber ?? "—");

@@ -7,7 +7,7 @@ import { returnApi } from '@/api'
 import { PackageCheck, ChevronDown, ChevronUp, RefreshCw, PackageX, ClipboardCheck, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 
-const STATUS_FILTERS = ['Approved', 'Dispatched', 'Collected', 'Received', 'ReadyForRefund', 'InspectionFailed', 'Refunded', '']
+const STATUS_FILTERS = ['Collected', 'Dispatched', 'Approved', 'Received', 'ReadyForRefund', 'InspectionFailed', 'Refunded', '']
 
 function InspectForm({ returnId, onDone }) {
   const [result, setResult] = useState('Acceptable')
@@ -67,7 +67,7 @@ function InspectForm({ returnId, onDone }) {
 }
 
 export default function ReturnIntakeQueuePage() {
-  const [status, setStatus] = useState('Approved')
+  const [status, setStatus] = useState('Collected')
   const [expanded, setExpanded] = useState(null)
   const qc = useQueryClient()
 
@@ -171,15 +171,8 @@ export default function ReturnIntakeQueuePage() {
                       )}
 
                       {r.status === 'Approved' && (
-                        <div className="flex justify-end pt-2">
-                          <button
-                            onClick={() => receiveMutation.mutate(r.id)}
-                            disabled={receiveMutation.isPending}
-                            className="btn-primary text-xs px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm"
-                          >
-                            {receiveMutation.isPending ? <RefreshCw className="animate-spin" size={14} /> : <RotateCcw size={14} />}
-                            Mark as Received
-                          </button>
+                        <div className="p-3 bg-[#F8FAFC] text-[#475569] text-xs rounded-lg border border-[#E2E8F0]">
+                          Approved by admin. Waiting for a dispatcher to assign a collection driver.
                         </div>
                       )}
 

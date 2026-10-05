@@ -24,7 +24,7 @@ public record ReallocateResultDto(
 public record SignOffDto(string? Notes);
 
 // ── UC15 ──────────────────────────────────────────────────────────────────────
-public record StandbyDriverDto(Guid DriverId, string Name);
+public record StandbyDriverDto(Guid DriverId, string Name, string Status = "Available");
 public record StandbyVehicleDto(Guid VehicleId, string Registration, decimal CapacityKg);
 public record SplitOptionsDto(List<StandbyDriverDto> Drivers, List<StandbyVehicleDto> Vehicles);
 

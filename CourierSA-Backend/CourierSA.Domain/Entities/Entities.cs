@@ -590,3 +590,49 @@ public class ShiftSwapRequest : BaseEntity
 
     public DriverShift? Shift { get; set; }
 }
+
+
+// ── Package Consolidation (UC10 / UC11 / UC13) ────────────────────────────────
+public class ConsolidationOrder : BaseEntity
+{
+    public string OrderNumber { get; set; } = string.Empty;          // CO-2026-0001
+    public Guid CustomerId { get; set; }
+    public ConsolidationOrderStatus Status { get; set; } = ConsolidationOrderStatus.Pending;
+
+    public string DestinationKey { get; set; } = string.Empty;
+    public string DestinationSummary { get; set; } = string.Empty;
+    public string DestinationCity { get; set; } = string.Empty;
+
+    public int ParcelCount { get; set; }
+    public decimal CombinedWeightKg { get; set; }
+    public decimal SeparateShippingZAR { get; set; }
+    public decimal ConsolidatedShippingZAR { get; set; }
+    public decimal SavingZAR { get; set; }
+
+    // Filled in by warehouse staff when packing (UC11)
+    public string? MasterTrackingId { get; set; }                    // MST-0001-BAL
+    public decimal? LengthCm { get; set; }
+    public decimal? WidthCm { get; set; }
+    public decimal? HeightCm { get; set; }
+    public decimal? FinalWeightKg { get; set; }
+    public DateTime? ConsolidatedAt { get; set; }
+    public Guid? ConsolidatedByStaffId { get; set; }
+
+    // Filled in when staged for dispatch (UC13)
+    public string? Lane { get; set; }
+    public DateTime? StagedAt { get; set; }
+    public Guid? StagedByStaffId { get; set; }
+
+    public ICollection<ConsolidationOrderParcel> Parcels { get; set; } = [];
+}
+
+public class ConsolidationOrderParcel : BaseEntity
+{
+    public Guid OrderId { get; set; }
+    public Guid ParcelId { get; set; }
+    public bool Scanned { get; set; }
+    public DateTime? ScannedAt { get; set; }
+    public Guid? ScannedByStaffId { get; set; }
+
+    public ConsolidationOrder? Order { get; set; }
+}

@@ -16,6 +16,13 @@ const COLOR_MAP = {
   Refunded:            'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
   Dispatched:          'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
   Collected:           'bg-[#0EA5E9]/10 text-[#0369A1] border-[#0EA5E9]/20',
+  // Consolidation order / parcel statuses
+  Pending:                'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
+  InProgress:             'bg-[#1E63E9]/10 text-[#0A3D91] border-[#1E63E9]/20',
+  Consolidated:           'bg-[#8B5CF6]/10 text-[#6D28D9] border-[#8B5CF6]/20',
+  Staged:                 'bg-[#10B981]/10 text-[#047857] border-[#10B981]/20',
+  Cancelled:              'bg-[#F6FAFF] text-[#64748B] border-[#D8E4F5]',
+  ConsolidationRequested: 'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
   // Claim statuses
   Submitted:           'bg-[#F59E0B]/10 text-[#B45309] border-[#F59E0B]/20',
   UnderReview:         'bg-[#1E63E9]/10 text-[#0A3D91] border-[#1E63E9]/20',

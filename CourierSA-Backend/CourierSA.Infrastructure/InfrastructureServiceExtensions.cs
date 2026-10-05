@@ -103,6 +103,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IParcelService, ParcelService>();
         services.AddScoped<IPriorityUpgradeService, PriorityUpgradeService>();
+        services.AddScoped<IConsolidationService, ConsolidationService>();
         services.AddScoped<IShiftService, ShiftService>();
         services.AddScoped<IPayloadService, PayloadService>();
         services.AddScoped<ILostParcelService, LostParcelService>();

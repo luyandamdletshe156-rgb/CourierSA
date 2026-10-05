@@ -488,3 +488,64 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.ToTable(t => t.HasCheckConstraint("chk_audit_immutable", "1=1"));
     }
 }
+
+// ── Package Consolidation ─────────────────────────────────────────────────────
+public class ConsolidationOrderConfiguration : IEntityTypeConfiguration<ConsolidationOrder>
+{
+    public void Configure(EntityTypeBuilder<ConsolidationOrder> builder)
+    {
+        builder.ToTable("ConsolidationOrders");
+        builder.HasKey(o => o.Id);
+        builder.Property(o => o.Id).HasColumnType("char(36)");
+        builder.Property(o => o.CustomerId).HasColumnType("char(36)");
+        builder.Property(o => o.ConsolidatedByStaffId).HasColumnType("char(36)");
+        builder.Property(o => o.StagedByStaffId).HasColumnType("char(36)");
+
+        builder.Property(o => o.OrderNumber).IsRequired().HasMaxLength(30);
+        builder.HasIndex(o => o.OrderNumber).IsUnique();
+        builder.Property(o => o.MasterTrackingId).HasMaxLength(30);
+        builder.HasIndex(o => o.MasterTrackingId).IsUnique();
+        builder.HasIndex(o => o.Status);
+
+        builder.Property(o => o.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(o => o.DestinationKey).IsRequired().HasMaxLength(600);
+        builder.Property(o => o.DestinationSummary).IsRequired().HasMaxLength(500);
+        builder.Property(o => o.DestinationCity).IsRequired().HasMaxLength(100);
+        builder.Property(o => o.Lane).HasMaxLength(50);
+
+        builder.Property(o => o.CombinedWeightKg).HasColumnType("decimal(10,3)");
+        builder.Property(o => o.SeparateShippingZAR).HasColumnType("decimal(12,2)");
+        builder.Property(o => o.ConsolidatedShippingZAR).HasColumnType("decimal(12,2)");
+        builder.Property(o => o.SavingZAR).HasColumnType("decimal(12,2)");
+        builder.Property(o => o.LengthCm).HasColumnType("decimal(8,2)");
+        builder.Property(o => o.WidthCm).HasColumnType("decimal(8,2)");
+        builder.Property(o => o.HeightCm).HasColumnType("decimal(8,2)");
+        builder.Property(o => o.FinalWeightKg).HasColumnType("decimal(10,3)");
+    }
+}
+
+public class ConsolidationOrderParcelConfiguration : IEntityTypeConfiguration<ConsolidationOrderParcel>
+{
+    public void Configure(EntityTypeBuilder<ConsolidationOrderParcel> builder)
+    {
+        builder.ToTable("ConsolidationOrderParcels");
+        builder.HasKey(p => p.Id);
+        builder.Property(p => p.Id).HasColumnType("char(36)");
+        builder.Property(p => p.OrderId).HasColumnType("char(36)");
+        builder.Property(p => p.ParcelId).HasColumnType("char(36)");
+        builder.Property(p => p.ScannedByStaffId).HasColumnType("char(36)");
+
+        builder.HasIndex(p => new { p.OrderId, p.ParcelId }).IsUnique();
+        builder.HasIndex(p => p.ParcelId);
+
+        builder.HasOne(p => p.Order)
+               .WithMany(o => o.Parcels)
+               .HasForeignKey(p => p.OrderId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<Parcel>()
+               .WithMany()
+               .HasForeignKey(p => p.ParcelId)
+               .OnDelete(DeleteBehavior.Restrict);
+    }
+}

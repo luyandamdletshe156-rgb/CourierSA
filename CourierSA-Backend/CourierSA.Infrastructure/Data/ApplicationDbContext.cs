@@ -44,6 +44,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<DeliveryRoute> DeliveryRoutes { get; set; }
     public DbSet<PriorityUpgradeRequest> PriorityUpgradeRequests { get; set; }
+    public DbSet<ConsolidationOrder> ConsolidationOrders { get; set; }
+    public DbSet<ConsolidationOrderParcel> ConsolidationOrderParcels { get; set; }
     public DbSet<DriverShift> DriverShifts { get; set; }
     public DbSet<LeaveRequest> LeaveRequests { get; set; }
     public DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; }

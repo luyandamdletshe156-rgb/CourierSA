@@ -50,6 +50,8 @@ import { WarehouseInventoryPage } from '@/pages/warehouse/WarehouseInventory'
 import { ParcelProcessingPage } from '@/pages/warehouse/ParcelProcessing'
 import { WarehouseTrackPage } from '@/pages/warehouse/WarehouseTrack'
 import ReturnIntakeQueuePage from '@/pages/warehouse/ReturnIntakeQueuePage'
+import ConsolidationOrdersPage from '@/pages/warehouse/ConsolidationOrdersPage'
+import ConsolidationRequestPage from '@/pages/customer/ConsolidationRequestPage'
 import RouteReleasePage from '@/pages/warehouse/RouteReleasePage'
 
 // Admin
@@ -125,6 +127,7 @@ export default function App() {
                     <Route path="/customer/parcels/:id" element={<ParcelDetailPage />} />
                     <Route path="/customer/lost-parcels" element={<ReportLostParcelPage />} />
                     <Route path="/customer/returns" element={<RequestReturnPage />} />
+                    <Route path="/customer/consolidation" element={<ConsolidationRequestPage />} />
                     <Route path="/customer/track" element={<CustomerTrackPage />} />
                     <Route path="/customer/wallet" element={<WalletPage />} />
                     <Route path="/customer/claims" element={<ClaimsPage />} />
@@ -164,6 +167,7 @@ export default function App() {
                 <Route element={<RequireRole roles={['WarehouseStaff', 'Administrator']} />}>
                   <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
                   <Route path="/warehouse/returns" element={<ReturnIntakeQueuePage />} />
+                  <Route path="/warehouse/consolidation" element={<ConsolidationOrdersPage />} />
                   <Route path="/warehouse/route-release" element={<RouteReleasePage />} />
                   <Route path="/warehouse/inventory" element={<WarehouseInventoryPage />} />
                   <Route path="/warehouse/inspections" element={<ParcelProcessingPage />} />

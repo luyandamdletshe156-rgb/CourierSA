@@ -271,6 +271,7 @@ export const lostParcelApi = {
   investigate:  (id, dto)  => api.put(`/lost-parcels/${id}/investigate`, dto),
   resolve:      (id, dto)  => api.put(`/lost-parcels/${id}/resolve`, dto),
   submitClaim:  (id, dto)  => api.post(`/lost-parcels/${id}/insurance-claim`, dto),
+  updateClaimStatus: (claimId, dto) => api.put(`/lost-parcels/claims/${claimId}/status`, dto),
 }
 
 export const returnApi = {
@@ -284,6 +285,19 @@ export const returnApi = {
   receive:            id         => api.put(`/return-requests/${id}/receive`),
   inspect:            (id, dto)  => api.put(`/return-requests/${id}/inspect`, dto),
   releaseRefund:      (id, dto)  => api.put(`/return-requests/${id}/release-refund`, dto),
+}
+
+export const consolidationApi = {
+  eligible: ()         => api.get('/consolidations/eligible'),
+  preview:  dto        => api.post('/consolidations/preview', dto),
+  request:  dto        => api.post('/consolidations', dto),
+  mine:     ()         => api.get('/consolidations/mine'),
+  cancel:   id         => api.put(`/consolidations/${id}/cancel`),
+  queue:    status     => api.get('/consolidations/queue', { params: { status } }),
+  get:      id         => api.get(`/consolidations/${id}`),
+  scan:     (id, dto)  => api.post(`/consolidations/${id}/scan`, dto),
+  pack:     (id, dto)  => api.post(`/consolidations/${id}/pack`, dto),
+  stage:    (id, dto)  => api.post(`/consolidations/${id}/stage`, dto),
 }
 
 export const secureDeliveryApi = {

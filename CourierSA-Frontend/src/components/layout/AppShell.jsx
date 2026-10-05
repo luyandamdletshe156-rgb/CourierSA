@@ -9,7 +9,7 @@ import {
   BarChart3, Settings, LogOut, Menu, X,
   ClipboardCheck, MapPin, CreditCard, AlertTriangle, 
   RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search,
-  ShieldAlert, CalendarDays
+  ShieldAlert, CalendarDays, Boxes
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -33,6 +33,7 @@ const NAV = {
     { label: 'Inventory',    icon: Archive,         to: '/warehouse/inventory'  },
     { label: 'Processing',   icon: ClipboardCheck,  to: '/warehouse/inspections'},
     { label: 'Returns',      icon: RotateCcw,       to: '/warehouse/returns'    },
+    { label: 'Consolidation', icon: Boxes,          to: '/warehouse/consolidation' },
     { label: 'Route Release', icon: Truck,          to: '/warehouse/route-release' },
     { label: 'Track Parcel', icon: Search,          to: '/warehouse/track'      },
   ],
@@ -42,6 +43,7 @@ const NAV = {
     { label: 'Book Parcel',  icon: Package,         to: '/customer/book'        },
     { label: 'Track',        icon: MapPin,          to: '/customer/track'       },
     { label: 'Lost Parcel',  icon: PackageX,        to: '/customer/lost-parcels'},
+    { label: 'Consolidate',  icon: Boxes,           to: '/customer/consolidation' },
     { label: 'Returns',      icon: RotateCcw,       to: '/customer/returns'     },
     { label: 'Wallet',       icon: CreditCard,      to: '/customer/wallet'      },
     { label: 'Claims',       icon: AlertTriangle,   to: '/customer/claims'      },

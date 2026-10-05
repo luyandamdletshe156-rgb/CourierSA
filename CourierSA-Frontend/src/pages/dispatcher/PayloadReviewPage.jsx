@@ -101,7 +101,7 @@ function SplitPanel({ run, onDone }) {
         <select className="input w-auto text-sm" value={driverId}
           onChange={e => { setDriverId(e.target.value); setPreview(null) }}>
           <option value="">Standby driver…</option>
-          {options.drivers.map(d => <option key={d.driverId} value={d.driverId}>{d.name}</option>)}
+          {options.drivers.map(d => <option key={d.driverId} value={d.driverId}>{d.name}{d.status === 'OffDuty' ? ' (off duty, call in)' : ''}</option>)}
         </select>
         <select className="input w-auto text-sm" value={vehicleId}
           onChange={e => { setVehicleId(e.target.value); setPreview(null) }}>
@@ -113,7 +113,7 @@ function SplitPanel({ run, onDone }) {
           <Eye size={14} /> Preview split
         </button>
       </div>
-      {options.drivers.length === 0 && <p className="text-xs text-[#64748B]">No standby drivers are available right now.</p>}
+      {options.drivers.length === 0 && <p className="text-xs text-[#64748B]">No standby drivers are available right now. Every other driver is suspended, on a delivery, or already on another run.</p>}
 
       {preview && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

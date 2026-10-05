@@ -238,8 +238,10 @@ public class ReturnService : IReturnService
     public async Task<ReturnRequestDto> ReceiveAsync(Guid returnId, Guid staffUserId, CancellationToken ct = default)
     {
         var returnRequest = await GetOrThrowAsync(returnId, ct);
-        if (returnRequest.Status != ReturnRequestStatus.Approved && returnRequest.Status != ReturnRequestStatus.Collected)
-            throw new BadRequestException($"Return must be 'Approved' or 'Collected' to receive (currently '{returnRequest.Status}').");
+        if (returnRequest.Status != ReturnRequestStatus.Collected)
+            throw new BadRequestException(
+                $"Return must be 'Collected' by a driver before the warehouse can receive it (currently '{returnRequest.Status}'). " +
+                "Flow: Customer request → Admin approves → Dispatcher assigns driver → Driver collects → Warehouse receives.");
 
         var parcel = await _uow.Parcels.GetByIdAsync(returnRequest.ParcelId, ct)
             ?? throw new NotFoundException("Linked parcel not found.");

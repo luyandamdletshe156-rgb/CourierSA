@@ -37,7 +37,9 @@ public enum ParcelStatus
     Cancelled = 8,
     CheckedOut = 10,
     Lost = 11,
-    Returned = 12
+    Returned = 12,
+    ConsolidationRequested = 13,   // UC10: customer asked for this parcel to be merged into a master box
+    Consolidated = 14              // UC11: packed into a master box, waiting to be staged
 }
 
 public enum ServiceType
@@ -83,7 +85,10 @@ public enum TrackingEventType
     CollectionRescheduled,
     ReturnCollectionDispatched,
     ReturnCollected,
-    PickupDispatched
+    PickupDispatched,
+    ConsolidationRequested,
+    ParcelsConsolidated,
+    StagedForDispatch
 }
 public enum DeliveryStatus
 {
@@ -376,3 +381,13 @@ public enum ShiftStatus { Scheduled, Open, Cancelled } // Open = unstaffed, need
 public enum LeaveType { Annual, Sick, Emergency }
 public enum LeaveRequestStatus { Pending, Approved, Rejected, Cancelled }
 public enum SwapRequestStatus { AwaitingPeer, AwaitingAdmin, Approved, Rejected, DeclinedByPeer, Cancelled }
+
+
+public enum ConsolidationOrderStatus
+{
+    Pending,        // requested by the customer, waiting in the warehouse queue
+    InProgress,     // warehouse staff have started scanning parcels
+    Consolidated,   // packed into a master box with a master label
+    Staged,         // moved to an outbound lane and released to dispatch
+    Cancelled
+}

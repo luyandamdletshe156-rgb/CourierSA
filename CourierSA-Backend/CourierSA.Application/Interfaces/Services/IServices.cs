@@ -1,4 +1,5 @@
 using CourierSA.Application.DTOs.Auth;
+using CourierSA.Application.DTOs.Consolidation;
 using CourierSA.Application.DTOs.Bulk;
 using CourierSA.Application.DTOs.CollectionDamage;
 using CourierSA.Application.DTOs.Fraud;
@@ -308,4 +309,22 @@ public interface IShiftService
     Task<SwapRequestDto> RequestSwapAsync(CreateSwapRequestDto dto, Guid driverUserId, CancellationToken ct = default);
     Task<IEnumerable<SwapRequestDto>> GetMySwapsAsync(Guid driverUserId, CancellationToken ct = default);
     Task<SwapRequestDto> RespondToSwapAsync(Guid requestId, RespondSwapDto dto, Guid driverUserId, CancellationToken ct = default);
+}
+
+/// <summary>UC10 Request Package Consolidation, UC11 Consolidate Warehouse Parcels, UC13 stage for dispatch.</summary>
+public interface IConsolidationService
+{
+    // Customer (UC10)
+    Task<IEnumerable<EligibleParcelDto>> GetEligibleParcelsAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<ConsolidationPreviewDto> PreviewAsync(ConsolidationRequestDto dto, Guid customerUserId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> RequestAsync(ConsolidationRequestDto dto, Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<ConsolidationOrderDto>> GetMineAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> CancelAsync(Guid orderId, Guid customerUserId, CancellationToken ct = default);
+
+    // Warehouse (UC11 / UC13)
+    Task<IEnumerable<ConsolidationOrderDto>> GetQueueAsync(string? status, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> GetAsync(Guid orderId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> ScanAsync(Guid orderId, ScanConsolidationParcelDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> PackAsync(Guid orderId, PackConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> StageAsync(Guid orderId, StageConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
 }

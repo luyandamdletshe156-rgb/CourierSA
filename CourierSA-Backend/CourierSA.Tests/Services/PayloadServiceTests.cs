@@ -278,19 +278,21 @@ public class PayloadServiceTests
     // ── UC15: split ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task SplitOptions_OnlyListAvailableFreeDriversAndVehicles()
+    public async Task SplitOptions_ListFreeAvailableAndOffDutyDrivers_ButNotSuspendedOrBusy()
     {
         var db = CreateContext(); var sut = BuildSut(db);
         var (primary, primaryVehicle) = await SeedDriverAsync(db, 100m);
         var (standby, standbyVehicle) = await SeedDriverAsync(db, 100m);
         var (offDuty, _) = await SeedDriverAsync(db, 100m, DriverStatus.OffDuty);
+        var (suspended, _) = await SeedDriverAsync(db, 100m, DriverStatus.Suspended);
         var (busy, busyVehicle) = await SeedDriverAsync(db, 100m);
         var run = await SeedRunAsync(db, primary, primaryVehicle, await SeedParcelsAsync(db, 60m, 50m));
         await SeedRunAsync(db, busy, busyVehicle, await SeedParcelsAsync(db, 20m));   // busy driver is already on a run
 
         var options = await sut.GetSplitOptionsAsync(run.Id);
 
-        options.Drivers.Select(d => d.DriverId).Should().BeEquivalentTo([standby.Id]);
+        options.Drivers.Select(d => d.DriverId).Should().BeEquivalentTo([standby.Id, offDuty.Id]);
+        options.Drivers.Select(d => d.DriverId).Should().NotContain([suspended.Id, busy.Id]);
         options.Vehicles.Select(v => v.VehicleId).Should().Contain(standbyVehicle.Id);
         options.Vehicles.Select(v => v.VehicleId).Should().NotContain([primaryVehicle.Id, busyVehicle.Id]);
     }
@@ -358,7 +360,7 @@ public class PayloadServiceTests
     {
         var db = CreateContext(); var sut = BuildSut(db);
         var (primary, primaryVehicle) = await SeedDriverAsync(db, 100m);
-        var (standby, standbyVehicle) = await SeedDriverAsync(db, 100m, DriverStatus.OffDuty);
+        var (standby, standbyVehicle) = await SeedDriverAsync(db, 100m, DriverStatus.Suspended);
         var run = await SeedRunAsync(db, primary, primaryVehicle, await SeedParcelsAsync(db, 60m, 50m));
 
         Func<Task> act = () => sut.ConfirmSplitAsync(run.Id, new SplitRequestDto(standby.Id, standbyVehicle.Id, null), Guid.NewGuid());

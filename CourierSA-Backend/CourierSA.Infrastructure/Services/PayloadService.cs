@@ -189,7 +189,10 @@ public class PayloadService : IPayloadService
 
         var drivers = await _uow.Query<DriverProfile>().Query().AsNoTracking()
             .Include(d => d.User)
-            .Where(d => d.Status == DriverStatus.Available && d.Id != route.DriverId)
+            // A standby driver is anyone who can be called in: on shift (Available) or off duty.
+            // OnDelivery and Suspended drivers can never take an overflow run.
+            .Where(d => (d.Status == DriverStatus.Available || d.Status == DriverStatus.OffDuty)
+                        && d.Id != route.DriverId)
             .ToListAsync(ct);
 
         var vehicles = await _uow.Query<Vehicle>().Query().AsNoTracking()
@@ -198,7 +201,7 @@ public class PayloadService : IPayloadService
 
         return new SplitOptionsDto(
             drivers.Where(d => !busyDrivers.Contains(d.Id))
-                   .Select(d => new StandbyDriverDto(d.Id, d.User?.FullName ?? "Driver")).ToList(),
+                   .Select(d => new StandbyDriverDto(d.Id, d.User?.FullName ?? "Driver", d.Status.ToString())).ToList(),
             vehicles.Where(v => !busyVehicles.Contains(v.Id))
                     .Select(v => new StandbyVehicleDto(v.Id, v.RegistrationNumber, v.PayloadCapacityKg)).ToList());
     }
@@ -312,8 +315,8 @@ public class PayloadService : IPayloadService
             .Include(d => d.User)
             .FirstOrDefaultAsync(d => d.Id == dto.StandbyDriverId, ct)
             ?? throw new NotFoundException("Standby driver not found.");
-        if (driver.Status != DriverStatus.Available)
-            throw new BadRequestException("The standby driver must be available.");
+        if (driver.Status is DriverStatus.Suspended or DriverStatus.OnDelivery)
+            throw new BadRequestException($"The standby driver is not available (status: {driver.Status}).");
 
         var vehicle = await _uow.Query<Vehicle>().GetByIdAsync(dto.StandbyVehicleId, ct)
             ?? throw new NotFoundException("Standby vehicle not found.");

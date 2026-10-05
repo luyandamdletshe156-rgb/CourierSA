@@ -805,3 +805,30 @@ namespace CourierSA.Application.DTOs.Shifts
         Guid RequesterDriverId, string RequesterName, Guid PeerDriverId, string PeerName,
         string Status, string? Reason, string? AdminNotes, DateTime CreatedAt, bool AwaitingMyReply = false);
 }
+
+namespace CourierSA.Application.DTOs.Consolidation
+{
+    public record ConsolidationRequestDto(List<Guid> ParcelIds);
+    public record ScanConsolidationParcelDto(string TrackingNumber);
+    public record PackConsolidationDto(decimal LengthCm, decimal WidthCm, decimal HeightCm, decimal FinalWeightKg);
+    public record StageConsolidationDto(string MasterTrackingId, string Lane);
+
+    public record EligibleParcelDto(
+        Guid Id, string TrackingNumber, string RecipientName, string DestinationAddress,
+        string AddressKey, decimal WeightKg, string? BinCode);
+
+    public record ConsolidationPreviewDto(
+        int ParcelCount, decimal CombinedWeightKg, decimal SeparateShippingZAR,
+        decimal ConsolidatedShippingZAR, decimal SavingZAR, decimal SavingPercent);
+
+    public record ConsolidationParcelDto(
+        Guid ParcelId, string TrackingNumber, decimal WeightKg, string? BinCode, bool Scanned);
+
+    public record ConsolidationOrderDto(
+        Guid Id, string OrderNumber, string Status, string? MasterTrackingId,
+        string Destination, string DestinationCity, int ParcelCount, decimal CombinedWeightKg,
+        decimal SeparateShippingZAR, decimal ConsolidatedShippingZAR, decimal SavingZAR,
+        decimal? LengthCm, decimal? WidthCm, decimal? HeightCm, decimal? FinalWeightKg,
+        string? Lane, DateTime CreatedAt, DateTime? ConsolidatedAt, DateTime? StagedAt,
+        List<ConsolidationParcelDto> Parcels);
+}
