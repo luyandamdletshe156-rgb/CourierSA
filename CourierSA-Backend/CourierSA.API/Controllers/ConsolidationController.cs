@@ -55,6 +55,15 @@ public class ConsolidationController : CourierSABaseController
     public async Task<IActionResult> Queue([FromQuery] string? status, CancellationToken ct)
         => Ok(await _service.GetQueueAsync(status, ct));
 
+    /// <summary>
+    /// GET /api/consolidations/history?search= – packed, staged and cancelled orders, newest first,
+    /// each with the current status of its master box (OutForDelivery, Delivered, ...).
+    /// </summary>
+    [HttpGet("history")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> History([FromQuery] string? search, CancellationToken ct)
+        => Ok(await _service.GetHistoryAsync(search, ct));
+
     /// <summary>GET /api/consolidations/{id}</summary>
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "WarehouseOrAdmin")]

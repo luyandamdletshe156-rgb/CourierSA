@@ -831,4 +831,10 @@ namespace CourierSA.Application.DTOs.Consolidation
         decimal? LengthCm, decimal? WidthCm, decimal? HeightCm, decimal? FinalWeightKg,
         string? Lane, DateTime CreatedAt, DateTime? ConsolidatedAt, DateTime? StagedAt,
         List<ConsolidationParcelDto> Parcels);
+
+    /// <summary>
+    /// One row of the warehouse "History" tab: the consolidation order plus the current status of its
+    /// master box parcel (StagedForDispatch -> OutForDelivery -> Delivered ...). Null until the box is staged.
+    /// </summary>
+    public record ConsolidationHistoryDto(ConsolidationOrderDto Order, string? MasterParcelStatus);
 }

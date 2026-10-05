@@ -12,24 +12,35 @@ namespace CourierSA.Infrastructure.Services;
 /// Business process "Package Consolidation &amp; Warehouse Fulfilment".
 ///   UC10  Customer merges 2+ parcels (same destination, sitting in the warehouse) into one request.
 ///   UC11  Warehouse staff scan every parcel, pack one master box, a master label (MST-xxxx-CCC) is generated.
-///   UC13  Warehouse staff scan the master label, pick an outbound lane and stage it; the parcels become
-///         CheckedOut so the dispatcher can plan them onto a route (UC12) exactly like any other parcel.
-/// Parcel status trail: InWarehouse -> ConsolidationRequested -> Consolidated -> CheckedOut.
+///   UC13  Warehouse staff scan the master label, pick an outbound lane and stage it. At this point ONE master
+///         Parcel (tracking number = master label, status CheckedOut) is created. It is what the dispatcher sees
+///         in the Dispatch Queue and Payload Review (UC12 / UC14). The original parcels stay "Consolidated" and
+///         are no longer dispatchable on their own.
+/// Original parcel status trail: InWarehouse -> ConsolidationRequested -> Consolidated
+///                               (then mirrored from the master: OutForDelivery -> Delivered / FailedDelivery).
 /// </summary>
 public class ConsolidationService : IConsolidationService
 {
     /// <summary>Tiered saving for sending parcels as one shipment: 10% for 2 parcels, 15% for 3 or more.</summary>
     public static decimal DiscountRateFor(int parcelCount) => parcelCount >= 3 ? 0.15m : 0.10m;
 
+    /// <summary>Master boxes are Parcels whose tracking number starts with this prefix.</summary>
+    public const string MasterPrefix = "MST-";
+
     private const string WalletRefType = "Consolidation";
 
     private readonly IUnitOfWork _uow;
     private readonly INotificationService _notifications;
     private readonly IAuditService _audit;
+    private readonly IBarcodeService _barcode;
 
-    public ConsolidationService(IUnitOfWork uow, INotificationService notifications, IAuditService audit)
+    public ConsolidationService(
+        IUnitOfWork uow,
+        INotificationService notifications,
+        IAuditService audit,
+        IBarcodeService barcode)
     {
-        _uow = uow; _notifications = notifications; _audit = audit;
+        _uow = uow; _notifications = notifications; _audit = audit; _barcode = barcode;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -214,6 +225,40 @@ public class ConsolidationService : IConsolidationService
         return await MapManyAsync(orders, ct);
     }
 
+    /// <summary>
+    /// History of consolidated work: packed, staged and cancelled orders, newest first, each with the
+    /// current status of its master box (OutForDelivery, Delivered, ...). Optional search on order number,
+    /// master label or destination city.
+    /// </summary>
+    public async Task<IEnumerable<ConsolidationHistoryDto>> GetHistoryAsync(string? search, CancellationToken ct = default)
+    {
+        var query = _uow.Query<ConsolidationOrder>().Query().AsNoTracking()
+            .Where(o => o.Status == ConsolidationOrderStatus.Consolidated
+                     || o.Status == ConsolidationOrderStatus.Staged
+                     || o.Status == ConsolidationOrderStatus.Cancelled);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(o => o.OrderNumber.ToLower().Contains(s)
+                                  || (o.MasterTrackingId != null && o.MasterTrackingId.ToLower().Contains(s))
+                                  || o.DestinationCity.ToLower().Contains(s));
+        }
+
+        var orders = await query.OrderByDescending(o => o.UpdatedAt).Take(200).ToListAsync(ct);
+        var dtos = await MapManyAsync(orders, ct);
+
+        var masters = orders.Where(o => o.MasterTrackingId != null).Select(o => o.MasterTrackingId!).ToList();
+        var statuses = masters.Count == 0
+            ? new Dictionary<string, string>()
+            : await _uow.Query<Parcel>().Query().AsNoTracking()
+                .Where(p => masters.Contains(p.TrackingNumber))
+                .ToDictionaryAsync(p => p.TrackingNumber, p => p.Status.ToString(), ct);
+
+        return dtos.Select(d => new ConsolidationHistoryDto(
+            d, d.MasterTrackingId is null ? null : statuses.GetValueOrDefault(d.MasterTrackingId))).ToList();
+    }
+
     public async Task<ConsolidationOrderDto> GetAsync(Guid orderId, CancellationToken ct = default)
         => await MapOneAsync(await GetOrderOrThrowAsync(orderId, ct), ct);
 
@@ -269,7 +314,15 @@ public class ConsolidationService : IConsolidationService
         var seq = order.OrderNumber[(order.OrderNumber.LastIndexOf('-') + 1)..];
         var city3 = new string(order.DestinationCity.Where(char.IsLetter).Take(3).ToArray()).ToUpperInvariant().PadRight(3, 'X');
 
-        order.MasterTrackingId = $"MST-{seq}-{city3}";
+        // The master label becomes a Parcel tracking number, so it must be unique across all parcels
+        // (the order sequence restarts every year).
+        var masterId = $"{MasterPrefix}{seq}-{city3}";
+        var candidate = masterId;
+        var suffix = 1;
+        while (await _uow.Query<Parcel>().Query().AsNoTracking().AnyAsync(p => p.TrackingNumber == candidate, ct))
+            candidate = $"{masterId}-{++suffix}";
+
+        order.MasterTrackingId = candidate;
         order.LengthCm = dto.LengthCm;
         order.WidthCm = dto.WidthCm;
         order.HeightCm = dto.HeightCm;
@@ -323,14 +376,24 @@ public class ConsolidationService : IConsolidationService
         order.StagedByStaffId = staffUserId;
         order.UpdatedAt = DateTime.UtcNow;
 
-        // CheckedOut = ready for dispatch. The dispatcher plans these parcels onto a route (UC12) as usual.
+        // The loose parcels are now inside the master box: they stay "Consolidated" and are NOT dispatchable.
+        // One master Parcel (CheckedOut) takes their place in the Dispatch Queue and Payload Review.
         var parcels = await LoadOrderParcelsAsync(order.Id, ct);
+
         foreach (var p in parcels)
-        {
-            p.Status = ParcelStatus.CheckedOut;
-            p.UpdatedAt = DateTime.UtcNow;
             await AddEventAsync(p, TrackingEventType.StagedForDispatch,
                 $"Master box {order.MasterTrackingId} staged in {lane}. Ready for dispatch.", ct);
+
+        await ReleaseBinsAsync(parcels, ct);
+
+        // Idempotent: never create a second master for the same order.
+        var alreadyThere = await _uow.Query<Parcel>().Query().AsNoTracking()
+            .AnyAsync(p => p.TrackingNumber == order.MasterTrackingId, ct);
+        if (!alreadyThere)
+        {
+            var master = await CreateMasterParcelAsync(order, parcels, ct);
+            await AddEventAsync(master, TrackingEventType.StagedForDispatch,
+                $"Master box staged in {lane}. Ready for dispatch.", ct);
         }
 
         var credited = await CreditSavingAsync(order, parcels, ct);
@@ -397,6 +460,117 @@ public class ConsolidationService : IConsolidationService
 
         return (customer, parcels);
     }
+
+    /// <summary>
+    /// Parcels are physically out of their sorting bins once packed into the master box, so free the
+    /// bin slots. The master box itself sits in an outbound lane (see <see cref="ConsolidationOrder.Lane"/>).
+    /// </summary>
+    private async Task ReleaseBinsAsync(List<Parcel> parcels, CancellationToken ct)
+    {
+        var ids = parcels.Select(p => p.Id).ToList();
+        var assignments = await _uow.Query<ParcelSortingAssignment>().Query()
+            .Where(a => ids.Contains(a.ParcelId) && a.ConfirmedBinId != null && a.ReleasedAt == null)
+            .ToListAsync(ct);
+
+        foreach (var a in assignments)
+        {
+            var bin = await _uow.Query<SortingBin>().GetByIdAsync(a.ConfirmedBinId!.Value, ct);
+            if (bin is not null && bin.CurrentCount > 0)
+            {
+                bin.CurrentCount -= 1;
+                bin.UpdatedAt = DateTime.UtcNow;
+            }
+            a.ReleasedAt = DateTime.UtcNow;
+            a.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Creates the one Parcel that represents the master box. Its tracking number is the master label (MST-…),
+    /// its weight and dimensions are what staff measured when packing. Payment stays on the original parcels,
+    /// so the master is flagged paid with a zero quote and no driver is ever asked to collect cash for it.
+    /// Does not save.
+    /// </summary>
+    private async Task<Parcel> CreateMasterParcelAsync(ConsolidationOrder order, List<Parcel> children, CancellationToken ct)
+    {
+        var first = children.OrderBy(p => p.CreatedAt).First();
+
+        var pickupSrc = await _uow.Query<ParcelAddress>().Query().AsNoTracking()
+            .FirstAsync(a => a.Id == first.PickupAddressId, ct);
+        var deliverySrc = await _uow.Query<ParcelAddress>().Query().AsNoTracking()
+            .FirstAsync(a => a.Id == first.DeliveryAddressId, ct);
+
+        // Copies, so the master never shares an address row with the parcels inside it.
+        var pickup = CloneAddress(pickupSrc);
+        var delivery = CloneAddress(deliverySrc);
+        await _uow.Query<ParcelAddress>().AddAsync(pickup, ct);
+        await _uow.Query<ParcelAddress>().AddAsync(delivery, ct);
+
+        var trackingNumber = order.MasterTrackingId!;
+        string? barcode = null;
+        try { barcode = await _barcode.GenerateAsync(trackingNumber, ct); }
+        catch (Exception ex) { Console.WriteLine($"[BARCODE] master {trackingNumber} failed: {ex.Message}"); }
+
+        var instructions = string.Join(" | ", children
+            .Select(p => p.SpecialInstructions)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct());
+
+        var master = new Parcel
+        {
+            Id = Guid.NewGuid(),
+            TrackingNumber = trackingNumber,
+            CustomerId = order.CustomerId,
+            Status = ParcelStatus.CheckedOut,                       // ready for dispatch
+            ServiceType = children.Max(p => p.ServiceType),         // honour the fastest promise inside the box
+            WeightKg = order.FinalWeightKg ?? order.CombinedWeightKg,
+            Dimensions = new ParcelDimensions
+            {
+                LengthCm = order.LengthCm ?? 0m,
+                WidthCm = order.WidthCm ?? 0m,
+                HeightCm = order.HeightCm ?? 0m
+            },
+            DeclaredValueZAR = children.Sum(p => p.DeclaredValueZAR ?? 0m),
+            Description = $"Consolidated master box {order.OrderNumber} ({children.Count} parcels)",
+            SpecialInstructions = instructions.Length == 0 ? null : instructions,
+            IsFragile = children.Any(p => p.IsFragile),
+            RequiresSignature = children.Any(p => p.RequiresSignature),
+            InsuranceRequired = children.Any(p => p.InsuranceRequired),
+            IsEmergency = children.Any(p => p.IsEmergency),
+            PickupAddressId = pickup.Id,
+            DeliveryAddressId = delivery.Id,
+            Zone = first.Zone,                                      // PlanRoute rejects mixed or missing zones
+            EstimatedDeliveryDate = children.Min(p => p.EstimatedDeliveryDate),
+            QuoteAmountZAR = 0m,                                    // already paid on the original parcels
+            PaymentMethod = first.PaymentMethod,
+            IsPaid = true,
+            PaidAt = DateTime.UtcNow,
+            BarcodeImagePath = barcode,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await _uow.Query<Parcel>().AddAsync(master, ct);
+        return master;
+    }
+
+    private static ParcelAddress CloneAddress(ParcelAddress a) => new()
+    {
+        Id = Guid.NewGuid(),
+        RecipientName = a.RecipientName,
+        RecipientPhone = a.RecipientPhone,
+        RecipientEmail = a.RecipientEmail,
+        StreetAddress = a.StreetAddress,
+        Suburb = a.Suburb,
+        City = a.City,
+        Province = a.Province,
+        PostalCode = a.PostalCode,
+        Country = a.Country,
+        SpecialInstructions = a.SpecialInstructions,
+        Latitude = a.Latitude,
+        Longitude = a.Longitude,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
 
     /// <summary>
     /// Credits the consolidation saving to the customer's wallet once the master box is staged.

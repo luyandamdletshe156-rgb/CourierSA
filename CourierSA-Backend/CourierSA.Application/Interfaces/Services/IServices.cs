@@ -311,6 +311,9 @@ public interface IShiftService
     Task<SwapRequestDto> RespondToSwapAsync(Guid requestId, RespondSwapDto dto, Guid driverUserId, CancellationToken ct = default);
 }
 
+// Replace the existing IConsolidationService block at the bottom of your interfaces file with this one.
+// (Only change: the GetHistoryAsync line under "Warehouse".)
+
 /// <summary>UC10 Request Package Consolidation, UC11 Consolidate Warehouse Parcels, UC13 stage for dispatch.</summary>
 public interface IConsolidationService
 {
@@ -323,6 +326,7 @@ public interface IConsolidationService
 
     // Warehouse (UC11 / UC13)
     Task<IEnumerable<ConsolidationOrderDto>> GetQueueAsync(string? status, CancellationToken ct = default);
+    Task<IEnumerable<ConsolidationHistoryDto>> GetHistoryAsync(string? search, CancellationToken ct = default);   // NEW
     Task<ConsolidationOrderDto> GetAsync(Guid orderId, CancellationToken ct = default);
     Task<ConsolidationOrderDto> ScanAsync(Guid orderId, ScanConsolidationParcelDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<ConsolidationOrderDto> PackAsync(Guid orderId, PackConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
