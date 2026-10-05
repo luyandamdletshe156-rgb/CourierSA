@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
@@ -14,6 +14,19 @@ import {
 import { formatDate, formatZAR } from '@/utils'
 import clsx from 'clsx'
 
+// ── Shared helpers ───────────────────────────────────────────────────────────
+// Safely pull the item list out of the different shapes the API returns.
+const extractItems = (data) =>
+  Array.isArray(data) ? data : data?.data?.items ?? data?.items ?? data?.data ?? []
+
+// Driver display name, tolerant of the different DTO shapes in use.
+const getDriverName = (d, index) => {
+  const id = d?.id || d?.driverId || d?.userId
+  return (d?.firstName && d?.lastName && d.firstName !== '—')
+    ? `${d.firstName} ${d.lastName}`
+    : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${id ? String(id).substring(0, 6) : index}`)
+}
+
 // Wait-time triage: dispatchers should see the oldest bookings first without
 // having to eyeball timestamps. Thresholds are deliberately generous —
 // most bookings should clear well before "Aging" ever shows.
@@ -24,6 +37,7 @@ function getWaitState(createdAt) {
   return null
 }
 
+// ── Dispatcher Dashboard — approve or reject incoming bookings ───────────────
 export function DispatcherDashboard() {
   const qc = useQueryClient()
   const [rejectModal, setRejectModal] = useState(null)
@@ -52,7 +66,9 @@ export function DispatcherDashboard() {
     refetchInterval: 30000,
   })
 
-  const pending = pendingData?.data?.items ?? pendingData?.items ?? pendingData?.data ?? []
+  // Oldest booking first, so the longest-waiting request is always at the top.
+  const pending = [...extractItems(pendingData)]
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
   const drivers = driversData ?? []
   const activeDrivers = drivers.filter(d => d.status === 'OnDelivery' || d.status === 'Available').length
   const outForDeliveryCount = outForDeliveryData?.data?.totalCount ?? outForDeliveryData?.totalCount ?? 0
@@ -71,23 +87,32 @@ export function DispatcherDashboard() {
     mutationFn: () => parcelApi.reject(rejectModal.id, rejectReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatcher-pending'] })
-      setRejectModal(null)
-      setRejectReason('')
+      closeReject()
     },
   })
 
+  const closeReject = () => {
+    setRejectModal(null)
+    setRejectReason('')
+    rejectMutation.reset()
+  }
+
   return (
     <AppShell title="Dispatcher Dashboard">
-      <div className="page-header flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="page-header">
         <div>
           <h1 className="page-title">Dispatcher Dashboard</h1>
           <p className="page-subtitle">Review incoming customer bookings & verify pickup details</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-[#ECFDF5] border border-[#10B981]/20 rounded-full text-xs font-semibold text-[#10B981]">
-          <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
-          {activeDrivers} Driver{activeDrivers !== 1 ? 's' : ''} Active
-        </div>
       </div>
+
+      {/* What needs attention first */}
+      {urgentCount > 0 && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 bg-[#FEF2F2] border border-[#DC2626]/20 rounded-xl text-xs font-semibold text-[#DC2626]">
+          <AlertTriangle size={14} />
+          {urgentCount} booking{urgentCount !== 1 ? 's have' : ' has'} been waiting over 4 hours — review these first.
+        </div>
+      )}
 
       {/* Hero Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -100,9 +125,10 @@ export function DispatcherDashboard() {
         <StatCard label="Active Drivers" value={activeDrivers} icon={Truck} color="bg-[#1E63E9]" />
         <StatCard label="Out For Delivery" value={outForDeliveryCount} icon={MapPin} color="bg-[#0A3D91]" />
 
-        {/* Clickable Maintenance Swaps Card */}
+        {/* Clickable Maintenance Swaps card. The count is not wired to data yet, so it shows a dash
+            rather than a hardcoded 0 that could be mistaken for a real number. */}
         <Link to="/dispatcher/swaps" className="block hover:-translate-y-0.5 transition-transform duration-200 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2">
-          <StatCard label="Maintenance Swaps" value="0" icon={RefreshCw} color="bg-[#64748B]" />
+          <StatCard label="Maintenance Swaps" value="—" icon={RefreshCw} color="bg-[#64748B]" />
         </Link>
       </div>
 
@@ -110,20 +136,14 @@ export function DispatcherDashboard() {
         <Alert type="error" message={approveMutation.error.message} className="mb-4" />
       )}
 
-      {urgentCount > 0 && (
-        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 bg-[#FEF2F2] border border-[#DC2626]/20 rounded-xl text-xs font-semibold text-[#DC2626]">
-          <AlertTriangle size={14} />
-          {urgentCount} booking{urgentCount !== 1 ? 's have' : ' has'} been waiting over 4 hours — review these first.
-        </div>
-      )}
-
       {/* Queue Table */}
       <div className="card overflow-hidden">
-        <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
+        <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] space-y-1">
           <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
             <ClipboardCheck size={18} className="text-[#0A3D91]" /> Pending Approval Queue
             <span className="text-xs font-normal text-[#94A3B8]">({pending.length})</span>
           </h2>
+          <p className="text-xs text-[#64748B]">Oldest bookings first.</p>
         </div>
 
         {pendingLoading ? <PageLoader /> : pending.length === 0 ? (
@@ -137,19 +157,20 @@ export function DispatcherDashboard() {
                   <th>Service & Zone</th>
                   <th>Destination</th>
                   <th>Weight & Price</th>
-                  <th>Booked Date</th>
+                  <th>Booked</th>
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {pending.map(p => {
                   const wait = getWaitState(p.createdAt)
+                  const approvingThis = approveMutation.isPending && approveMutation.variables === p.id
                   return (
                     <tr
                       key={p.id}
                       className={clsx(
-                        "transition-colors duration-150 border-l-4",
-                        wait ? clsx(wait.bg, wait.border) : "border-l-transparent hover:bg-[#F6FAFF]"
+                        'transition-colors duration-150 border-l-4',
+                        wait ? clsx(wait.bg, wait.border) : 'border-l-transparent hover:bg-[#F6FAFF]'
                       )}
                     >
                       <td>
@@ -157,8 +178,8 @@ export function DispatcherDashboard() {
                           <TrackingBadge value={p.trackingNumber} />
                           {p.isFragile && <span className="text-[10px] font-bold bg-[#FEF3C7] text-[#D97706] px-1.5 py-0.5 rounded">Fragile</span>}
                           {wait && (
-                            <span className={clsx("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded", wait.text)}>
-                              <span className={clsx("w-1.5 h-1.5 rounded-full", wait.dot)} />
+                            <span className={clsx('flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded', wait.text)}>
+                              <span className={clsx('w-1.5 h-1.5 rounded-full', wait.dot)} />
                               {wait.label}
                             </span>
                           )}
@@ -178,6 +199,7 @@ export function DispatcherDashboard() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             className="btn-danger btn-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-1"
+                            disabled={approveMutation.isPending}
                             onClick={() => setRejectModal(p)}
                           >
                             <XCircle size={14} /> Reject
@@ -187,7 +209,7 @@ export function DispatcherDashboard() {
                             disabled={approveMutation.isPending}
                             onClick={() => approveMutation.mutate(p.id)}
                           >
-                            <CheckCircle2 size={14} /> Approve
+                            <CheckCircle2 size={14} /> {approvingThis ? 'Approving…' : 'Approve'}
                           </button>
                         </div>
                       </td>
@@ -200,7 +222,7 @@ export function DispatcherDashboard() {
         )}
       </div>
 
-      <Modal open={!!rejectModal} onClose={() => setRejectModal(null)} title="Reject Booking Request" size="sm">
+      <Modal open={!!rejectModal} onClose={closeReject} title="Reject Booking Request" size="sm">
         <p className="text-sm text-[#64748B] mb-3">
           Rejecting <TrackingBadge value={rejectModal?.trackingNumber} /> will cancel this parcel booking.
         </p>
@@ -213,13 +235,13 @@ export function DispatcherDashboard() {
         />
         {rejectMutation.error && <Alert type="error" message={rejectMutation.error.message} className="mb-4" />}
         <div className="flex justify-end gap-3">
-          <button className="btn-secondary" onClick={() => setRejectModal(null)}>Cancel</button>
+          <button className="btn-secondary" onClick={closeReject}>Cancel</button>
           <button
             className="btn-danger"
             disabled={!rejectReason.trim() || rejectMutation.isPending}
             onClick={() => rejectMutation.mutate()}
           >
-            Confirm Rejection
+            {rejectMutation.isPending ? 'Rejecting…' : 'Confirm Rejection'}
           </button>
         </div>
       </Modal>
@@ -227,6 +249,7 @@ export function DispatcherDashboard() {
   )
 }
 
+// ── Dispatch Queue — plan routes for pickups and deliveries ─────────────────
 export function DispatchQueue() {
   const qc = useQueryClient()
   const [selectedDriverId, setSelectedDriverId] = useState('')
@@ -247,13 +270,9 @@ export function DispatchQueue() {
     refetchInterval: 15000,
   })
 
-  // Helper to safely extract items from API response
-  const extractItems = (data) => Array.isArray(data) ? data : data?.data?.items ?? data?.items ?? data?.data ?? []
-
   const deliveries = extractItems(checkedOutData)
   const pickups = extractItems(approvedData)
 
-  // Combine both into one queue
   // Plan Route Dispatch: order by the service level chosen at booking
   // (SameDay first ... Economy last), then by booking time within a level.
   const SERVICE_RANK = { SameDay: 4, Overnight: 3, Express: 2, Standard: 1, Economy: 0 }
@@ -350,6 +369,24 @@ export function DispatchQueue() {
     },
   })
 
+  // ── Grouping for display ────────────────────────────────────────────────────
+  // A route holds one task type from one city, so the list is grouped the same way:
+  // type first (pickups, deliveries), then city. Order inside a city keeps the
+  // service-level sort above, and cities appear in order of their most urgent task.
+  const groupByCity = (items) => {
+    const map = new Map()
+    items.forEach(p => {
+      const city = taskCityOf(p)
+      if (!map.has(city)) map.set(city, [])
+      map.get(city).push(p)
+    })
+    return [...map].map(([city, list]) => ({ city, items: list }))
+  }
+  const sections = [
+    { key: 'pickup', title: 'Pickups', note: 'collect from the customer', icon: Package, items: parcels.filter(p => p.status === 'Approved') },
+    { key: 'delivery', title: 'Deliveries', note: 'leave the warehouse', icon: MapPin, items: parcels.filter(p => p.status !== 'Approved') },
+  ].filter(s => s.items.length > 0).map(s => ({ ...s, cities: groupByCity(s.items) }))
+
   return (
     <AppShell title="Dispatch Queue">
       <div className="page-header">
@@ -360,12 +397,18 @@ export function DispatchQueue() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: the task list, grouped by type and city */}
         <div className="lg:col-span-2 card overflow-hidden">
-          <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
-            <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
-              <Truck size={18} className="text-[#0A3D91]" /> Ready for Dispatch
-            </h2>
-            <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{parcels.length} Tasks</span>
+          <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] space-y-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
+                <Truck size={18} className="text-[#0A3D91]" /> Ready for Dispatch
+              </h2>
+              <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{parcels.length} Tasks</span>
+            </div>
+            <p className="text-xs text-[#64748B]">
+              One route holds one task type from one city. Tick a task and the ones that can't join it are greyed out.
+            </p>
           </div>
 
           {parcelsLoading ? <PageLoader /> : parcels.length === 0 ? (
@@ -377,110 +420,133 @@ export function DispatchQueue() {
                   <tr>
                     <th className="w-8"></th>
                     <th>Tracking #</th>
-                    <th>Task Type</th>
-                    <th>City</th>
+                    <th>Service</th>
                     <th>Weight</th>
                     <th>Bin Code</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parcels.map(p => {
-                    const isPickup = p.status === 'Approved'
-                    const isSelected = selectedParcelIds.includes(p.id)
-                    const taskCity = taskCityOf(p)
-
-                    // Disable checkbox if the task is a different type (pickup vs delivery) or outside the active city
-                    const isWrongType = activeIsPickup !== null && isPickup !== activeIsPickup
-                    const isOutOfArea = isWrongType || (activeCity && taskCity !== activeCity)
-
-                    return (
-                      <tr
-                        key={p.id}
-                        onClick={() => {
-                          if (!isOutOfArea || isSelected) handleToggleParcel(p.id)
-                        }}
-                        className={clsx(
-                          "transition-colors duration-150",
-                          isOutOfArea && !isSelected ? "opacity-40 bg-[#F8FAFC] cursor-not-allowed" : "cursor-pointer hover:bg-[#F6FAFF]",
-                          isSelected ? "bg-[#DCEEFF]/50 font-semibold" : ""
-                        )}
-                      >
-                        <td className="w-8 text-center" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={isOutOfArea && !isSelected}
-                            onChange={() => handleToggleParcel(p.id)}
-                            className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] disabled:cursor-not-allowed"
-                            title={isWrongType ? "Pickups and deliveries can't share a route" : isOutOfArea ? "Cannot batch tasks from different cities" : ""}
-                          />
+                  {sections.map(section => (
+                    <Fragment key={section.key}>
+                      <tr className="bg-[#F1F5F9]">
+                        <td colSpan={5} className="py-2">
+                          <span className="flex items-center gap-2 text-xs font-bold text-[#172554]">
+                            <section.icon size={13} /> {section.title} ({section.items.length})
+                            <span className="font-normal text-[#64748B]">{section.note}</span>
+                          </span>
                         </td>
-                        <td><TrackingBadge value={p.trackingNumber} /></td>
-                        <td>
-                          {isPickup ? (
-                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-[#E0E7FF] text-[#4338CA] rounded-full uppercase tracking-wide">
-                               <Package size={10} /> Pickup
-                             </span>
-                          ) : (
-                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-[#ECFDF5] text-[#059669] rounded-full uppercase tracking-wide">
-                               <MapPin size={10} /> Delivery
-                             </span>
-                          )}
-                        </td>
-                        <td className="text-xs text-[#64748B]">{taskCity || '—'}</td>
-                        <td className="text-xs text-[#64748B]">{p.weightKg != null ? `${p.weightKg} kg` : '—'}</td>
-                        <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
                       </tr>
-                    )
-                  })}
+
+                      {section.cities.map(group => (
+                        <Fragment key={`${section.key}-${group.city}`}>
+                          <tr>
+                            <td colSpan={5} className="py-1.5 bg-[#F8FAFC]">
+                              <span className="flex items-center gap-1.5 text-xs font-semibold text-[#0A3D91]">
+                                <MapPin size={12} /> {group.city || 'No city'} ({group.items.length})
+                              </span>
+                            </td>
+                          </tr>
+
+                          {group.items.map(p => {
+                            const isPickup = p.status === 'Approved'
+                            const isSelected = selectedParcelIds.includes(p.id)
+                            const taskCity = taskCityOf(p)
+
+                            // Disable checkbox if the task is a different type (pickup vs delivery) or outside the active city
+                            const isWrongType = activeIsPickup !== null && isPickup !== activeIsPickup
+                            const isOutOfArea = isWrongType || (activeCity && taskCity !== activeCity)
+
+                            return (
+                              <tr
+                                key={p.id}
+                                onClick={() => {
+                                  if (!isOutOfArea || isSelected) handleToggleParcel(p.id)
+                                }}
+                                className={clsx(
+                                  'transition-colors duration-150',
+                                  isOutOfArea && !isSelected ? 'opacity-40 bg-[#F8FAFC] cursor-not-allowed' : 'cursor-pointer hover:bg-[#F6FAFF]',
+                                  isSelected ? 'bg-[#DCEEFF]/50 font-semibold' : ''
+                                )}
+                              >
+                                <td className="w-8 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    disabled={isOutOfArea && !isSelected}
+                                    onChange={() => handleToggleParcel(p.id)}
+                                    className="w-4 h-4 text-[#0A3D91] rounded border-[#D8E4F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] disabled:cursor-not-allowed"
+                                    title={isWrongType ? "Pickups and deliveries can't share a route" : isOutOfArea ? 'Cannot batch tasks from different cities' : ''}
+                                  />
+                                </td>
+                                <td><TrackingBadge value={p.trackingNumber} /></td>
+                                <td className="text-xs text-[#64748B]">{p.serviceType || '—'}</td>
+                                <td className="text-xs text-[#64748B]">{p.weightKg != null ? `${p.weightKg} kg` : '—'}</td>
+                                <td className="text-xs font-bold text-[#172554]">{p.binCode ?? '—'}</td>
+                              </tr>
+                            )
+                          })}
+                        </Fragment>
+                      ))}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
         </div>
 
+        {/* Right: build the route, in order */}
         <div className="card p-5 h-max space-y-5 lg:sticky lg:top-6">
           <h2 className="text-base font-bold text-[#172554] flex items-center gap-2 border-b border-[#E2E8F0] pb-3">
-            <Send size={18} className="text-[#0A3D91]" /> Dispatch Assignment
+            <Send size={18} className="text-[#0A3D91]" /> Plan a Route
           </h2>
 
-          {selectedParcels.length === 0 ? (
-            <Alert type="warning" message="Select one or more tasks from the list on the left to assign a driver." />
-          ) : (
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-3 animate-[fadeIn_0.15s_ease-in]">
-              <div className="flex justify-between items-center">
-                <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">
-                  Selected Tasks ({selectedParcels.length})
-                </p>
+          {/* Result of the last dispatch stays at the top where it is seen */}
+          {dispatchSuccessMessage && <Alert type="success" message={dispatchSuccessMessage} />}
+          {dispatchMutation.error && <Alert type="error" message={dispatchMutation.error.message} />}
+
+          {/* 1. Tasks */}
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[#172554]">1. Tasks</h3>
+              {selectedParcels.length > 0 && (
                 <span className="text-xs font-semibold text-[#0A3D91] flex items-center gap-1">
-                  <MapPin size={12} /> {activeCity}
+                  <MapPin size={12} /> {activeCity} · {totalWeightKg} kg
                 </span>
-              </div>
-
-              <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
-                {selectedParcels.map(p => (
-                  <div key={p.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
-                    <TrackingBadge value={p.trackingNumber} />
-                    <span className={clsx(
-                      "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase",
-                      p.status === 'Approved' ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"
-                    )}>
-                      {p.status === 'Approved' ? 'Pickup' : 'Delivery'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {isPickupOnly && (
-                <p className="text-[11px] text-[#4338CA] bg-[#E0E7FF] px-2.5 py-1.5 rounded-lg">
-                  Pickups are collected from the customer, so this route goes straight to the driver.
-                </p>
               )}
             </div>
-          )}
 
-          <div>
-            <label className="label">Select Available Driver</label>
+            {selectedParcels.length === 0 ? (
+              <p className="text-xs text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2.5">
+                Tick one or more tasks in the list to start a route.
+              </p>
+            ) : (
+              <div className="bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
+                <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                  {selectedParcels.map(p => (
+                    <div key={p.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
+                      <TrackingBadge value={p.trackingNumber} />
+                      <span className={clsx(
+                        'text-[10px] font-bold px-1.5 py-0.5 rounded uppercase',
+                        p.status === 'Approved' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                      )}>
+                        {p.status === 'Approved' ? 'Pickup' : 'Delivery'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {isPickupOnly && (
+                  <p className="text-[11px] text-[#4338CA] bg-[#E0E7FF] px-2.5 py-1.5 rounded-lg">
+                    Pickups are collected from the customer, so this route goes straight to the driver.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* 2. Driver */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold text-[#172554]">2. Driver</h3>
             {driversLoading ? (
               <p className="text-xs text-[#94A3B8]">Loading drivers...</p>
             ) : drivers.length === 0 ? (
@@ -489,61 +555,50 @@ export function DispatchQueue() {
                 No drivers currently available — all active drivers are mid-route.
               </div>
             ) : (
-              <select
-                className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
-                value={selectedDriverId}
-                onChange={(e) => setSelectedDriverId(e.target.value)}
-                disabled={selectedParcelIds.length === 0}
-              >
-                {/* FIX: Prevent duplicate placeholder from populating the list */}
-                <option value="" disabled hidden>Choose Driver...</option>
-
-                {drivers.map((d, index) => {
-                  const actualId = d?.id || d?.driverId || d?.userId;
-
-                  // FIX: Properly handle mapping driver's first and last name so it doesn't default to the ID fallback
-                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—")
-                    ? `${d.firstName} ${d.lastName}`
-                    : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0,6) : index}`);
-
-                  return (
-                    <option key={actualId || index} value={actualId || ''}>
-                      {actualName}
-                    </option>
-                  );
-                })}
-              </select>
+              <>
+                <select
+                  className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
+                  value={selectedDriverId}
+                  onChange={(e) => setSelectedDriverId(e.target.value)}
+                  disabled={selectedParcelIds.length === 0}
+                >
+                  <option value="" disabled hidden>Choose available driver...</option>
+                  {drivers.map((d, index) => {
+                    const actualId = d?.id || d?.driverId || d?.userId
+                    return <option key={actualId || index} value={actualId || ''}>{getDriverName(d, index)}</option>
+                  })}
+                </select>
+                {selectedParcelIds.length === 0 && (
+                  <p className="text-xs text-[#64748B]">Choose tasks first to enable this.</p>
+                )}
+              </>
             )}
-          </div>
+          </section>
 
+          {/* 3. Capacity check, shown once a driver with a vehicle is chosen */}
           {selectedVehicle && (
-            <div className={clsx(
-              "flex items-start gap-2.5 px-3.5 py-3 rounded-xl border text-xs",
-              isOverCapacity
-                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#B91C1C]"
-                : "bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]"
-            )}>
-              <Weight size={15} className="mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-bold">
-                  {totalWeightKg} kg / {selectedVehicle.payloadCapacityKg} kg capacity
-                  {capacityUtilizationPercent != null && ` (${capacityUtilizationPercent}%)`}
-                </p>
-                <p className="mt-0.5">
-                  {isOverCapacity
-                    ? `Exceeds ${selectedVehicle.registrationNumber}'s payload capacity — it will be held for payload review, where you can reallocate parcels or split the route.`
-                    : `${selectedVehicle.registrationNumber} has enough capacity for this route.`}
-                </p>
+            <section className="space-y-2">
+              <h3 className="text-sm font-bold text-[#172554]">3. Capacity check</h3>
+              <div className={clsx(
+                'flex items-start gap-2.5 px-3.5 py-3 rounded-xl border text-xs',
+                isOverCapacity
+                  ? 'bg-[#FEF2F2] border-[#FCA5A5] text-[#B91C1C]'
+                  : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
+              )}>
+                <Weight size={15} className="mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-bold">
+                    {totalWeightKg} kg / {selectedVehicle.payloadCapacityKg} kg capacity
+                    {capacityUtilizationPercent != null && ` (${capacityUtilizationPercent}%)`}
+                  </p>
+                  <p className="mt-0.5">
+                    {isOverCapacity
+                      ? `Exceeds ${selectedVehicle.registrationNumber}'s payload capacity — it will be held for payload review, where you can reallocate parcels or split the route.`
+                      : `${selectedVehicle.registrationNumber} has enough capacity for this route.`}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-
-          {dispatchSuccessMessage && (
-            <Alert type="success" message={dispatchSuccessMessage} />
-          )}
-
-          {dispatchMutation.error && (
-            <Alert type="error" message={dispatchMutation.error.message} />
+            </section>
           )}
 
           <button
@@ -578,6 +633,7 @@ export function ReturnCollectionsQueue() {
   const qc = useQueryClient()
   const [selectedReturnId, setSelectedReturnId] = useState(null)
   const [selectedDriverId, setSelectedDriverId] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   const { data: returnsData, isLoading: returnsLoading } = useQuery({
     queryKey: ['return-requests', 'queue', 'Approved'],
@@ -594,9 +650,6 @@ export function ReturnCollectionsQueue() {
     refetchInterval: 15000,
   })
 
-  const extractItems = (data) =>
-    Array.isArray(data) ? data : data?.data?.items ?? data?.items ?? data?.data ?? []
-
   const returns = extractItems(returnsData)
   const drivers = driversData ?? []
   const selectedReturn = returns.find(r => r.id === selectedReturnId) ?? null
@@ -604,12 +657,19 @@ export function ReturnCollectionsQueue() {
   const dispatchMutation = useMutation({
     mutationFn: () => returnApi.dispatchCollection(selectedReturnId, selectedDriverId),
     onSuccess: () => {
+      setSuccessMessage(`Collection assigned for ${selectedReturn?.raNumber ?? 'the return'}. The driver can see it in their collections.`)
       qc.invalidateQueries({ queryKey: ['return-requests'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
       setSelectedReturnId(null)
       setSelectedDriverId('')
     },
   })
+
+  const selectReturn = (id) => {
+    setSuccessMessage('')
+    dispatchMutation.reset()
+    setSelectedReturnId(id)
+  }
 
   return (
     <AppShell title="Return Collections">
@@ -621,12 +681,16 @@ export function ReturnCollectionsQueue() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: returns waiting for a driver */}
         <div className="lg:col-span-2 card overflow-hidden">
-          <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] flex items-center justify-between">
-            <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
-              <RotateCcw size={18} className="text-[#0A3D91]" /> Awaiting Collection Dispatch
-            </h2>
-            <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{returns.length} Returns</span>
+          <div className="bg-[#F8FAFC] px-5 py-4 border-b border-[#D8E4F5] space-y-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2">
+                <RotateCcw size={18} className="text-[#0A3D91]" /> Awaiting Collection Dispatch
+              </h2>
+              <span className="text-xs font-semibold text-[#0A3D91] bg-[#DCEEFF] px-2.5 py-1 rounded-full">{returns.length} Returns</span>
+            </div>
+            <p className="text-xs text-[#64748B]">Click a return to assign a driver. One driver per return.</p>
           </div>
 
           {returnsLoading ? <PageLoader /> : returns.length === 0 ? (
@@ -648,10 +712,10 @@ export function ReturnCollectionsQueue() {
                     return (
                       <tr
                         key={r.id}
-                        onClick={() => setSelectedReturnId(r.id)}
+                        onClick={() => selectReturn(r.id)}
                         className={clsx(
-                          "cursor-pointer transition-colors duration-150",
-                          isSelected ? "bg-[#DCEEFF]/50 font-semibold" : "hover:bg-[#F6FAFF]"
+                          'cursor-pointer transition-colors duration-150',
+                          isSelected ? 'bg-[#DCEEFF]/50 font-semibold' : 'hover:bg-[#F6FAFF]'
                         )}
                       >
                         <td className="text-sm font-bold text-[#172554]">{r.raNumber}</td>
@@ -671,25 +735,42 @@ export function ReturnCollectionsQueue() {
           )}
         </div>
 
+        {/* Right: assign a driver, in order */}
         <div className="card p-5 h-max space-y-5 lg:sticky lg:top-6">
           <h2 className="text-base font-bold text-[#172554] flex items-center gap-2 border-b border-[#E2E8F0] pb-3">
-            <Send size={18} className="text-[#0A3D91]" /> Dispatch Assignment
+            <Send size={18} className="text-[#0A3D91]" /> Assign a Collection
           </h2>
 
-          {!selectedReturn ? (
-            <Alert type="warning" message="Select a return from the list on the left to assign a collection driver." />
-          ) : (
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
-              <p className="text-[#94A3B8] uppercase font-bold text-[10px] tracking-wide">Selected Return</p>
-              <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
-                <span className="text-sm font-bold text-[#172554]">{selectedReturn.raNumber}</span>
-                <TrackingBadge value={selectedReturn.trackingNumber} />
-              </div>
-            </div>
-          )}
+          {/* Result of the last dispatch stays at the top where it is seen */}
+          {successMessage && <Alert type="success" message={successMessage} />}
+          {dispatchMutation.error && <Alert type="error" message={dispatchMutation.error.message} />}
 
-          <div>
-            <label className="label">Select Available Driver</label>
+          {/* 1. Return */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold text-[#172554]">1. Return</h3>
+            {!selectedReturn ? (
+              <p className="text-xs text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2.5">
+                Click a return in the list to start.
+              </p>
+            ) : (
+              <div className="bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] space-y-2 animate-[fadeIn_0.15s_ease-in]">
+                <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-[#D8E4F5]">
+                  <span className="text-sm font-bold text-[#172554]">{selectedReturn.raNumber}</span>
+                  <TrackingBadge value={selectedReturn.trackingNumber} />
+                </div>
+                {selectedReturn.collectionAddress && (
+                  <p className="text-xs text-[#64748B] flex items-start gap-1.5">
+                    <MapPin size={12} className="mt-0.5 flex-shrink-0" />
+                    {selectedReturn.collectionAddress.streetAddress}, {selectedReturn.collectionAddress.city}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* 2. Driver */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold text-[#172554]">2. Driver</h3>
             {driversLoading ? (
               <p className="text-xs text-[#94A3B8]">Loading drivers...</p>
             ) : drivers.length === 0 ? (
@@ -698,36 +779,28 @@ export function ReturnCollectionsQueue() {
                 No drivers currently available — all active drivers are mid-route.
               </div>
             ) : (
-              <select
-                className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
-                value={selectedDriverId}
-                onChange={(e) => setSelectedDriverId(e.target.value)}
-                disabled={!selectedReturn}
-              >
-                <option value="" disabled hidden>Choose Driver...</option>
-                {drivers.map((d, index) => {
-                  const actualId = d?.id || d?.driverId || d?.userId
-                  const actualName = (d?.firstName && d?.lastName && d.firstName !== "—")
-                    ? `${d.firstName} ${d.lastName}`
-                    : (d?.user?.fullName || d?.fullName || d?.name || d?.driverName || `Driver #${actualId ? String(actualId).substring(0, 6) : index}`)
-                  return (
-                    <option key={actualId || index} value={actualId || ''}>
-                      {actualName}
-                    </option>
-                  )
-                })}
-              </select>
+              <>
+                <select
+                  className="input bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91]"
+                  value={selectedDriverId}
+                  onChange={(e) => setSelectedDriverId(e.target.value)}
+                  disabled={!selectedReturn}
+                >
+                  <option value="" disabled hidden>Choose available driver...</option>
+                  {drivers.map((d, index) => {
+                    const actualId = d?.id || d?.driverId || d?.userId
+                    return <option key={actualId || index} value={actualId || ''}>{getDriverName(d, index)}</option>
+                  })}
+                </select>
+                {!selectedReturn && <p className="text-xs text-[#64748B]">Choose a return first to enable this.</p>}
+              </>
             )}
-          </div>
-
-          {dispatchMutation.error && (
-            <Alert type="error" message={dispatchMutation.error.message} />
-          )}
+          </section>
 
           <button
             className="btn-primary w-full py-3 justify-center text-sm shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A3D91] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!selectedReturn || !selectedDriverId || dispatchMutation.isPending}
-            onClick={() => dispatchMutation.mutate()}
+            onClick={() => { setSuccessMessage(''); dispatchMutation.mutate() }}
           >
             <Send size={16} />
             {dispatchMutation.isPending ? 'Assigning...' : 'Assign & Dispatch Driver'}

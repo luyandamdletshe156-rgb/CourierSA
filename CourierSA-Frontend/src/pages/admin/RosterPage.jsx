@@ -29,7 +29,13 @@ const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const shortDate = isoStr => parseIso(isoStr).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })
 const compactHours = h => (h ?? '').replace(/:00/g, '')
 
+// Small labelled heading used to split the approval cards into sections.
+const CardHeading = ({ children }) => (
+  <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">{children}</p>
+)
+
 // Schedule Driver Roster: weekly grid. Click a cell to cycle Off -> A -> B -> Off.
+// Page order: week + publish, rules, checks (so problems are seen before publishing), then the grid.
 function RosterTab() {
   const qc = useQueryClient()
   const [weekStart, setWeekStart] = useState(iso(mondayOf()))
@@ -83,6 +89,7 @@ function RosterTab() {
   const applies = date => date >= todayIso && !(parseIso(date).getDay() === 0 && shifts.every(s => dayKey(s.date) !== date))
 
   const hours = { Morning: compactHours(rules?.morningHours), Afternoon: compactHours(rules?.afternoonHours) }
+  const blocked = violations.length > 0
 
   return (
     <div className="space-y-5">
@@ -92,118 +99,43 @@ function RosterTab() {
         <Alert type="error" message="No active drivers found. Create a driver account under Users first." />
       )}
 
-      {/* Settings: week, depot, coverage and shift hours */}
-      <div className="card p-4">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">Week</label>
-            <div className="flex items-center gap-1 mt-1">
-              <button className="btn-secondary px-2 py-2" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft size={16} /></button>
-              <input type="date" className="input" value={weekStart}
-                onChange={e => e.target.value && setWeekStart(iso(mondayOf(parseIso(e.target.value))))} />
-              <button className="btn-secondary px-2 py-2" aria-label="Next week" onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={16} /></button>
-            </div>
+      {/* Toolbar: pick the week on the left, publish on the right */}
+      <div className="card p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1">
+            <button className="btn-secondary px-2 py-2" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft size={16} /></button>
+            <input type="date" className="input w-auto" aria-label="Week starting" value={weekStart}
+              onChange={e => e.target.value && setWeekStart(iso(mondayOf(parseIso(e.target.value))))} />
+            <button className="btn-secondary px-2 py-2" aria-label="Next week" onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={16} /></button>
+            <span className="ml-2 text-sm font-semibold text-[#0F172A]">{shortDate(weekStart)} – {shortDate(weekEnd)}</span>
           </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">Depot</label>
-            <select className="input mt-1" value={rules?.depot ?? ''} disabled>
-              <option value={rules?.depot ?? ''}>{rules?.depot ?? 'Depot'}</option>
-            </select>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-[#64748B]">
+              {unpublished === 0 ? 'Nothing to publish' : `${unpublished} unpublished shift${unpublished === 1 ? '' : 's'}`}
+            </span>
+            <button className="btn-primary text-sm whitespace-nowrap" disabled={unpublished === 0 || publish.isPending || blocked}
+              onClick={() => publish.mutate()}>
+              {publish.isPending ? 'Publishing…' : 'Publish roster'}
+            </button>
           </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">Min. drivers per shift</label>
-            <input className="input mt-1" value={`${minDrivers} driver${minDrivers === 1 ? '' : 's'}`} disabled />
-          </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">Shift A / Shift B</label>
-            <input className="input mt-1" value={`${rules?.morningHours ?? ''}  ·  ${rules?.afternoonHours ?? ''}`} disabled />
-          </div>
-          <button className="btn-primary text-sm" disabled={unpublished === 0 || publish.isPending || violations.length > 0}
-            onClick={() => publish.mutate()}>
-            {publish.isPending ? 'Publishing…' : `Publish roster (${unpublished} unpublished)`}
-          </button>
         </div>
-        <p className="text-xs text-[#64748B] mt-3">
-          Click a cell to cycle <b>Off → A → B → Off</b>. Dashed cells are drafts that drivers cannot see until you publish.
-        </p>
+
+        {/* Fixed rules for this depot, shown as plain facts rather than greyed-out inputs */}
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#475569] border-t border-[#E2E8F0] pt-3">
+          <span><b>Depot:</b> {rules?.depot ?? '—'}</span>
+          <span><b>Shift A:</b> {rules?.morningHours ?? '—'}</span>
+          <span><b>Shift B:</b> {rules?.afternoonHours ?? '—'}</span>
+          <span><b>Minimum:</b> {minDrivers} driver{minDrivers === 1 ? '' : 's'} per shift</span>
+        </div>
+        {blocked && <p className="text-xs text-[#B91C1C]">Fix the rest-period problems below before you can publish.</p>}
       </div>
 
       {cycle.error && <Alert type="error" message={cycle.error.message} />}
       {publish.error && <Alert type="error" message={publish.error.message} />}
       {publish.isSuccess && <Alert type="success" message="Roster published. Drivers have been notified." />}
 
-      {/* Weekly grid */}
-      {isLoading ? <PageLoader /> : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
-            <thead>
-              <tr className="text-left text-[#64748B] bg-[#F8FAFC]">
-                <th className="px-4 py-2.5 w-48">Driver</th>
-                {days.map((d, i) => (
-                  <th key={d} className={clsx('px-2 py-2.5 text-center', d === todayIso && 'text-[#0A3D91]')}>
-                    <div className="text-xs font-bold uppercase">{DAY_LABELS[i]}</div>
-                    <div className="text-[11px] font-normal">{shortDate(d)}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E2E8F0]">
-              {driverList.map(dr => (
-                <tr key={dr.driverId}>
-                  <td className="px-4 py-2 font-semibold">{dr.name}</td>
-                  {days.map(date => {
-                    const shift = byCell[`${dr.driverId}|${date}`]
-                    const past = date < todayIso
-                    const busy = cycle.isPending && cycle.variables?.driverId === dr.driverId && cycle.variables?.date === date
-                    const label = !shift ? 'Off' : `${shift.shiftType === 'Morning' ? 'A' : 'B'} ${hours[shift.shiftType]}`
-                    return (
-                      <td key={date} className="px-1.5 py-1.5 text-center">
-                        <button
-                          disabled={past || cycle.isPending}
-                          onClick={() => cycle.mutate({ driverId: dr.driverId, date, shift })}
-                          title={past ? 'Past days cannot be changed' : 'Click to change: Off → A → B → Off'}
-                          className={clsx('w-full rounded-full px-2 py-1 text-xs font-bold border transition',
-                            !shift && 'bg-[#F1F5F9] text-[#64748B] border-transparent hover:border-[#CBD5E1]',
-                            shift?.shiftType === 'Morning' && 'bg-[#DBEAFE] text-[#1D4ED8]',
-                            shift?.shiftType === 'Afternoon' && 'bg-[#FFEDD5] text-[#C2410C]',
-                            shift && (shift.isPublished ? 'border-transparent' : 'border-dashed border-current'),
-                            (past || busy) && 'opacity-50 cursor-not-allowed')}>
-                          {busy ? '…' : label}
-                        </button>
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-              {driverList.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-6 text-center text-[#64748B]">No drivers to roster yet.</td></tr>
-              )}
-            </tbody>
-            <tfoot className="bg-[#F8FAFC] text-xs">
-              {[['Morning', 'Shift A on duty'], ['Afternoon', 'Shift B on duty']].map(([type, title]) => (
-                <tr key={type} className="border-t border-[#E2E8F0]">
-                  <td className="px-4 py-2 font-bold">{title}</td>
-                  {days.map(date => {
-                    const n = count(date, type)
-                    const checked = applies(date)
-                    const low = checked && n < minDrivers
-                    return (
-                      <td key={date} className="px-1.5 py-2 text-center">
-                        <span className={clsx('font-bold px-2 py-0.5 rounded-full',
-                          !checked ? 'text-[#94A3B8]' : low ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F0FDF4] text-[#166534]')}>
-                          {n}{checked ? (low ? ' ✕' : ' ✓') : ''}
-                        </span>
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tfoot>
-          </table>
-        </div>
-      )}
-
-      {/* Conflict, rest-period and coverage checks */}
+      {/* Conflict, rest-period and coverage checks, above the grid so they are seen before publishing */}
       {violations.length > 0 && (
         <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm space-y-1">
           <p className="font-bold">Rest-period problems (fix these before publishing)</p>
@@ -219,10 +151,94 @@ function RosterTab() {
       {check && violations.length === 0 && warnings.length === 0 && (
         <Alert type="success" message="No scheduling conflicts, rest-period violations or coverage gaps detected." />
       )}
+
+      {/* Weekly grid */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-[#64748B]">Click a cell to cycle <b>Off → A → B → Off</b>.</p>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-[#DBEAFE] text-[#1D4ED8]">A morning</span>
+            <span className="px-2 py-0.5 rounded-full bg-[#FFEDD5] text-[#C2410C]">B afternoon</span>
+            <span className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#64748B]">Off</span>
+            <span className="px-2 py-0.5 rounded-full border border-dashed border-[#64748B] text-[#475569]">Draft, not visible to drivers</span>
+          </div>
+        </div>
+
+        {isLoading ? <PageLoader /> : (
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
+              <thead>
+                <tr className="text-left text-[#64748B] bg-[#F8FAFC]">
+                  <th className="px-4 py-2.5 w-48">Driver</th>
+                  {days.map((d, i) => (
+                    <th key={d} className={clsx('px-2 py-2.5 text-center', d === todayIso && 'text-[#0A3D91]')}>
+                      <div className="text-xs font-bold uppercase">{DAY_LABELS[i]}</div>
+                      <div className="text-[11px] font-normal">{shortDate(d)}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E2E8F0]">
+                {driverList.map(dr => (
+                  <tr key={dr.driverId}>
+                    <td className="px-4 py-2 font-semibold">{dr.name}</td>
+                    {days.map(date => {
+                      const shift = byCell[`${dr.driverId}|${date}`]
+                      const past = date < todayIso
+                      const busy = cycle.isPending && cycle.variables?.driverId === dr.driverId && cycle.variables?.date === date
+                      const label = !shift ? 'Off' : `${shift.shiftType === 'Morning' ? 'A' : 'B'} ${hours[shift.shiftType]}`
+                      return (
+                        <td key={date} className="px-1.5 py-1.5 text-center">
+                          <button
+                            disabled={past || cycle.isPending}
+                            onClick={() => cycle.mutate({ driverId: dr.driverId, date, shift })}
+                            title={past ? 'Past days cannot be changed' : 'Click to change: Off → A → B → Off'}
+                            className={clsx('w-full rounded-full px-2 py-1 text-xs font-bold border transition',
+                              !shift && 'bg-[#F1F5F9] text-[#64748B] border-transparent hover:border-[#CBD5E1]',
+                              shift?.shiftType === 'Morning' && 'bg-[#DBEAFE] text-[#1D4ED8]',
+                              shift?.shiftType === 'Afternoon' && 'bg-[#FFEDD5] text-[#C2410C]',
+                              shift && (shift.isPublished ? 'border-transparent' : 'border-dashed border-current'),
+                              (past || busy) && 'opacity-50 cursor-not-allowed')}>
+                            {busy ? '…' : label}
+                          </button>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+                {driverList.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-6 text-center text-[#64748B]">No drivers to roster yet.</td></tr>
+                )}
+              </tbody>
+              <tfoot className="bg-[#F8FAFC] text-xs">
+                {[['Morning', 'Shift A on duty'], ['Afternoon', 'Shift B on duty']].map(([type, title]) => (
+                  <tr key={type} className="border-t border-[#E2E8F0]">
+                    <td className="px-4 py-2 font-bold">{title}</td>
+                    {days.map(date => {
+                      const n = count(date, type)
+                      const checked = applies(date)
+                      const low = checked && n < minDrivers
+                      return (
+                        <td key={date} className="px-1.5 py-2 text-center">
+                          <span className={clsx('font-bold px-2 py-0.5 rounded-full',
+                            !checked ? 'text-[#94A3B8]' : low ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F0FDF4] text-[#166534]')}>
+                            {n}{checked ? (low ? ' ✕' : ' ✓') : ''}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
+// Leave request: who and when, what it does to coverage, who covers, then the decision.
 function LeaveCard({ r }) {
   const qc = useQueryClient()
   const [notes, setNotes] = useState('')
@@ -253,19 +269,26 @@ function LeaveCard({ r }) {
     },
   })
   return (
-    <div className="card p-5 space-y-3">
-      <div className="flex justify-between gap-3">
-        <div>
-          <p className="font-bold text-sm">{r.driverName}</p>
-          <p className="text-xs text-[#64748B]">{r.leaveType} · {formatDate(r.startDate)} – {formatDate(r.endDate)}</p>
+    <div className="card p-5 space-y-4">
+      {/* Request */}
+      <div className="space-y-2">
+        <div className="flex justify-between gap-3">
+          <div>
+            <p className="font-bold text-sm">{r.driverName}</p>
+            <p className="text-xs text-[#64748B]">{r.leaveType} · {formatDate(r.startDate)} – {formatDate(r.endDate)}</p>
+          </div>
+          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#EFF6FF] text-[#1D4ED8] h-fit">{r.affectedShifts} shift(s) affected</span>
         </div>
-        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#EFF6FF] text-[#1D4ED8] h-fit">{r.affectedShifts} shift(s) affected</span>
+        {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
       </div>
-      {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
+
+      {/* Result of the decision stays at the top where it is seen */}
+      {result && <Alert type="success" message={`Done. ${result.reassignedShifts} shift(s) reassigned, ${result.openShifts} left open.`} />}
+      {review.error && <Alert type="error" message={review.error.message} />}
 
       {/* Coverage impact simulation */}
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Coverage impact</p>
+      <div className="space-y-2 border-t border-[#E2E8F0] pt-4">
+        <CardHeading>Coverage impact</CardHeading>
         {impactLoading && <p className="text-xs text-[#64748B]">Calculating coverage…</p>}
         {impactError && <Alert type="error" message={`Could not load coverage impact: ${impactError.message}`} />}
         {!impactLoading && !impactError && rows.length === 0 && (
@@ -309,10 +332,11 @@ function LeaveCard({ r }) {
         )}
       </div>
 
+      {/* Who covers */}
       {rows.length > 0 && (
-        <div>
-          <label className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Standby replacement (available pool)</label>
-          <select className="input mt-1" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
+        <div className="space-y-2 border-t border-[#E2E8F0] pt-4">
+          <CardHeading>Standby replacement</CardHeading>
+          <select className="input" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
             <option value="">Automatic (least-loaded available driver)</option>
             {standbyPool.map(d => (
               <option key={d.driverId} value={d.driverId}>
@@ -321,21 +345,23 @@ function LeaveCard({ r }) {
             ))}
           </select>
           {standbyPool.length === 0 && (
-            <p className="text-xs text-[#B91C1C] mt-1">No driver is free on any affected day, so shifts will be left open.</p>
+            <p className="text-xs text-[#B91C1C]">No driver is free on any affected day, so shifts will be left open.</p>
           )}
         </div>
       )}
 
-      <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
-      <label className="flex items-center gap-2 text-xs text-[#475569]">
-        <input type="checkbox" checked={override} onChange={e => setOverride(e.target.checked)} />
-        Approve even if the depot is left understaffed (open shifts are filled afterwards)
-      </label>
-      {review.error && <Alert type="error" message={review.error.message} />}
-      {result && <Alert type="success" message={`Done. ${result.reassignedShifts} shift(s) reassigned, ${result.openShifts} left open.`} />}
-      <div className="flex gap-2">
-        <button className="btn-primary text-sm" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve &amp; reassign</button>
-        <button className="btn-danger text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Reject</button>
+      {/* Decision */}
+      <div className="space-y-2 border-t border-[#E2E8F0] pt-4">
+        <CardHeading>Decision</CardHeading>
+        <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
+        <label className="flex items-center gap-2 text-xs text-[#475569]">
+          <input type="checkbox" checked={override} onChange={e => setOverride(e.target.checked)} />
+          Approve even if the depot is left understaffed (open shifts are filled afterwards)
+        </label>
+        <div className="flex gap-2">
+          <button className="btn-primary text-sm" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve &amp; reassign</button>
+          <button className="btn-danger text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Reject</button>
+        </div>
       </div>
     </div>
   )
@@ -349,15 +375,20 @@ function SwapCard({ r }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pending-swaps'] }); qc.invalidateQueries({ queryKey: ['roster'] }) },
   })
   return (
-    <div className="card p-5 space-y-3">
-      <p className="font-bold text-sm">{r.shiftType} shift · {formatDate(r.date)}</p>
-      <p className="text-sm">{r.requesterName} wants {r.peerName} to take this shift. {r.peerName} has accepted.</p>
-      {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
-      <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
+    <div className="card p-5 space-y-4">
+      <div className="space-y-2">
+        <p className="font-bold text-sm">{r.shiftType} shift · {formatDate(r.date)}</p>
+        <p className="text-sm">{r.requesterName} wants {r.peerName} to take this shift. {r.peerName} has accepted.</p>
+        {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
+      </div>
       {review.error && <Alert type="error" message={review.error.message} />}
-      <div className="flex gap-2">
-        <button className="btn-primary text-sm" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve swap</button>
-        <button className="btn-danger text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Reject</button>
+      <div className="space-y-2 border-t border-[#E2E8F0] pt-4">
+        <CardHeading>Decision</CardHeading>
+        <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
+        <div className="flex gap-2">
+          <button className="btn-primary text-sm" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve swap</button>
+          <button className="btn-danger text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Reject</button>
+        </div>
       </div>
     </div>
   )
@@ -374,6 +405,7 @@ function OpenShiftCard({ s, drivers }) {
     <div className="card p-5 space-y-3">
       <p className="font-bold text-sm">{s.shiftType} · {formatDate(s.date)} <span className="text-[#64748B] font-normal">({s.startTime}–{s.endTime})</span></p>
       {s.note && <p className="text-xs text-[#64748B]">{s.note}</p>}
+      {assign.error && <Alert type="error" message={assign.error.message} />}
       <div className="flex gap-2">
         <select className="input" value={driverId} onChange={e => setDriverId(e.target.value)}>
           <option value="">Assign a driver…</option>
@@ -381,7 +413,6 @@ function OpenShiftCard({ s, drivers }) {
         </select>
         <button className="btn-primary text-sm" disabled={!driverId || assign.isPending} onClick={() => assign.mutate()}>Assign</button>
       </div>
-      {assign.error && <Alert type="error" message={assign.error.message} />}
     </div>
   )
 }
@@ -391,7 +422,7 @@ function List({ query, empty, render }) {
   if (query.error) return <Alert type="error" message={`Could not load data: ${query.error.message}`} />
   const items = unwrap(query.data)
   if (items.length === 0) return <EmptyState title={empty.title} description={empty.description} />
-  return <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">{items.map(render)}</div>
+  return <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">{items.map(render)}</div>
 }
 
 export default function RosterPage() {
@@ -412,9 +443,9 @@ export default function RosterPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-5">
+      <div role="tablist" className="flex flex-wrap gap-2 mb-5">
         {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)}
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={clsx('px-3.5 py-1.5 rounded-full text-sm font-semibold border',
               tab === t ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1]')}>
             {t}{counts[t] ? ` (${counts[t]})` : ''}

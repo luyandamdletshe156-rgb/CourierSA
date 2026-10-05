@@ -3,18 +3,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import { EmptyState, PageLoader, Alert } from '@/components/ui'
 import { parcelApi, payloadApi } from '@/api'
-import { Weight, Scissors, Trash2, XCircle, ArrowRightLeft, ClipboardCheck, Eye, CheckCircle2 } from 'lucide-react'
+import { Weight, Scissors, Trash2, XCircle, ArrowRightLeft, ClipboardCheck, Eye, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 // UC14 Validate and Adjust Vehicle Payload / UC15 Split Overloaded Routes.
 //
-// UC14: overview of every run with load against the vehicle maximum. The dispatcher moves excess
-//       parcels to another run (or back to the queue), then confirms and signs off the manifest.
-//       Warehouse staff can only release a run once it is signed off.
-// UC15: for an overloaded run the dispatcher picks a standby driver and a standby vehicle, previews
-//       the split, then confirms. Confirming finalises both manifests.
+// Layout: runs are listed on the left, grouped by what needs doing (overloaded, needs sign-off,
+// signed off, released). The selected run opens on the right, in the order the dispatcher works:
+// parcels, fix the load, sign off. Cancel plan sits apart at the bottom.
 
 const unwrap = r => (r && r.data !== undefined ? r.data : r)
+const isMaster = p => String(p.trackingNumber || '').toUpperCase().startsWith('MST-')
 
 function LoadBar({ load, max, over }) {
   const pct = max > 0 ? Math.min(100, Math.round((load / max) * 100)) : 0
@@ -41,30 +40,71 @@ function StatusBadge({ run }) {
   return <span className={clsx('text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', tone)}>{label}</span>
 }
 
-// ── UC14 overview panel: all runs, load against maximum ──────────────────────
-function OverviewPanel({ runs, selectedId, onSelect }) {
+// ── Run list, grouped by what needs doing ────────────────────────────────────
+const GROUPS = [
+  { key: 'attention', title: 'Overloaded', match: r => r.isEditable && r.overageKg > 0 },
+  { key: 'pending', title: 'Needs sign-off', match: r => r.isEditable && r.overageKg <= 0 && !r.signedOff },
+  { key: 'signed', title: 'Signed off', match: r => r.isEditable && r.overageKg <= 0 && r.signedOff },
+  { key: 'released', title: 'Released', match: r => !r.isEditable },
+]
+
+function RunRow({ run, active, onSelect }) {
+  const clickable = run.isEditable
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {runs.map(run => (
-        <button
-          key={run.routeId}
-          type="button"
-          onClick={() => onSelect(run.routeId)}
-          className={clsx(
-            'card p-4 text-left space-y-3 transition',
-            selectedId === run.routeId && 'ring-2 ring-[#0A3D91]'
-          )}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-sm font-bold text-[#0F172A]">{run.runLabel}</p>
-              <p className="text-xs text-[#64748B]">{run.driverName} · {run.vehicleRegistration ?? 'No vehicle'}</p>
-            </div>
-            <StatusBadge run={run} />
-          </div>
-          <LoadBar load={run.loadKg} max={run.maxKg} over={run.overageKg > 0} />
-        </button>
-      ))}
+    <button
+      type="button"
+      disabled={!clickable}
+      onClick={() => onSelect(run.routeId)}
+      className={clsx(
+        'card w-full p-3 text-left space-y-2 transition',
+        active && 'ring-2 ring-[#0A3D91]',
+        !clickable && 'opacity-60 cursor-default'
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-[#0F172A]">{run.runLabel}</p>
+          <p className="text-xs text-[#64748B] truncate">{run.driverName}, {run.vehicleRegistration ?? 'No vehicle'}</p>
+        </div>
+        <StatusBadge run={run} />
+      </div>
+      <LoadBar load={run.loadKg} max={run.maxKg} over={run.overageKg > 0} />
+    </button>
+  )
+}
+
+function RunList({ runs, selectedId, onSelect }) {
+  const [showReleased, setShowReleased] = useState(false)
+
+  return (
+    <div className="space-y-5">
+      {GROUPS.map(g => {
+        const items = runs.filter(g.match)
+        if (items.length === 0) return null
+        const collapsed = g.key === 'released' && !showReleased
+
+        return (
+          <section key={g.key} className="space-y-2">
+            {g.key === 'released' ? (
+              <button type="button" className="flex items-center gap-1 text-sm font-bold text-[#475569]"
+                onClick={() => setShowReleased(v => !v)}>
+                {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />} {g.title} ({items.length})
+              </button>
+            ) : (
+              <h2 className={clsx('text-sm font-bold', g.key === 'attention' ? 'text-[#B91C1C]' : 'text-[#0F172A]')}>
+                {g.title} ({items.length})
+              </h2>
+            )}
+            {!collapsed && (
+              <div className="space-y-2">
+                {items.map(run => (
+                  <RunRow key={run.routeId} run={run} active={selectedId === run.routeId} onSelect={onSelect} />
+                ))}
+              </div>
+            )}
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -95,8 +135,10 @@ function SplitPanel({ run, onDone }) {
   const error = previewMutation.error || confirmMutation.error
 
   return (
-    <div className="border border-[#E2E8F0] rounded-xl p-4 space-y-3">
-      <p className="text-sm font-bold text-[#0F172A] flex items-center gap-1.5"><Scissors size={15} /> Split this run (UC15)</p>
+    <div className="space-y-3">
+      <p className="text-xs text-[#64748B]">
+        Share the parcels between this vehicle and a standby vehicle with its own driver. Needs more than one parcel.
+      </p>
       <div className="flex flex-wrap gap-2">
         <select className="input w-auto text-sm" value={driverId}
           onChange={e => { setDriverId(e.target.value); setPreview(null) }}>
@@ -119,10 +161,10 @@ function SplitPanel({ run, onDone }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {[preview.original, preview.standby].map(r => (
             <div key={r.runLabel} className="border border-[#E2E8F0] rounded-xl p-3 space-y-2">
-              <p className="text-xs font-bold text-[#0F172A]">{r.runLabel} · {r.driverName} · {r.vehicleRegistration}</p>
+              <p className="text-xs font-bold text-[#0F172A]">{r.runLabel}, {r.driverName}, {r.vehicleRegistration}</p>
               <LoadBar load={r.loadKg} max={r.maxKg} over={r.overageKg > 0} />
               <ul className="text-xs text-[#475569] space-y-0.5">
-                {r.parcels.map(p => <li key={p.parcelId}><span className="font-mono">{p.trackingNumber}</span>{String(p.trackingNumber || '').toUpperCase().startsWith('MST-') ? ' (master box)' : ''} · {p.weightKg} kg</li>)}
+                {r.parcels.map(p => <li key={p.parcelId}><span className="font-mono">{p.trackingNumber}</span>{isMaster(p) ? ' (master box)' : ''} · {p.weightKg} kg</li>)}
               </ul>
             </div>
           ))}
@@ -139,7 +181,19 @@ function SplitPanel({ run, onDone }) {
   )
 }
 
-// ── UC14 adjust + sign-off for the selected run ──────────────────────────────
+// ── Detail panel: parcels, fix the load, sign off ────────────────────────────
+function Step({ title, hint, children }) {
+  return (
+    <section className="space-y-2.5 border-t border-[#E2E8F0] pt-4">
+      <div>
+        <h3 className="text-sm font-bold text-[#0F172A]">{title}</h3>
+        {hint && <p className="text-xs text-[#64748B]">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 function RunDetail({ run, otherRuns, onChanged }) {
   const [selected, setSelected] = useState([])
   const [targetId, setTargetId] = useState('')
@@ -150,6 +204,7 @@ function RunDetail({ run, otherRuns, onChanged }) {
   const selectedKg = run.parcels.filter(p => selected.includes(p.parcelId)).reduce((s, p) => s + p.weightKg, 0)
   const target = otherRuns.find(r => r.routeId === targetId)
   const targetFree = target ? target.maxKg - target.loadKg : 0
+  const tooHeavy = !!targetId && selectedKg > targetFree
 
   const done = text => { setSelected([]); setTargetId(''); setMessage(text); onChanged() }
 
@@ -175,69 +230,101 @@ function RunDetail({ run, otherRuns, onChanged }) {
   const error = move.error || signOff.error || cancel.error
   const toggle = id => setSelected(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]))
 
+  const signOffHint = over ? 'Fix the overload above before you can sign off.'
+    : run.signedOff ? 'This run is already signed off.'
+    : 'Signing off lets warehouse staff release this run for loading.'
+
   return (
     <div className="card p-5 space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-bold text-[#0F172A]">{run.runLabel} · {run.driverName}</p>
-          <p className="text-xs text-[#64748B]">{run.vehicleRegistration ?? 'Vehicle'} · {run.parcels.length} parcel(s)</p>
+      {/* Header: which run, how full */}
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-bold text-[#0F172A]">{run.runLabel}, {run.driverName}</p>
+            <p className="text-xs text-[#64748B]">{run.vehicleRegistration ?? 'No vehicle'} · {run.parcels.length} parcel(s)</p>
+          </div>
+          <StatusBadge run={run} />
         </div>
-        <StatusBadge run={run} />
-      </div>
-
-      <LoadBar load={run.loadKg} max={run.maxKg} over={over} />
-
-      <div className="divide-y divide-[#E2E8F0] border border-[#E2E8F0] rounded-xl">
-        {run.parcels.map(p => (
-          <label key={p.parcelId} className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer">
-            <input type="checkbox" checked={selected.includes(p.parcelId)} onChange={() => toggle(p.parcelId)} />
-            <span className="font-mono text-xs">{p.trackingNumber}</span>
-            {String(p.trackingNumber || '').toUpperCase().startsWith('MST-') && <span className="ml-2 text-[10px] font-bold uppercase bg-[#EDE9FE] text-[#6D28D9] px-1.5 py-0.5 rounded">Master box</span>}
-            <span className="text-[#64748B] truncate">{p.recipient}, {p.city}</span>
-            <span className="ml-auto font-semibold">{p.weightKg} kg</span>
-          </label>
-        ))}
-      </div>
-
-      <textarea className="input" rows={2} placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
-
-      {message && <Alert type="success" message={message} />}
-      {error && <Alert type="error" message={error.message} />}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <select className="input w-auto text-sm" value={targetId} onChange={e => setTargetId(e.target.value)}>
-          <option value="">Move to another run…</option>
-          {otherRuns.map(r => (
-            <option key={r.routeId} value={r.routeId}>{r.runLabel} ({Math.max(0, r.maxKg - r.loadKg)} kg free)</option>
-          ))}
-        </select>
-        <button className="btn-secondary text-sm"
-          disabled={busy || !targetId || selected.length === 0 || selectedKg > targetFree}
-          onClick={() => { setMessage(''); move.mutate(false) }}>
-          <ArrowRightLeft size={14} /> Move selected ({selected.length})
-        </button>
-        {targetId && selectedKg > targetFree && (
-          <span className="text-xs text-[#B91C1C]">{selectedKg} kg is more than {target?.runLabel} can take ({targetFree} kg free).</span>
+        <LoadBar load={run.loadKg} max={run.maxKg} over={over} />
+        {over && (
+          <p className="text-xs text-[#B91C1C]">
+            Over the vehicle limit by {run.overageKg} kg. Move parcels, return them to the queue, or split the run.
+          </p>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button className="btn-secondary text-sm" disabled={busy || selected.length === 0}
-          onClick={() => { setMessage(''); move.mutate(true) }}>
-          <Trash2 size={14} /> Return selected to queue
-        </button>
-        <button className="btn-secondary text-sm" disabled={busy}
-          onClick={() => { if (window.confirm('Cancel this route plan?')) { setMessage(''); cancel.mutate() } }}>
-          <XCircle size={14} /> Cancel plan
-        </button>
+      {/* Results of the last action stay at the top where they are seen */}
+      {message && <Alert type="success" message={message} />}
+      {error && <Alert type="error" message={error.message} />}
+
+      {/* 1. Parcels */}
+      <Step title="1. Parcels on this run" hint="Tick the parcels you want to move or return to the queue.">
+        <div className="divide-y divide-[#E2E8F0] border border-[#E2E8F0] rounded-xl">
+          {run.parcels.map(p => (
+            <label key={p.parcelId} className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer">
+              <input type="checkbox" checked={selected.includes(p.parcelId)} onChange={() => toggle(p.parcelId)} />
+              <span className="font-mono text-xs">{p.trackingNumber}</span>
+              {isMaster(p) && <span className="text-[10px] font-bold uppercase bg-[#EDE9FE] text-[#6D28D9] px-1.5 py-0.5 rounded">Master box</span>}
+              <span className="text-[#64748B] truncate">{p.recipient}, {p.city}</span>
+              <span className="ml-auto font-semibold whitespace-nowrap">{p.weightKg} kg</span>
+            </label>
+          ))}
+        </div>
+      </Step>
+
+      {/* 2. Adjust the load */}
+      <Step
+        title="2. Adjust the load"
+        hint={selected.length === 0 ? 'Select at least one parcel above to enable these.' : `${selected.length} selected, ${selectedKg} kg`}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="input w-auto text-sm" value={targetId} onChange={e => setTargetId(e.target.value)}>
+            <option value="">Move to another run…</option>
+            {otherRuns.map(r => (
+              <option key={r.routeId} value={r.routeId}>{r.runLabel} ({Math.max(0, r.maxKg - r.loadKg)} kg free)</option>
+            ))}
+          </select>
+          <button className="btn-secondary text-sm"
+            disabled={busy || !targetId || selected.length === 0 || tooHeavy}
+            onClick={() => { setMessage(''); move.mutate(false) }}>
+            <ArrowRightLeft size={14} /> Move selected
+          </button>
+        </div>
+        {tooHeavy && (
+          <p className="text-xs text-[#B91C1C]">{selectedKg} kg is more than {target?.runLabel} can take ({targetFree} kg free).</p>
+        )}
+        <div>
+          <button className="btn-secondary text-sm" disabled={busy || selected.length === 0}
+            onClick={() => { setMessage(''); move.mutate(true) }}>
+            <Trash2 size={14} /> Return selected to queue
+          </button>
+        </div>
+      </Step>
+
+      {/* Split, only for overloaded runs */}
+      {over && (
+        <Step title="Or split this run (UC15)">
+          <SplitPanel run={run} onDone={done} />
+        </Step>
+      )}
+
+      {/* 3. Sign off */}
+      <Step title="3. Sign off" hint={signOffHint}>
+        <textarea className="input" rows={2} placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
         <button className="btn-primary text-sm" disabled={busy || over || run.signedOff}
           onClick={() => { setMessage(''); signOff.mutate() }}>
           <ClipboardCheck size={14} /> {run.signedOff ? 'Signed off' : 'Confirm and sign off'}
         </button>
-      </div>
-      {over && <p className="text-xs text-[#B91C1C]">Over the vehicle limit by {run.overageKg} kg. Move parcels, return them to the queue, or split the run before signing off.</p>}
+      </Step>
 
-      {over && <SplitPanel run={run} onDone={done} />}
+      {/* Destructive action kept apart */}
+      <div className="border-t border-[#E2E8F0] pt-4 flex items-center justify-between gap-3">
+        <p className="text-xs text-[#64748B]">Drop this run entirely. All its parcels go back to the dispatch queue.</p>
+        <button className="btn-secondary text-sm text-[#B91C1C] whitespace-nowrap" disabled={busy}
+          onClick={() => { if (window.confirm('Cancel this route plan?')) { setMessage(''); cancel.mutate() } }}>
+          <XCircle size={14} /> Cancel plan
+        </button>
+      </div>
     </div>
   )
 }
@@ -276,11 +363,13 @@ export default function PayloadReviewPage() {
       {isLoading ? <PageLoader /> : runs.length === 0 ? (
         <EmptyState title="No runs today" description="Routes you plan from the Dispatch Queue appear here." />
       ) : (
-        <div className="space-y-6">
-          <OverviewPanel runs={runs} selectedId={selectedId} onSelect={setSelectedId} />
-          {selected
-            ? <RunDetail key={selected.routeId} run={selected} otherRuns={otherRuns} onChanged={refresh} />
-            : <p className="text-sm text-[#64748B]">Select a run above to adjust or sign off its manifest.</p>}
+        <div className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 items-start">
+          <RunList runs={runs} selectedId={selectedId} onSelect={setSelectedId} />
+          <div className="xl:sticky xl:top-4">
+            {selected
+              ? <RunDetail key={selected.routeId} run={selected} otherRuns={otherRuns} onChanged={refresh} />
+              : <div className="card p-8 text-center text-sm text-[#64748B]">Select a run to review its parcels and sign off its manifest.</div>}
+          </div>
         </div>
       )}
     </AppShell>
