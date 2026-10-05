@@ -6,7 +6,7 @@ import {
   StatCard, TrackingBadge, EmptyState, PageLoader, Modal, Alert
 } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
-import { parcelApi, driverApi, returnApi, dispatcherApi } from '@/api'
+import { parcelApi, driverApi, returnApi, dispatcherApi, payloadApi } from '@/api'
 import {
   ClipboardCheck, CheckCircle2, XCircle, Truck, MapPin,
   Clock, UserCheck, Send, RefreshCw, AlertTriangle, Package, RotateCcw, Weight
@@ -273,10 +273,21 @@ export function DispatchQueue() {
   const deliveries = extractItems(checkedOutData)
   const pickups = extractItems(approvedData)
 
+  // Parcels already on a planned run (waiting in Payload Review) must not be planned again.
+  // They come back to this queue only when returned to the queue or the run is cancelled,
+  // because that removes them from the run.
+  const { data: payloadData } = useQuery({
+    queryKey: ['payload-overview'],
+    queryFn: () => payloadApi.overview(),
+    refetchInterval: 15000,
+  })
+  const payloadRuns = (payloadData && payloadData.data !== undefined ? payloadData.data : payloadData)?.runs ?? []
+  const parcelIdsOnRuns = new Set(payloadRuns.flatMap(r => (r.parcels ?? []).map(p => p.parcelId)))
+
   // Plan Route Dispatch: order by the service level chosen at booking
   // (SameDay first ... Economy last), then by booking time within a level.
   const SERVICE_RANK = { SameDay: 4, Overnight: 3, Express: 2, Standard: 1, Economy: 0 }
-  const parcels = [...pickups, ...deliveries].sort((a, b) =>
+  const parcels = [...pickups, ...deliveries].filter(p => !parcelIdsOnRuns.has(p.id)).sort((a, b) =>
     (SERVICE_RANK[b.serviceType] ?? 1) - (SERVICE_RANK[a.serviceType] ?? 1) ||
     new Date(a.createdAt) - new Date(b.createdAt))
   const parcelsLoading = checkedOutLoading || approvedLoading
@@ -364,6 +375,7 @@ export function DispatchQueue() {
       qc.invalidateQueries({ queryKey: ['dispatcher-ready-queue'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-available-drivers'] })
       qc.invalidateQueries({ queryKey: ['dispatcher-vehicles-capacity'] })
+      qc.invalidateQueries({ queryKey: ['payload-overview'] })
       setSelectedParcelIds([])
       setSelectedDriverId('')
     },
