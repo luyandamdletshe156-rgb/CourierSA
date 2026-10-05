@@ -78,7 +78,7 @@ public class PayloadService : IPayloadService
             throw new BadRequestException("One or more selected parcels are not on this run.");
 
         var remaining = sourceIds.Where(id => !moving.Contains(id)).ToList();
-        if (remaining.Count == 0)
+        if (remaining.Count == 0 && dto.TargetRouteId is null)
             throw new BadRequestException("A run must keep at least one parcel. Cancel the run plan instead of moving everything.");
 
         var sourceParcels = await LoadParcelsAsync(sourceIds, validate: false, ct);
@@ -107,7 +107,26 @@ public class PayloadService : IPayloadService
         }
 
         var before = new { source.TotalWeightKg, ParcelCount = sourceIds.Count };
-        ApplyManifest(source, remaining, remainingKg, dispatcherId, dto.Notes);
+        if (remaining.Count == 0)
+        {
+            // Every parcel went to another run (for example a single parcel too heavy for this vehicle).
+            // The source run is now empty, so retire it instead of leaving an empty manifest behind.
+            var now = DateTime.UtcNow;
+            source.HeldParcelIdsJson = null;
+            source.TotalWeightKg = 0m;
+            source.PayloadOverageKg = 0m;
+            source.Status = RouteStatus.Cancelled;
+            source.SignedOffAt = null;
+            source.SignedOffByUserId = null;
+            source.PayloadReviewNotes = dto.Notes ?? source.PayloadReviewNotes;
+            source.PayloadReviewedAt = now;
+            source.PayloadReviewedByUserId = dispatcherId;
+            source.UpdatedAt = now;
+        }
+        else
+        {
+            ApplyManifest(source, remaining, remainingKg, dispatcherId, dto.Notes);
+        }
 
         await SaveAsync(ct);   // one save: source and target change together or not at all
 
@@ -364,7 +383,14 @@ public class PayloadService : IPayloadService
                     $"Parcel {p.TrackingNumber} ({p.WeightKg:0.##} kg) does not fit on either vehicle. " +
                     "Choose a larger standby vehicle or move the parcel to another run first.");
         }
-        if (original.Count == 0 || standby.Count == 0)
+        if (original.Count == 0)
+            throw new BadRequestException(
+                $"Nothing on this run can stay on its own vehicle: every parcel is heavier than its {route.PayloadCapacityKg:0.##} kg limit " +
+                (parcels.Count == 1
+                    ? $"(the only parcel is {parcels[0].WeightKg:0.##} kg and a parcel cannot be divided). "
+                    : "and a parcel cannot be divided. ") +
+                "Use \"Move to another run\" and pick a run with a larger vehicle, or cancel the plan and plan the parcel again with a larger vehicle.");
+        if (standby.Count == 0)
             throw new BadRequestException("The split could not produce two valid runs. Move parcels to another run instead.");
 
         return new SplitPlan(route, original, standby, driver, vehicle, originalKg, standbyKg);

@@ -31,12 +31,33 @@ public class PayloadServiceTests
     private static async Task<(DriverProfile Driver, Vehicle Vehicle)> SeedDriverAsync(
         ApplicationDbContext db, decimal capacityKg, DriverStatus status = DriverStatus.Available)
     {
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Guid.NewGuid()}@t.com", FirstName = "D", LastName = "R",
-            PhoneNumber = "+27000000000", PasswordHash = "x", Role = UserRole.Driver, Status = UserStatus.Active };
-        var driver = new DriverProfile { Id = Guid.NewGuid(), UserId = user.Id, LicenseNumber = "L1",
-            LicenseExpiry = DateTime.UtcNow.AddYears(1), Status = status };
-        var vehicle = new Vehicle { Id = Guid.NewGuid(), RegistrationNumber = $"KZN{Guid.NewGuid().ToString()[..6]}",
-            Status = VehicleStatus.Active, PayloadCapacityKg = capacityKg, AssignedDriverId = driver.Id };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = $"{Guid.NewGuid()}@t.com",
+            FirstName = "D",
+            LastName = "R",
+            PhoneNumber = "+27000000000",
+            PasswordHash = "x",
+            Role = UserRole.Driver,
+            Status = UserStatus.Active
+        };
+        var driver = new DriverProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            LicenseNumber = "L1",
+            LicenseExpiry = DateTime.UtcNow.AddYears(1),
+            Status = status
+        };
+        var vehicle = new Vehicle
+        {
+            Id = Guid.NewGuid(),
+            RegistrationNumber = $"KZN{Guid.NewGuid().ToString()[..6]}",
+            Status = VehicleStatus.Active,
+            PayloadCapacityKg = capacityKg,
+            AssignedDriverId = driver.Id
+        };
         db.Users.Add(user); db.DriverProfiles.Add(driver); db.Vehicles.Add(vehicle);
         await db.SaveChangesAsync();
         return (driver, vehicle);
@@ -45,8 +66,13 @@ public class PayloadServiceTests
     /// <summary>A vehicle that belongs to no driver (a pool vehicle).</summary>
     private static async Task<Vehicle> SeedPoolVehicleAsync(ApplicationDbContext db, decimal capacityKg)
     {
-        var vehicle = new Vehicle { Id = Guid.NewGuid(), RegistrationNumber = $"POOL{Guid.NewGuid().ToString()[..6]}",
-            Status = VehicleStatus.Active, PayloadCapacityKg = capacityKg };
+        var vehicle = new Vehicle
+        {
+            Id = Guid.NewGuid(),
+            RegistrationNumber = $"POOL{Guid.NewGuid().ToString()[..6]}",
+            Status = VehicleStatus.Active,
+            PayloadCapacityKg = capacityKg
+        };
         db.Vehicles.Add(vehicle);
         await db.SaveChangesAsync();
         return vehicle;
@@ -54,15 +80,28 @@ public class PayloadServiceTests
 
     private static async Task<List<Parcel>> SeedParcelsAsync(ApplicationDbContext db, params decimal[] weights)
     {
-        var address = new ParcelAddress { Id = Guid.NewGuid(), RecipientName = "Rec", RecipientPhone = "+27000000001",
-            StreetAddress = "1 Test St", City = "Durban", Province = SaProvince.KwaZuluNatal, PostalCode = "4001" };
+        var address = new ParcelAddress
+        {
+            Id = Guid.NewGuid(),
+            RecipientName = "Rec",
+            RecipientPhone = "+27000000001",
+            StreetAddress = "1 Test St",
+            City = "Durban",
+            Province = SaProvince.KwaZuluNatal,
+            PostalCode = "4001"
+        };
         db.ParcelAddresses.Add(address);
 
         var parcels = weights.Select(w => new Parcel
         {
-            Id = Guid.NewGuid(), TrackingNumber = $"CSA-PL-{Guid.NewGuid().ToString()[..8]}", CustomerId = Guid.NewGuid(),
-            Status = ParcelStatus.CheckedOut, ServiceType = ServiceType.Standard, WeightKg = w,
-            PickupAddressId = address.Id, DeliveryAddressId = address.Id
+            Id = Guid.NewGuid(),
+            TrackingNumber = $"CSA-PL-{Guid.NewGuid().ToString()[..8]}",
+            CustomerId = Guid.NewGuid(),
+            Status = ParcelStatus.CheckedOut,
+            ServiceType = ServiceType.Standard,
+            WeightKg = w,
+            PickupAddressId = address.Id,
+            DeliveryAddressId = address.Id
         }).ToList();
         db.Parcels.AddRange(parcels);
         await db.SaveChangesAsync();
@@ -77,12 +116,17 @@ public class PayloadServiceTests
         var over = total > vehicle.PayloadCapacityKg;
         var route = new DeliveryRoute
         {
-            Id = Guid.NewGuid(), DriverId = driver.Id, VehicleId = vehicle.Id, Zone = SortingZone.Local,
+            Id = Guid.NewGuid(),
+            DriverId = driver.Id,
+            VehicleId = vehicle.Id,
+            Zone = SortingZone.Local,
             Status = status ?? (over ? RouteStatus.PendingPayloadReview : RouteStatus.Planned),
-            TotalWeightKg = total, PayloadCapacityKg = vehicle.PayloadCapacityKg,
+            TotalWeightKg = total,
+            PayloadCapacityKg = vehicle.PayloadCapacityKg,
             PayloadOverageKg = over ? total - vehicle.PayloadCapacityKg : 0m,
             HeldParcelIdsJson = JsonSerializer.Serialize(parcels.Select(p => p.Id)),
-            CreatedAt = createdAt ?? DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            CreatedAt = createdAt ?? DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
         db.DeliveryRoutes.Add(route);
         await db.SaveChangesAsync();
@@ -191,6 +235,28 @@ public class PayloadServiceTests
     }
 
     [Fact]
+    public async Task Reallocate_EveryParcelToAnotherRun_MovesThemAndRetiresTheEmptyRun()
+    {
+        var db = CreateContext(); var sut = BuildSut(db);
+        var (d1, v1) = await SeedDriverAsync(db, 40m);
+        var (d2, v2) = await SeedDriverAsync(db, 1000m);
+        var heavy = await SeedParcelsAsync(db, 45m);            // one 45 kg parcel on a 40 kg vehicle
+        var runA = await SeedRunAsync(db, d1, v1, heavy);
+        var runB = await SeedRunAsync(db, d2, v2, await SeedParcelsAsync(db, 5m));
+
+        var result = await sut.ReallocateAsync(runA.Id, new ReallocateDto(heavy.Select(p => p.Id).ToList(), runB.Id, null), Guid.NewGuid());
+
+        result.MovedToTarget.Should().Be(1);
+        result.SourceStatus.Should().Be(nameof(RouteStatus.Cancelled));
+        var savedA = await db.DeliveryRoutes.AsNoTracking().SingleAsync(r => r.Id == runA.Id);
+        var savedB = await db.DeliveryRoutes.AsNoTracking().SingleAsync(r => r.Id == runB.Id);
+        savedA.Status.Should().Be(RouteStatus.Cancelled);
+        savedA.TotalWeightKg.Should().Be(0m);
+        savedB.TotalWeightKg.Should().Be(50m);
+        JsonSerializer.Deserialize<List<Guid>>(savedB.HeldParcelIdsJson!)!.Should().Contain(heavy[0].Id);
+    }
+
+    [Fact]
     public async Task Reallocate_ParcelNotOnTheRun_ThrowsBadRequest()
     {
         var db = CreateContext(); var sut = BuildSut(db);
@@ -295,6 +361,19 @@ public class PayloadServiceTests
         options.Drivers.Select(d => d.DriverId).Should().NotContain([suspended.Id, busy.Id]);
         options.Vehicles.Select(v => v.VehicleId).Should().Contain(standbyVehicle.Id);
         options.Vehicles.Select(v => v.VehicleId).Should().NotContain([primaryVehicle.Id, busyVehicle.Id]);
+    }
+
+    [Fact]
+    public async Task SplitPreview_SingleParcelHeavierThanTheVehicle_ExplainsItCannotBeSplit()
+    {
+        var db = CreateContext(); var sut = BuildSut(db);
+        var (primary, primaryVehicle) = await SeedDriverAsync(db, 40m);
+        var (standby, standbyVehicle) = await SeedDriverAsync(db, 800m);
+        var run = await SeedRunAsync(db, primary, primaryVehicle, await SeedParcelsAsync(db, 45m));
+
+        Func<Task> act = () => sut.PreviewSplitAsync(run.Id, new SplitRequestDto(standby.Id, standbyVehicle.Id, null));
+
+        (await act.Should().ThrowAsync<BadRequestException>()).WithMessage("*cannot be divided*");
     }
 
     [Fact]

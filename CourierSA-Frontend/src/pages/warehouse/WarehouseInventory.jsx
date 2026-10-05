@@ -5,13 +5,24 @@ import {
   EmptyState, PageLoader, Modal,
   StatusPill, TrackingBadge, Pagination
 } from '@/components/ui'
-import { parcelApi } from '@/api'
+import { parcelApi, consolidationApi } from '@/api'
 import {
   Package, Archive, Search, MapPin, Weight, ShieldAlert,
-  Calendar, FileText, ChevronRight, CheckCircle2, History
+  Calendar, FileText, ChevronRight, CheckCircle2, History, Boxes
 } from 'lucide-react'
 import { formatDate } from '@/utils'
 import clsx from 'clsx'
+
+// A consolidated master box has a tracking number starting with MST- and sits in an outbound lane.
+const isMaster = p => (p?.trackingNumber || '').toUpperCase().startsWith('MST-')
+
+function MasterBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-bold bg-[#EDE9FE] text-[#6D28D9] px-2 py-1 rounded-md">
+      <Boxes size={12} /> Master box
+    </span>
+  )
+}
 
 export function WarehouseInventoryPage() {
   const [page, setPage] = useState(1)
@@ -63,7 +74,7 @@ export function WarehouseInventoryPage() {
   // Fetch detailed info + inspections only when a row is clicked
   const { data: detailData, isLoading: detailLoading } = useQuery({
     queryKey: ['parcel-detail', detailParcel?.id],
-    queryFn:  () => parcelApi.getDetail(detailParcel.id), // Assuming detail endpoint exists in parcelApi
+    queryFn:  () => parcelApi.get(detailParcel.id),
     enabled:  !!detailParcel,
   })
 
@@ -74,6 +85,17 @@ export function WarehouseInventoryPage() {
   })
 
   const detail = detailData?.data
+
+  // For a master box, load the parcels packed inside it (warehouse-only endpoint, searched by master label).
+  const { data: masterData } = useQuery({
+    queryKey: ['master-contents', detailParcel?.trackingNumber],
+    queryFn:  () => consolidationApi.history(detailParcel.trackingNumber),
+    enabled:  !!detailParcel && isMaster(detailParcel),
+  })
+  const masterOrder = (() => {
+    const list = Array.isArray(masterData) ? masterData : Array.isArray(masterData?.data) ? masterData.data : []
+    return list.map(r => r.order).find(o => (o.masterTrackingId || '').toUpperCase() === (detailParcel?.trackingNumber || '').toUpperCase()) || null
+  })()
   const parcelInspections = (inspData?.data ?? []).filter(i => i.parcelId === detailParcel?.id)
 
   return (
@@ -129,8 +151,14 @@ export function WarehouseInventoryPage() {
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-white rounded-lg shadow-sm border border-[#E2E8F0]"><Archive size={18} className="text-[#0A3D91]" /></div>
                     <div>
-                      <h2 className="text-base font-bold text-[#172554]">{binCode === 'Unassigned' ? 'Unassigned Zone' : `Sorting Bin: ${binCode}`}</h2>
-                      <p className="text-xs font-medium text-[#64748B]">{binParcels.length} parcel{binParcels.length !== 1 ? 's' : ''} inside</p>
+                      <h2 className="text-base font-bold text-[#172554]">
+                        {binCode === 'Unassigned'
+                          ? 'Unassigned Zone'
+                          : binParcels.every(isMaster) ? `Outbound Lane: ${binCode}` : `Sorting Bin: ${binCode}`}
+                      </h2>
+                      <p className="text-xs font-medium text-[#64748B]">
+                        {binParcels.length} {binParcels.every(isMaster) ? 'master box' : 'parcel'}{binParcels.length !== 1 ? (binParcels.every(isMaster) ? 'es' : 's') : ''} inside
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -140,7 +168,12 @@ export function WarehouseInventoryPage() {
                     <tbody>
                       {binParcels.map(p => (
                         <tr key={p.id} onClick={() => setDetailParcel(p)} className="cursor-pointer hover:bg-[#F6FAFF] group transition-colors">
-                          <td><TrackingBadge value={p.trackingNumber} /></td>
+                          <td>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <TrackingBadge value={p.trackingNumber} />
+                              {isMaster(p) && <MasterBadge />}
+                            </div>
+                          </td>
                           <td>
                             <p className="text-sm font-semibold text-[#172554]">{p.destinationCity}</p>
                             <p className="text-xs text-[#64748B] capitalize">{p.serviceType}</p>
@@ -167,7 +200,12 @@ export function WarehouseInventoryPage() {
               <tbody>
                 {parcels.map(p => (
                   <tr key={p.id} onClick={() => setDetailParcel(p)} className="cursor-pointer hover:bg-[#F6FAFF] group transition-colors">
-                    <td><TrackingBadge value={p.trackingNumber} /></td>
+                    <td>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <TrackingBadge value={p.trackingNumber} />
+                              {isMaster(p) && <MasterBadge />}
+                            </div>
+                          </td>
                     <td>
                       <p className="text-sm font-semibold text-[#172554]">{p.destinationCity}</p>
                       <p className="text-xs text-[#64748B] capitalize">{p.serviceType}</p>
@@ -245,6 +283,33 @@ export function WarehouseInventoryPage() {
                 </div>
               </div>
             </div>
+
+            {/* Master box contents */}
+            {isMaster(detail) && (
+              <div className="bg-[#F5F3FF] border border-[#DDD6FE] p-4 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase text-[#6D28D9] flex items-center gap-2"><Boxes size={14} /> Consolidated master box</p>
+                  {masterOrder && <span className="text-xs font-mono text-[#6D28D9]">{masterOrder.orderNumber}</span>}
+                </div>
+                {!masterOrder ? (
+                  <p className="text-xs text-[#64748B]">Loading contents…</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-[#475569]">
+                      {masterOrder.parcelCount} parcels packed{masterOrder.lane ? ` · staged in ${masterOrder.lane}` : ''}. Scan the master label for this box, not the parcels inside it.
+                    </p>
+                    <ul className="space-y-1">
+                      {masterOrder.parcels.map(c => (
+                        <li key={c.parcelId} className="flex justify-between text-xs bg-white border border-[#E2E8F0] rounded-lg px-3 py-1.5">
+                          <span className="font-mono">{c.trackingNumber}</span>
+                          <span>{Number(c.weightKg).toFixed(1)} kg</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Instruction block */}
             {detail.specialInstructions && (

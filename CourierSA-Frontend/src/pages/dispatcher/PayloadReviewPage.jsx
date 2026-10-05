@@ -122,7 +122,7 @@ function SplitPanel({ run, onDone }) {
               <p className="text-xs font-bold text-[#0F172A]">{r.runLabel} · {r.driverName} · {r.vehicleRegistration}</p>
               <LoadBar load={r.loadKg} max={r.maxKg} over={r.overageKg > 0} />
               <ul className="text-xs text-[#475569] space-y-0.5">
-                {r.parcels.map(p => <li key={p.parcelId}><span className="font-mono">{p.trackingNumber}</span> · {p.weightKg} kg</li>)}
+                {r.parcels.map(p => <li key={p.parcelId}><span className="font-mono">{p.trackingNumber}</span>{String(p.trackingNumber || '').toUpperCase().startsWith('MST-') ? ' (master box)' : ''} · {p.weightKg} kg</li>)}
               </ul>
             </div>
           ))}
@@ -192,6 +192,7 @@ function RunDetail({ run, otherRuns, onChanged }) {
           <label key={p.parcelId} className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer">
             <input type="checkbox" checked={selected.includes(p.parcelId)} onChange={() => toggle(p.parcelId)} />
             <span className="font-mono text-xs">{p.trackingNumber}</span>
+            {String(p.trackingNumber || '').toUpperCase().startsWith('MST-') && <span className="ml-2 text-[10px] font-bold uppercase bg-[#EDE9FE] text-[#6D28D9] px-1.5 py-0.5 rounded">Master box</span>}
             <span className="text-[#64748B] truncate">{p.recipient}, {p.city}</span>
             <span className="ml-auto font-semibold">{p.weightKg} kg</span>
           </label>

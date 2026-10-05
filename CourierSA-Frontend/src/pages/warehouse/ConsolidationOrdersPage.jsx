@@ -4,10 +4,12 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { consolidationApi } from '@/api'
-import { Boxes, RefreshCw, ScanLine, Printer, CheckCircle2 } from 'lucide-react'
+import { Boxes, RefreshCw, ScanLine, Printer, CheckCircle2, History, Search, ChevronDown, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 const asList = d => (Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])
+
+const fmt = d => (d ? new Date(d).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 
 const LANES = [
   'Lane 1 – North Coast',
@@ -33,6 +35,136 @@ function printLabel(o) {
   w.print()
 }
 
+// History tab: packed, staged and cancelled orders, with the live status of each master box.
+function HistoryPanel() {
+  const [search, setSearch] = useState('')
+  const [term, setTerm] = useState('')
+  const [openId, setOpenId] = useState(null)
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['consolidation', 'history', term],
+    queryFn: () => consolidationApi.history(term),
+    refetchInterval: 60000,
+  })
+  const rows = asList(data)
+
+  return (
+    <div className="card bg-white rounded-xl border border-[#D8E4F5] overflow-hidden">
+      <div className="p-4 border-b border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-[#172554]">Consolidation history</h2>
+          <p className="text-xs text-[#64748B]">Packed, staged and cancelled orders, newest first.</p>
+        </div>
+        <form
+          onSubmit={e => { e.preventDefault(); setTerm(search.trim()) }}
+          className="relative w-full sm:w-72"
+        >
+          <Search size={14} className="absolute left-3 top-3 text-[#94A3B8]" />
+          <input
+            className="input w-full pl-8 p-2 border rounded-lg text-sm"
+            placeholder="Order no., master label or city"
+            value={search}
+            onChange={e => { setSearch(e.target.value); if (!e.target.value) setTerm('') }}
+          />
+        </form>
+      </div>
+
+      {isLoading ? (
+        <p className="p-6 text-sm text-[#64748B] flex items-center gap-2"><RefreshCw size={14} className="animate-spin" /> Loading…</p>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-sm text-[#64748B]">
+          <History size={32} className="mx-auto mb-2 text-[#94A3B8]" />
+          {term ? 'No orders match your search.' : 'No packed, staged or cancelled consolidation orders yet.'}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase text-[#64748B] bg-[#F8FAFC]">
+                <th className="py-2 pl-4 w-8"></th>
+                <th className="py-2">Order</th>
+                <th>Master label</th>
+                <th>Destination</th>
+                <th>Parcels</th>
+                <th>Box</th>
+                <th>Lane</th>
+                <th>Order status</th>
+                <th className="pr-4">Master box</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const o = r.order
+                const open = openId === o.id
+                return (
+                  <FragmentRow key={o.id} open={open} onToggle={() => setOpenId(open ? null : o.id)} row={r} />
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {isFetching && !isLoading && <p className="px-4 py-2 text-[11px] text-[#94A3B8]">Refreshing…</p>}
+    </div>
+  )
+}
+
+function FragmentRow({ row, open, onToggle }) {
+  const o = row.order
+  return (
+    <>
+      <tr onClick={onToggle} className="border-t border-[#F1F5F9] cursor-pointer hover:bg-[#F6FAFF]">
+        <td className="py-3 pl-4 text-[#94A3B8]">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
+        <td className="font-bold text-[#172554]">{o.orderNumber}</td>
+        <td className="font-mono text-xs">{o.masterTrackingId || '—'}</td>
+        <td className="text-xs">{o.destinationCity}</td>
+        <td className="text-xs">{o.parcelCount}</td>
+        <td className="text-xs whitespace-nowrap">
+          {o.finalWeightKg != null ? `${Number(o.finalWeightKg).toFixed(1)} kg` : '—'}
+        </td>
+        <td className="text-xs">{o.lane || '—'}</td>
+        <td><StatusBadge status={o.status} /></td>
+        <td className="pr-4">{row.masterParcelStatus ? <StatusBadge status={row.masterParcelStatus} /> : <span className="text-[#CBD5E1]">—</span>}</td>
+      </tr>
+      {open && (
+        <tr className="bg-[#F8FAFC]">
+          <td></td>
+          <td colSpan={8} className="py-3 pr-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase text-[#64748B] mb-1">Parcels inside</p>
+                <ul className="space-y-1">
+                  {o.parcels.map(p => (
+                    <li key={p.parcelId} className="flex justify-between text-xs bg-white border border-[#E2E8F0] rounded-lg px-3 py-1.5">
+                      <span className="font-mono">{p.trackingNumber}</span>
+                      <span>{Number(p.weightKg).toFixed(1)} kg</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="text-xs text-[#475569] space-y-1">
+                <p><span className="font-semibold">Deliver to:</span> {o.destination}</p>
+                <p><span className="font-semibold">Box size:</span> {o.lengthCm != null ? `${o.lengthCm} × ${o.widthCm} × ${o.heightCm} cm` : '—'}</p>
+                <p><span className="font-semibold">Requested:</span> {fmt(o.createdAt)}</p>
+                <p><span className="font-semibold">Packed:</span> {fmt(o.consolidatedAt)}</p>
+                <p><span className="font-semibold">Staged:</span> {fmt(o.stagedAt)}</p>
+                {o.masterTrackingId && o.status !== 'Cancelled' && (
+                  <button
+                    className="mt-1 text-xs px-3 py-1.5 rounded-lg border border-[#BFDBFE] bg-white flex items-center gap-2"
+                    onClick={e => { e.stopPropagation(); printLabel(o) }}
+                  >
+                    <Printer size={12} /> Reprint master label
+                  </button>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 // UC11 – Consolidate Warehouse Parcels, UC13 – Dispatch Consolidated Shipment (warehouse staff)
 export default function ConsolidationOrdersPage() {
   const qc = useQueryClient()
@@ -43,6 +175,7 @@ export default function ConsolidationOrdersPage() {
   const [dims, setDims] = useState({ lengthCm: '', widthCm: '', heightCm: '', finalWeightKg: '' })
   const [masterScan, setMasterScan] = useState('')
   const [lane, setLane] = useState(LANES[0])
+  const [tab, setTab] = useState('queue')
 
   const { data, isLoading } = useQuery({
     queryKey: ['consolidation', 'queue'],
@@ -73,7 +206,7 @@ export default function ConsolidationOrdersPage() {
   const stageMutation = useMutation({
     mutationFn: () => consolidationApi.stage(order.id, { masterTrackingId: masterScan, lane }),
     onSuccess: () => {
-      setError(''); setInfo('Staged for dispatch. The dispatcher can now plan the route.')
+      setError(''); setInfo('Staged for dispatch. The master box now appears in the dispatch queue as one parcel.')
       setMasterScan(''); setSelectedId(null); refresh()
     },
     onError: fail,
@@ -89,6 +222,24 @@ export default function ConsolidationOrdersPage() {
 
   return (
     <AppShell title="Consolidate Warehouse Parcels">
+      <div className="max-w-6xl mx-auto mb-4 bg-[#F6FAFF] p-1 rounded-xl inline-flex border border-[#D8E4F5]">
+        {[['queue', 'Task queue'], ['history', 'History']].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={clsx(
+              'px-6 py-2 rounded-lg text-sm font-semibold transition-all',
+              tab === k ? 'bg-white text-[#0A3D91] shadow-sm' : 'text-[#64748B] hover:text-[#172554]'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'history' ? (
+        <div className="max-w-6xl mx-auto"><HistoryPanel /></div>
+      ) : (
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card bg-white p-4 rounded-xl border border-[#D8E4F5] h-fit">
           <h2 className="text-sm font-bold text-[#172554] mb-3">Consolidation task queue</h2>
@@ -247,6 +398,7 @@ export default function ConsolidationOrdersPage() {
           )}
         </div>
       </div>
+      )}
     </AppShell>
   )
 }

@@ -8,7 +8,10 @@ using CourierSA.Application.Interfaces.Services;
 using CourierSA.Domain.Entities;
 using CourierSA.Domain.Enums;
 using CourierSA.Domain.Exceptions;
+using CourierSA.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using static System.Net.Mime.MediaTypeNames;
+
 
 namespace CourierSA.Infrastructure.Services;
 
@@ -21,6 +24,11 @@ public class ParcelService : IParcelService
     private readonly IAuditService _audit;
     private readonly ITrackingHubService _hubService;
     private readonly ISecureDeliveryService _secureDelivery;
+    private IQuoteService object1;
+    private IBarcodeService object2;
+    private INotificationService object3;
+    private IAuditService object4;
+    private ITrackingHubService object5;
 
     public ParcelService(
         IUnitOfWork uow,
@@ -38,6 +46,16 @@ public class ParcelService : IParcelService
         _audit = audit;
         _hubService = hubService;
         _secureDelivery = secureDelivery;
+    }
+
+    public ParcelService(UnitOfWork uow, IQuoteService object1, IBarcodeService object2, INotificationService object3, IAuditService object4, ITrackingHubService object5)
+    {
+        _uow = uow;
+        this.object1 = object1;
+        this.object2 = object2;
+        this.object3 = object3;
+        this.object4 = object4;
+        this.object5 = object5;
     }
 
     public async Task<ParcelDetailDto> BookAsync(CreateParcelDto dto, Guid customerId, CancellationToken ct = default)
@@ -559,9 +577,6 @@ public class ParcelService : IParcelService
         if (!isPickup)
         {
             parcel.Status = ParcelStatus.OutForDelivery;
-            await SyncConsolidatedChildrenAsync(parcel, ParcelStatus.OutForDelivery,
-                TrackingEventType.OutForDelivery, $"Out for delivery inside master box {parcel.TrackingNumber}.", ct);
-
             var assignment = await _uow.Query<ParcelSortingAssignment>().Query().FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
             if (assignment?.ConfirmedBinId is not null)
             {
@@ -753,7 +768,6 @@ public class ParcelService : IParcelService
     /// <summary>
     /// Dispatch Consolidated Shipment. Warehouse staff scan the parcels against the route manifest;
     /// the route is released to the driver only when the scan matches exactly.
-    /// A consolidated master box is ONE parcel on the manifest: staff scan its master label (MST-…).
     /// Pickup tasks (Approved parcels) are not in the warehouse, so they are not scanned.
     /// </summary>
     public async Task<RouteSummaryDto> ReleaseRouteAsync(
@@ -938,11 +952,6 @@ public class ParcelService : IParcelService
             if (!isPickup)
             {
                 parcel.Status = ParcelStatus.OutForDelivery;
-
-                // A master box is out for delivery, so are the parcels packed inside it.
-                await SyncConsolidatedChildrenAsync(parcel, ParcelStatus.OutForDelivery,
-                    TrackingEventType.OutForDelivery, $"Out for delivery inside master box {parcel.TrackingNumber}.", ct);
-
                 var assignment = await _uow.Query<ParcelSortingAssignment>()
                     .Query()
                     .FirstOrDefaultAsync(a => a.ParcelId == parcel.Id && a.ConfirmedBinId != null, ct);
@@ -1031,43 +1040,6 @@ public class ParcelService : IParcelService
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // Consolidated master boxes (UC11 / UC13)
-    // A master box is a Parcel whose tracking number starts with "MST-". The parcels packed inside it
-    // stay at status "Consolidated" while the master moves through dispatch, so every status change on
-    // the master is mirrored onto them here. Does not save.
-    // ═════════════════════════════════════════════════════════════════════════
-
-    private async Task SyncConsolidatedChildrenAsync(
-        Parcel master, ParcelStatus status, TrackingEventType eventType, string description, CancellationToken ct)
-    {
-        if (!master.TrackingNumber.StartsWith(ConsolidationService.MasterPrefix, StringComparison.OrdinalIgnoreCase)) return;
-
-        var order = await _uow.Query<ConsolidationOrder>().Query().AsNoTracking()
-            .FirstOrDefaultAsync(o => o.MasterTrackingId == master.TrackingNumber, ct);
-        if (order is null) return;
-
-        var childIds = await _uow.Query<ConsolidationOrderParcel>().Query().AsNoTracking()
-            .Where(l => l.OrderId == order.Id).Select(l => l.ParcelId).ToListAsync(ct);
-        var children = await _uow.Query<Parcel>().Query().Where(p => childIds.Contains(p.Id)).ToListAsync(ct);
-
-        foreach (var child in children)
-        {
-            child.Status = status;
-            child.UpdatedAt = DateTime.UtcNow;
-            await _uow.TrackingEvents.AddAsync(new TrackingEvent
-            {
-                Id = Guid.NewGuid(),
-                ParcelId = child.Id,
-                EventType = eventType,
-                Description = description,
-                OccurredAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            }, ct);
-        }
-    }
-
     public async Task MarkDeliveredAsync(Guid deliveryId, ProofOfDeliveryDto pod, Guid driverUserId, CancellationToken ct = default)
     {
         var driverProfile = await _uow.Query<DriverProfile>().FirstOrDefaultAsync(d => d.UserId == driverUserId, ct) ?? throw new NotFoundException("Driver profile not found.");
@@ -1083,10 +1055,6 @@ public class ParcelService : IParcelService
         delivery.Status = DeliveryStatus.Delivered; delivery.DeliveredAt = DateTime.UtcNow; delivery.ProofOfDeliveryImagePath = pod.ImagePath; delivery.RecipientSignaturePath = pod.SignaturePath; delivery.AttemptNotes = pod.Notes; delivery.UpdatedAt = DateTime.UtcNow;
         if (!isPickup) parcel.Status = ParcelStatus.Delivered; else parcel.Status = ParcelStatus.AwaitingCheckIn;
         parcel.UpdatedAt = DateTime.UtcNow;
-
-        if (!isPickup)
-            await SyncConsolidatedChildrenAsync(parcel, ParcelStatus.Delivered,
-                TrackingEventType.Delivered, $"Delivered inside master box {parcel.TrackingNumber}.", ct);
 
         var hasOtherActiveDeliveries = await _uow.Deliveries.Query().AnyAsync(d => d.DriverId == driverProfile.Id && d.Id != delivery.Id && (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
         if (!hasOtherActiveDeliveries) { driverProfile.Status = DriverStatus.Available; driverProfile.UpdatedAt = DateTime.UtcNow; }
@@ -1176,10 +1144,6 @@ public class ParcelService : IParcelService
         delivery.UpdatedAt = DateTime.UtcNow;
         if (!isPickup) parcel.Status = ParcelStatus.FailedDelivery;
         parcel.UpdatedAt = DateTime.UtcNow;
-
-        if (!isPickup)
-            await SyncConsolidatedChildrenAsync(parcel, ParcelStatus.FailedDelivery,
-                TrackingEventType.DeliveryFailed, $"Delivery of master box {parcel.TrackingNumber} failed: {dto.Reason}.", ct);
 
         var hasOtherActiveDeliveries = await _uow.Deliveries.Query().AnyAsync(d => d.DriverId == driverProfile.Id && d.Id != delivery.Id && (d.Status == DeliveryStatus.Assigned || d.Status == DeliveryStatus.InProgress), ct);
         if (!hasOtherActiveDeliveries) { driverProfile.Status = DriverStatus.Available; driverProfile.UpdatedAt = DateTime.UtcNow; }
@@ -1300,19 +1264,6 @@ public class ParcelService : IParcelService
         {
             var parcelIds = parcels.Select(p => p.Id).ToList();
             binCodesByParcelId = await _uow.Query<ParcelSortingAssignment>().Query().AsNoTracking().Where(a => parcelIds.Contains(a.ParcelId) && a.ConfirmedBinId != null && a.ReleasedAt == null).Join(_uow.Query<SortingBin>().Query().AsNoTracking(), a => a.ConfirmedBinId, b => b.Id, (a, b) => new { a.ParcelId, b.BinCode }).ToDictionaryAsync(x => x.ParcelId, x => x.BinCode, ct);
-
-            // Master boxes sit in an outbound lane, not a sorting bin: show the lane in the bin column.
-            var masterNumbers = parcels
-                .Where(p => p.TrackingNumber.StartsWith(ConsolidationService.MasterPrefix))
-                .Select(p => p.TrackingNumber).ToList();
-            if (masterNumbers.Count > 0)
-            {
-                var lanes = await _uow.Query<ConsolidationOrder>().Query().AsNoTracking()
-                    .Where(o => o.MasterTrackingId != null && masterNumbers.Contains(o.MasterTrackingId) && o.Lane != null)
-                    .ToDictionaryAsync(o => o.MasterTrackingId!, o => o.Lane!, ct);
-                foreach (var p in parcels.Where(p => lanes.ContainsKey(p.TrackingNumber)))
-                    binCodesByParcelId[p.Id] = lanes[p.TrackingNumber];
-            }
         }
         return new PagedResult<ParcelSummaryDto>(parcels.Select(p => MapToSummary(p, binCodesByParcelId.GetValueOrDefault(p.Id))).ToList(), count, page, pageSize);
     }
@@ -1616,17 +1567,8 @@ public class ParcelService : IParcelService
         if (parcel.CustomerId != customer.Id)
             throw new ForbiddenException("This parcel does not belong to you.");
 
-        // A consolidated master box carries no payment of its own and holds several parcels:
-        // it cannot be cancelled like an ordinary parcel.
-        if (parcel.TrackingNumber.StartsWith(ConsolidationService.MasterPrefix, StringComparison.OrdinalIgnoreCase))
-            throw new BadRequestException("A consolidated master box cannot be cancelled here. Please contact support.");
-
         if (parcel.Status is ParcelStatus.OutForDelivery or ParcelStatus.Delivered or ParcelStatus.FailedDelivery or ParcelStatus.Cancelled or ParcelStatus.Lost or ParcelStatus.Returned)
             throw new BadRequestException($"Cannot cancel parcel in status '{parcel.Status}'.");
-
-        // A parcel packed into a master box is no longer separately cancellable.
-        if (parcel.Status is ParcelStatus.ConsolidationRequested or ParcelStatus.Consolidated)
-            throw new BadRequestException("This parcel is part of a consolidation order and cannot be cancelled on its own.");
 
         bool isWarehouseStatus = parcel.Status is ParcelStatus.AwaitingCheckIn or ParcelStatus.InWarehouse or ParcelStatus.CheckedOut;
 

@@ -294,6 +294,7 @@ export const consolidationApi = {
   mine:     ()         => api.get('/consolidations/mine'),
   cancel:   id         => api.put(`/consolidations/${id}/cancel`),
   queue:    status     => api.get('/consolidations/queue', { params: { status } }),
+  history:  search     => api.get('/consolidations/history', { params: { search: search || undefined } }),
   get:      id         => api.get(`/consolidations/${id}`),
   scan:     (id, dto)  => api.post(`/consolidations/${id}/scan`, dto),
   pack:     (id, dto)  => api.post(`/consolidations/${id}/pack`, dto),
