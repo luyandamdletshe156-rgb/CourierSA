@@ -327,4 +327,7 @@ public interface IConsolidationService
     Task<ConsolidationOrderDto> ScanAsync(Guid orderId, ScanConsolidationParcelDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<ConsolidationOrderDto> PackAsync(Guid orderId, PackConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<ConsolidationOrderDto> StageAsync(Guid orderId, StageConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
+
+    // Housekeeping: cancels Pending orders the warehouse never started and frees their parcels.
+    Task<int> ReleaseStaleOrdersAsync(TimeSpan maxAge, CancellationToken ct = default);
 }

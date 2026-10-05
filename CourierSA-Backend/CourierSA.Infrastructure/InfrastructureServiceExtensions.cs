@@ -104,6 +104,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IParcelService, ParcelService>();
         services.AddScoped<IPriorityUpgradeService, PriorityUpgradeService>();
         services.AddScoped<IConsolidationService, ConsolidationService>();
+        services.AddHostedService<ConsolidationTimeoutWorker>();
         services.AddScoped<IShiftService, ShiftService>();
         services.AddScoped<IPayloadService, PayloadService>();
         services.AddScoped<ILostParcelService, LostParcelService>();

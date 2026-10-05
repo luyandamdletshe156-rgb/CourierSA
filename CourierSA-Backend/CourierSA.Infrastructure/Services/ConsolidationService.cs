@@ -18,8 +18,10 @@ namespace CourierSA.Infrastructure.Services;
 /// </summary>
 public class ConsolidationService : IConsolidationService
 {
-    /// <summary>Estimated saving shown to the customer for sending parcels as one shipment.</summary>
-    public const decimal DiscountRate = 0.15m;
+    /// <summary>Tiered saving for sending parcels as one shipment: 10% for 2 parcels, 15% for 3 or more.</summary>
+    public static decimal DiscountRateFor(int parcelCount) => parcelCount >= 3 ? 0.15m : 0.10m;
+
+    private const string WalletRefType = "Consolidation";
 
     private readonly IUnitOfWork _uow;
     private readonly INotificationService _notifications;
@@ -150,6 +152,47 @@ public class ConsolidationService : IConsolidationService
 
         await SafeAuditAsync("CONSOLIDATION_CANCELLED", order.Id, null, new { order.OrderNumber }, customerUserId, ct);
         return await MapOneAsync(order, ct);
+    }
+
+    /// <summary>
+    /// Cancels consolidation orders that have sat in Pending longer than <paramref name="maxAge"/>
+    /// (the warehouse never started them) and puts their parcels back to InWarehouse, so a parcel
+    /// can never be stuck in ConsolidationRequested. Returns how many orders were released.
+    /// </summary>
+    public async Task<int> ReleaseStaleOrdersAsync(TimeSpan maxAge, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow - maxAge;
+        var stale = await _uow.Query<ConsolidationOrder>().Query()
+            .Where(o => o.Status == ConsolidationOrderStatus.Pending && o.CreatedAt < cutoff)
+            .ToListAsync(ct);
+        if (stale.Count == 0) return 0;
+
+        foreach (var order in stale)
+        {
+            var parcels = await LoadOrderParcelsAsync(order.Id, ct);
+            foreach (var p in parcels.Where(p => p.Status == ParcelStatus.ConsolidationRequested))
+            {
+                p.Status = ParcelStatus.InWarehouse;
+                p.UpdatedAt = DateTime.UtcNow;
+                await AddEventAsync(p, TrackingEventType.ConsolidationRequested,
+                    $"Consolidation order {order.OrderNumber} expired before the warehouse started it. Parcel stays in the warehouse.", ct);
+            }
+            order.Status = ConsolidationOrderStatus.Cancelled;
+            order.UpdatedAt = DateTime.UtcNow;
+        }
+        await _uow.SaveChangesAsync(ct);
+
+        foreach (var order in stale)
+        {
+            var customerUserId = await CustomerUserIdAsync(order.CustomerId, ct);
+            if (customerUserId is null) continue;
+
+            await SafeAuditAsync("CONSOLIDATION_EXPIRED", order.Id, null, new { order.OrderNumber }, customerUserId.Value, ct);
+            await SafeNotifyAsync(customerUserId.Value, "Consolidation request expired",
+                $"Order {order.OrderNumber} was not started in time and has been released. " +
+                "Your parcels are still in the warehouse; you can request consolidation again.", ct);
+        }
+        return stale.Count;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -290,10 +333,20 @@ public class ConsolidationService : IConsolidationService
                 $"Master box {order.MasterTrackingId} staged in {lane}. Ready for dispatch.", ct);
         }
 
+        var credited = await CreditSavingAsync(order, parcels, ct);
+
         await _uow.SaveChangesAsync(ct);
 
         await SafeAuditAsync("CONSOLIDATION_STAGED", order.Id, null,
-            new { order.OrderNumber, order.MasterTrackingId, order.Lane }, staffUserId, ct);
+            new { order.OrderNumber, order.MasterTrackingId, order.Lane, CreditedZAR = credited }, staffUserId, ct);
+
+        if (credited > 0m)
+        {
+            var customerUserId = await CustomerUserIdAsync(order.CustomerId, ct);
+            if (customerUserId is not null)
+                await SafeNotifyAsync(customerUserId.Value, "Consolidation saving credited",
+                    $"R{credited:0.00} has been credited to your wallet for consolidation order {order.OrderNumber}.", ct);
+        }
 
         return await MapOneAsync(order, ct);
     }
@@ -331,14 +384,63 @@ public class ConsolidationService : IConsolidationService
         if (parcels.Select(p => AddressKey(p.DeliveryAddress)).Distinct().Count() > 1)
             throw new BadRequestException("All selected parcels must be going to the same destination address.");
 
+        // The master box must still fit on our largest active vehicle, otherwise it could never be dispatched.
+        var maxPayload = await _uow.Query<Vehicle>().Query().AsNoTracking()
+            .Where(v => v.Status == VehicleStatus.Active)
+            .Select(v => (decimal?)v.PayloadCapacityKg)
+            .MaxAsync(ct);
+        var combined = parcels.Sum(p => p.WeightKg);
+        if (maxPayload.HasValue && combined > maxPayload.Value)
+            throw new BadRequestException(
+                $"These parcels weigh {combined:0.##} kg together, which is more than our largest vehicle can carry " +
+                $"({maxPayload.Value:0.##} kg). Select fewer parcels.");
+
         return (customer, parcels);
+    }
+
+    /// <summary>
+    /// Credits the consolidation saving to the customer's wallet once the master box is staged.
+    /// Only parcels that were actually paid for earn a credit (an unpaid or cash-on-collection parcel
+    /// has nothing to refund). Idempotent: an order is credited at most once.
+    /// </summary>
+    private async Task<decimal> CreditSavingAsync(ConsolidationOrder order, List<Parcel> parcels, CancellationToken ct)
+    {
+        var alreadyCredited = await _uow.Query<WalletTransaction>().Query().AsNoTracking()
+            .AnyAsync(t => t.ReferenceId == order.Id && t.ReferenceType == WalletRefType, ct);
+        if (alreadyCredited) return 0m;
+
+        var paidQuotes = parcels.Where(p => p.IsPaid).Sum(p => p.QuoteAmountZAR ?? 0m);
+        var credit = Math.Round(paidQuotes * DiscountRateFor(parcels.Count), 2);
+        if (credit <= 0m) return 0m;
+
+        var customer = await _uow.Query<CustomerProfile>().Query().FirstOrDefaultAsync(c => c.Id == order.CustomerId, ct);
+        if (customer is null) return 0m;
+
+        customer.WalletBalanceZAR += credit;
+        customer.UpdatedAt = DateTime.UtcNow;
+
+        await _uow.Query<WalletTransaction>().AddAsync(new WalletTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = customer.UserId,
+            Type = WalletTransactionType.Credit,
+            AmountZAR = credit,
+            BalanceAfterZAR = customer.WalletBalanceZAR,
+            ReferenceId = order.Id,
+            ReferenceType = WalletRefType,
+            Description = $"Consolidation saving for order {order.OrderNumber}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        }, ct);
+
+        return credit;
     }
 
     private static ConsolidationPreviewDto BuildPreview(List<Parcel> parcels)
     {
         var weight = parcels.Sum(p => p.WeightKg);
         var separate = parcels.Sum(p => p.QuoteAmountZAR ?? 0m);
-        var consolidated = Math.Round(separate * (1m - DiscountRate), 2);
+        var consolidated = Math.Round(separate * (1m - DiscountRateFor(parcels.Count)), 2);
         var saving = separate - consolidated;
         var pct = separate > 0 ? Math.Round(saving / separate * 100m, 0) : 0m;
         return new ConsolidationPreviewDto(parcels.Count, weight, separate, consolidated, saving, pct);

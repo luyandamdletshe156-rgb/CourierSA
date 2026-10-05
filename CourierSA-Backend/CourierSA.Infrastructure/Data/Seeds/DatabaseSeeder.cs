@@ -44,6 +44,7 @@ public static class DatabaseSeeder
 
         await SeedDemoDriversAsync(context, logger, passwordService, now, ct);
         await SeedDemoParcelsAsync(context, logger, now, ct);
+        await SeedDemoConsolidationParcelsAsync(context, logger, now, ct);
         await SeedDemoRosterAsync(context, logger, now, ct);
 
         logger.LogInformation(
@@ -454,6 +455,72 @@ public static class DatabaseSeeder
 
         await context.SaveChangesAsync(ct);
         logger.LogInformation("Seeded {Count} demo parcels.", parcels.Count);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // 3b. Two parcels waiting in the warehouse for the same address, so the customer
+    //     Consolidate page (UC10) has something to show. Own guard so it also works on
+    //     databases that were seeded before this was added.
+    // ═════════════════════════════════════════════════════════════════════════
+    private static async Task SeedDemoConsolidationParcelsAsync(
+        ApplicationDbContext context, ILogger logger, DateTime now, CancellationToken ct)
+    {
+        const string prefix = DemoPrefix + "W";
+        if (await context.Parcels.AnyAsync(p => p.TrackingNumber.StartsWith(prefix), ct))
+            return;
+
+        var thabo = await context.CustomerProfiles.Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.User!.Email == "thabo@gmail.com", ct);
+        if (thabo is null) return;
+
+        var delivery1 = Addr("Nomsa Khoza", "+27830000013", null, "8 Innes Rd", "Morningside", "Durban",
+            SaProvince.KwaZuluNatal, "4001", -29.8320m, 31.0180m, now);
+        var delivery2 = Addr("Nomsa Khoza", "+27830000013", null, "8 Innes Rd", "Morningside", "Durban",
+            SaProvince.KwaZuluNatal, "4001", -29.8320m, 31.0180m, now);
+        var pickup1 = Addr("Thabo Mokoena", "+27821234567", null, "14 Essenwood Rd", "Berea", "Durban",
+            SaProvince.KwaZuluNatal, "4001", -29.8420m, 31.0070m, now);
+        var pickup2 = Addr("Thabo Mokoena", "+27821234567", null, "14 Essenwood Rd", "Berea", "Durban",
+            SaProvince.KwaZuluNatal, "4001", -29.8420m, 31.0070m, now);
+
+        var specs = new[]
+        {
+            (Num: "W001", Kg: 6.0m, Desc: "Kitchen appliances", Pickup: pickup1, Delivery: delivery1),
+            (Num: "W002", Kg: 3.5m, Desc: "Cookbooks",          Pickup: pickup2, Delivery: delivery2),
+        };
+
+        var parcels = new List<Parcel>();
+        foreach (var sp in specs)
+        {
+            var created = now.AddHours(-30);
+            var parcel = new Parcel
+            {
+                Id = Guid.NewGuid(),
+                TrackingNumber = $"{DemoPrefix}{sp.Num}",
+                CustomerId = thabo.Id,
+                Status = ParcelStatus.InWarehouse,
+                ServiceType = ServiceType.Standard,
+                WeightKg = sp.Kg,
+                Description = sp.Desc,
+                PickupAddressId = sp.Pickup.Id,
+                DeliveryAddressId = sp.Delivery.Id,
+                QuoteAmountZAR = Math.Round(55m + sp.Kg * 8m + 25m, 2),
+                Zone = SortingZone.Local,
+                EstimatedDeliveryDate = created.AddDays(3),
+                PaymentMethod = PaymentMethod.CashOnCollection,
+                IsPaid = false,
+                CreatedAt = created,
+                UpdatedAt = created
+            };
+            parcel.TrackingEvents.Add(Evt(parcel.Id, TrackingEventType.Booked, "Parcel booking confirmed", "Durban", created));
+            parcel.TrackingEvents.Add(Evt(parcel.Id, TrackingEventType.Approved, "Booking approved by dispatcher", null, created.AddMinutes(20)));
+            parcel.TrackingEvents.Add(Evt(parcel.Id, TrackingEventType.ReceivedAtWarehouse, "Parcel received at warehouse", "Durban warehouse", created.AddHours(1)));
+            parcels.Add(parcel);
+        }
+
+        await context.ParcelAddresses.AddRangeAsync(new[] { pickup1, pickup2, delivery1, delivery2 }, ct);
+        await context.Parcels.AddRangeAsync(parcels, ct);
+        await context.SaveChangesAsync(ct);
+        logger.LogInformation("Seeded {Count} warehouse parcels for the consolidation demo.", parcels.Count);
     }
 
     // ═════════════════════════════════════════════════════════════════════════

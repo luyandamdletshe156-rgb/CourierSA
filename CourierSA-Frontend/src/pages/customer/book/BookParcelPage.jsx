@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { z } from 'zod'
 import CardPaymentForm from '@/components/payment/CardPaymentForm'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
-import { parcelApi, quoteApi } from '@/api'
+import { parcelApi, quoteApi, consolidationApi } from '@/api'
 import { useWallet } from '@/hooks/useWallet'
 import { formatDate } from '@/utils'
 import { ParcelCartProvider, useParcelCart } from '@/context/ParcelCartContext'
@@ -130,6 +131,42 @@ function StepIndicator({ currentStep }) {
   )
 }
 
+// ── Consolidation hint ────────────────────────────────────────────────────────
+// Same normalisation as the backend (ConsolidationService.AddressKey) so the keys match.
+const normPart = v => (v || '').split(/\s+/).filter(Boolean).join(' ').toLowerCase()
+const addressKey = a => [a?.streetAddress, a?.suburb, a?.city, a?.postalCode].map(normPart).join('|')
+const asList = d => (Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])
+
+// Tells the customer when a parcel already waiting in the warehouse is going to the address they typed.
+function ConsolidationHint() {
+  const { watch } = useFormContext()
+  const delivery = watch('deliveryAddress')
+  const { data } = useQuery({
+    queryKey: ['consolidation', 'eligible'],
+    queryFn: consolidationApi.eligible,
+    staleTime: 60_000,
+    retry: false,
+  })
+
+  const street = (delivery?.streetAddress || '').trim()
+  if (street.length < 5) return null
+  const key = addressKey(delivery)
+  const matches = asList(data).filter(p => p.addressKey === key)
+  if (matches.length === 0) return null
+
+  return (
+    <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border text-sm bg-blue-50 text-blue-700 border-blue-200">
+      <Package size={16} className="mt-0.5 shrink-0" />
+      <div>
+        You already have {matches.length === 1 ? 'a parcel' : `${matches.length} parcels`} in our warehouse going to this
+        address. Once this new parcel reaches the warehouse you can{' '}
+        <Link to="/customer/consolidation" className="font-semibold underline">combine them into one shipment</Link>{' '}
+        and save.
+      </div>
+    </div>
+  )
+}
+
 // ── Step 1: Addresses ─────────────────────────────────────────────────────────
 function Step1Addresses({ onNext }) {
   const { register, handleSubmit, setError, clearErrors, formState: { errors } } = useFormContext()
@@ -190,6 +227,7 @@ function Step1Addresses({ onNext }) {
           </div>
         </div>
       ))}
+      <ConsolidationHint />
       <div className="flex justify-end pt-2">
         <button type="button" onClick={submit} className="btn-primary">Continue <ChevronRight size={16} /></button>
       </div>

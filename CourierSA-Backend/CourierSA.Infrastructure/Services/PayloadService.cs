@@ -187,13 +187,24 @@ public class PayloadService : IPayloadService
         var route = await GetEditableRouteAsync(routeId, ct);
         var (busyDrivers, busyVehicles) = await GetBusyAsync(routeId, ct);
 
-        var drivers = await _uow.Query<DriverProfile>().Query().AsNoTracking()
+        // A standby driver is anyone who can be called in: on shift (Available) or off duty.
+        // Suspended drivers can never take an overflow run. A driver flagged OnDelivery only counts
+        // as busy if they really have an open delivery; a stale flag is treated as Available
+        // (same self-healing rule as DriversController).
+        var candidates = await _uow.Query<DriverProfile>().Query().AsNoTracking()
             .Include(d => d.User)
-            // A standby driver is anyone who can be called in: on shift (Available) or off duty.
-            // OnDelivery and Suspended drivers can never take an overflow run.
-            .Where(d => (d.Status == DriverStatus.Available || d.Status == DriverStatus.OffDuty)
+            .Include(d => d.Deliveries
+                .Where(del => del.Status != DeliveryStatus.Delivered &&
+                              del.Status != DeliveryStatus.Failed)
+                .Take(1))
+            .Where(d => !d.IsDeleted
+                        && d.Status != DriverStatus.Suspended
                         && d.Id != route.DriverId)
             .ToListAsync(ct);
+
+        var drivers = candidates
+            .Where(d => d.Status != DriverStatus.OnDelivery || !d.Deliveries.Any())
+            .ToList();
 
         var vehicles = await _uow.Query<Vehicle>().Query().AsNoTracking()
             .Where(v => v.Status == VehicleStatus.Active && v.Id != route.VehicleId)
@@ -313,9 +324,14 @@ public class PayloadService : IPayloadService
 
         var driver = await _uow.Query<DriverProfile>().Query()
             .Include(d => d.User)
-            .FirstOrDefaultAsync(d => d.Id == dto.StandbyDriverId, ct)
+            .Include(d => d.Deliveries
+                .Where(del => del.Status != DeliveryStatus.Delivered &&
+                              del.Status != DeliveryStatus.Failed)
+                .Take(1))
+            .FirstOrDefaultAsync(d => d.Id == dto.StandbyDriverId && !d.IsDeleted, ct)
             ?? throw new NotFoundException("Standby driver not found.");
-        if (driver.Status is DriverStatus.Suspended or DriverStatus.OnDelivery)
+        if (driver.Status == DriverStatus.Suspended ||
+            (driver.Status == DriverStatus.OnDelivery && driver.Deliveries.Any()))
             throw new BadRequestException($"The standby driver is not available (status: {driver.Status}).");
 
         var vehicle = await _uow.Query<Vehicle>().GetByIdAsync(dto.StandbyVehicleId, ct)

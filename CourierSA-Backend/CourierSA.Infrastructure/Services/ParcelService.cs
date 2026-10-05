@@ -411,6 +411,44 @@ public class ParcelService : IParcelService
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", bin.BinCode, ct);
+
+        await SuggestConsolidationAsync(parcel, ct);
+    }
+
+    /// <summary>
+    /// When a customer already has another parcel waiting in the warehouse for the same destination,
+    /// tell them they can combine the two and save. Best effort: never blocks the check-in.
+    /// </summary>
+    private async Task SuggestConsolidationAsync(Parcel parcel, CancellationToken ct)
+    {
+        try
+        {
+            var address = await _uow.Query<ParcelAddress>().GetByIdAsync(parcel.DeliveryAddressId, ct);
+            if (address is null) return;
+            var key = ConsolidationService.AddressKey(address);
+
+            var others = await _uow.Query<Parcel>().Query().AsNoTracking()
+                .Include(p => p.DeliveryAddress)
+                .Where(p => p.CustomerId == parcel.CustomerId && p.Id != parcel.Id
+                            && p.Status == ParcelStatus.InWarehouse)
+                .ToListAsync(ct);
+            var matching = others.Count(p => ConsolidationService.AddressKey(p.DeliveryAddress) == key);
+            if (matching == 0) return;
+
+            var customer = await _uow.Query<CustomerProfile>().GetByIdAsync(parcel.CustomerId, ct);
+            if (customer is null) return;
+
+            await _notificationService.SendSystemAlertAsync(
+                customer.UserId,
+                "Combine your parcels and save",
+                $"You have {matching + 1} parcels in our warehouse going to the same address. " +
+                "Open Consolidate to ship them as one and get a discount.",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[NOTIFY] consolidation suggestion failed: {ex.Message}");
+        }
     }
 
     public async Task CheckoutAsync(Guid parcelId, Guid staffId, CancellationToken ct = default)
