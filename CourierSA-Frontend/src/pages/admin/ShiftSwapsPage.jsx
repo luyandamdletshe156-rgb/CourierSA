@@ -4,96 +4,101 @@ import AppShell from '@/components/layout/AppShell'
 import SummaryLine from '@/components/roster/SummaryLine'
 import { EmptyState, PageLoader, Alert } from '@/components/ui'
 import { shiftApi } from '@/api'
-import { unwrap, dayKey, daysFromToday, relativeDay, SHIFT_TONE } from '@/utils/roster'
-import { formatDate } from '@/utils'
+import { unwrap, dayKey, daysFromToday, formatDate } from '@/utils/roster'
 import clsx from 'clsx'
-import { ArrowRight, Repeat } from 'lucide-react'
+import { Repeat, ArrowRight, X } from 'lucide-react'
 
-// Shift Swaps (admin): a swap only appears once the other driver has accepted,
-// so each row is just the final yes or no.
-
-const FILTERS = ['All', 'Morning', 'Afternoon']
-
-function SwapRow({ r, onDone }) {
+function SwapCard({ r, onDone }) {
   const qc = useQueryClient()
   const [rejecting, setRejecting] = useState(false)
   const [notes, setNotes] = useState('')
+
   const review = useMutation({
     mutationFn: approve => shiftApi.reviewSwap(r.id, { approve, notes }),
     onSuccess: (_res, approve) => {
       ;['pending-swaps', 'roster'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
-      onDone(approve ? `Swap approved. ${r.peerName} now works the ${r.shiftType.toLowerCase()} shift on ${formatDate(r.date)}.` : 'Swap rejected. The original shift stays as rostered.')
+      onDone(approve ? `Swap approved. ${r.peerName} now works this shift.` : 'Swap rejected. Original shift remains.')
     },
   })
-  const tone = SHIFT_TONE[r.shiftType]
-  const when = dayKey(r.date)
 
   return (
-    <li className="px-4 py-3.5 space-y-2.5">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div className="w-28">
-          <p className="text-sm font-bold">{formatDate(r.date)}</p>
-          <p className="text-xs text-[#64748B]">{relativeDay(when)}</p>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+      <div className="p-5 border-b border-slate-100 flex justify-between items-start bg-slate-50">
+        <div>
+          <p className="font-bold text-slate-900 text-lg">{formatDate(r.date)}</p>
+          <span className={clsx("inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase", 
+            r.shiftType === 'Morning' ? "bg-amber-100 text-amber-800" : "bg-indigo-100 text-indigo-800")}>
+            {r.shiftType} Shift
+          </span>
         </div>
-        <span className={clsx('text-xs font-bold px-2.5 py-1 rounded-full', tone?.pill ?? 'bg-[#F1F5F9] text-[#475569]')}>{tone?.letter} {r.shiftType}</span>
-        <p className="flex items-center gap-2 text-sm min-w-0">
-          <b className="truncate">{r.requesterName}</b><ArrowRight size={14} className="text-[#64748B] shrink-0" /><b className="truncate">{r.peerName}</b>
-        </p>
-        {!rejecting && (
-          <div className="ml-auto flex gap-2">
-            <button className="btn-primary btn-sm text-xs" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve</button>
-            <button className="btn-secondary btn-sm text-xs" disabled={review.isPending} onClick={() => setRejecting(true)}>Reject</button>
-          </div>
-        )}
+        {daysFromToday(dayKey(r.date)) <= 2 && <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide">Happening Soon</span>}
       </div>
-      {r.reason && <p className="text-xs text-[#475569]">“{r.reason}”</p>}
-      {review.error && <Alert type="error" message={review.error.message} />}
-      {rejecting && (
-        <div className="flex flex-wrap gap-2">
-          <input className="input flex-1 min-w-[220px]" placeholder="Why are you rejecting this swap?" value={notes} onChange={e => setNotes(e.target.value)} autoFocus />
-          <button className="btn-danger btn-sm text-xs" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Confirm rejection</button>
-          <button className="btn-ghost btn-sm text-xs" onClick={() => { setRejecting(false); setNotes('') }}>Back</button>
+
+      <div className="p-5 flex-1">
+        <div className="flex items-center justify-between mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
+          <div className="text-center w-2/5">
+            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">Rostered</p>
+            <p className="font-bold text-slate-800 truncate">{r.requesterName}</p>
+          </div>
+          <div className="w-1/5 flex justify-center text-slate-400">
+             <ArrowRight size={20} />
+          </div>
+          <div className="text-center w-2/5">
+            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">Taking Over</p>
+            <p className="font-bold text-blue-700 truncate">{r.peerName}</p>
+          </div>
         </div>
-      )}
-    </li>
+        {r.reason && <p className="text-sm text-slate-600 italic">"{r.reason}"</p>}
+        {review.error && <div className="mt-3"><Alert type="error" message={review.error.message} /></div>}
+      </div>
+
+      <div className="p-4 border-t border-slate-100 bg-slate-50 mt-auto relative overflow-hidden h-[72px]">
+        {/* Main Action Buttons */}
+        <div className={clsx("absolute inset-0 p-4 flex gap-3 transition-transform duration-300", rejecting ? "-translate-y-full" : "translate-y-0")}>
+          <button className="btn-secondary flex-1 bg-white hover:bg-red-50 text-red-600 border-red-200" onClick={() => setRejecting(true)}>Reject</button>
+          <button className="btn-primary flex-1 bg-green-600 hover:bg-green-700 border-none" disabled={review.isPending} onClick={() => review.mutate(true)}>Approve Swap</button>
+        </div>
+
+        {/* Reject Sliding Form */}
+        <div className={clsx("absolute inset-0 p-3 flex gap-2 items-center bg-red-50 transition-transform duration-300", rejecting ? "translate-y-0" : "translate-y-full")}>
+           <input className="input flex-1 py-2 text-sm border-red-200 focus:ring-red-500" placeholder="Reason for rejecting..." value={notes} onChange={e => setNotes(e.target.value)} autoFocus={rejecting} />
+           <button className="btn-primary py-2 px-4 bg-red-600 hover:bg-red-700 border-none text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Confirm</button>
+           <button className="p-2 text-slate-500 hover:bg-red-100 rounded-lg" onClick={() => { setRejecting(false); setNotes('') }}><X size={20} /></button>
+        </div>
+      </div>
+    </div>
   )
 }
 
 export default function ShiftSwapsPage() {
-  const [filter, setFilter] = useState('All')
   const [flash, setFlash] = useState('')
   const swaps = useQuery({ queryKey: ['pending-swaps'], queryFn: () => shiftApi.pendingSwaps(), refetchInterval: 30000 })
-  const all = unwrap(swaps.data)
-  const visible = all.filter(s => filter === 'All' || s.shiftType === filter).sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)))
+  const all = unwrap(swaps.data) ?? []
+  
+  const sorted = [...all].sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)))
   const soon = all.filter(s => daysFromToday(dayKey(s.date)) <= 2).length
 
   return (
     <AppShell title="Shift Swaps">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Shift Swaps</h1>
-          <p className="page-subtitle">The other driver has already agreed. Approve to move the shift across.</p>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-slate-900">Shift Swaps</h1>
+        <p className="text-slate-500 mt-2 text-lg">Approve shift trades between drivers. Both drivers have already agreed.</p>
       </div>
 
-      <SummaryLine items={[{ value: all.length, label: 'waiting' }, { value: soon, label: 'within 2 days', tone: soon ? 'warn' : undefined }]} />
-      {flash && <div className="mb-4"><Alert type="success" message={flash} /></div>}
+      <SummaryLine items={[
+        { value: all.length, label: 'Pending Swaps' }, 
+        { value: soon, label: 'Within 48 Hours', tone: soon ? 'warn' : undefined }
+      ]} />
+      
+      {flash && <div className="mb-6"><Alert type="success" message={flash} /></div>}
 
       {swaps.isLoading ? <PageLoader /> : swaps.error ? (
-        <Alert type="error" message={`Could not load swaps: ${swaps.error.message}`} />
+        <Alert type="error" message={swaps.error.message} />
       ) : all.length === 0 ? (
-        <EmptyState icon={Repeat} title="No swaps waiting" description="Swaps appear here once the other driver has accepted." />
+        <EmptyState icon={Repeat} title="No swaps waiting" description="When drivers agree to trade a shift, it will appear here for final approval." />
       ) : (
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map(f => (
-              <button key={f} onClick={() => setFilter(f)}
-                className={clsx('px-3 py-1 rounded-full text-xs font-semibold border', filter === f ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1]')}>{f === 'All' ? 'All shifts' : f}</button>
-            ))}
-          </div>
-          {visible.length === 0
-            ? <p className="text-sm text-[#64748B]">No {filter.toLowerCase()} swaps waiting.</p>
-            : <ul className="card p-0 divide-y divide-[#E2E8F0]">{visible.map(r => <SwapRow key={r.id} r={r} onDone={setFlash} />)}</ul>}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in">
+           {sorted.map(r => <SwapCard key={r.id} r={r} onDone={setFlash} />)}
         </div>
       )}
     </AppShell>

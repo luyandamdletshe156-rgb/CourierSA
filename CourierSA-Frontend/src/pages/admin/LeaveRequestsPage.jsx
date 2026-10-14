@@ -1,210 +1,241 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import SummaryLine from '@/components/roster/SummaryLine'
 import { EmptyState, PageLoader, Alert } from '@/components/ui'
 import { shiftApi } from '@/api'
-import { unwrap, unwrapObj, dayKey, daysFromToday, inclusiveDays, relativeDay, shortDate } from '@/utils/roster'
-import { formatDate } from '@/utils'
+import { unwrap, unwrapObj, dayKey, daysFromToday, inclusiveDays, formatDate, shortDate } from '@/utils/roster'
 import clsx from 'clsx'
-import { Search, Inbox, CheckCircle2 } from 'lucide-react'
+import { Search, Inbox, CheckCircle2, ArrowLeft, Plane, AlertTriangle, Stethoscope, HeartPulse, Calendar } from 'lucide-react'
 
-// Leave Requests (admin): the queue on the left, the open request on the right.
-// The first request is open by default, so there is always something to act on.
+// ── Drill-down Detail Component ──────────────────────────────────────────────
 
-const TYPES = ['All types', 'Annual', 'Sick', 'Emergency']
-const SORTS = [{ key: 'soonest', label: 'Starts soonest' }, { key: 'shifts', label: 'Most shifts affected' }]
-
-const Section = ({ title, hint, children }) => (
-  <section className="space-y-2 border-t border-[#E2E8F0] pt-4">
-    <div>
-      <h3 className="text-sm font-bold text-[#0F172A]">{title}</h3>
-      {hint && <p className="text-xs text-[#64748B]">{hint}</p>}
-    </div>
-    {children}
-  </section>
-)
-
-function UrgencyTag({ start }) {
-  const n = daysFromToday(dayKey(start))
-  if (n > 3) return null
-  return <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#B91C1C]">{n <= 0 ? 'Started' : n === 1 ? 'Starts tomorrow' : `Starts in ${n} days`}</span>
-}
-
-function QueueRow({ r, active, onSelect }) {
-  const days = inclusiveDays(r.startDate, r.endDate)
-  return (
-    <li>
-      <button type="button" onClick={() => onSelect(r.id)}
-        className={clsx('w-full text-left px-4 py-3 border-l-4 transition space-y-1', active ? 'border-[#0A3D91] bg-[#F6FAFF]' : 'border-transparent hover:bg-[#F8FAFC]')}>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-bold text-[#0F172A]">{r.driverName}</p>
-          <span className="text-[11px] font-semibold text-[#475569] whitespace-nowrap">{r.affectedShifts} shift{r.affectedShifts === 1 ? '' : 's'}</span>
-        </div>
-        <p className="text-xs text-[#64748B]">{r.leaveType} · {shortDate(dayKey(r.startDate))} – {shortDate(dayKey(r.endDate))} · {days} day{days === 1 ? '' : 's'}</p>
-        <UrgencyTag start={r.startDate} />
-      </button>
-    </li>
-  )
-}
-
-function RequestDetail({ r, onDone }) {
+function RequestDetail({ r, onDone, onBack }) {
   const qc = useQueryClient()
   const [notes, setNotes] = useState('')
   const [override, setOverride] = useState(false)
   const [standbyId, setStandbyId] = useState('')
 
-  const { data: impactRes, isLoading, error: impactError } = useQuery({ queryKey: ['leave-impact', r.id], queryFn: () => shiftApi.leaveImpact(r.id) })
+  const { data: impactRes, isLoading } = useQuery({ queryKey: ['leave-impact', r.id], queryFn: () => shiftApi.leaveImpact(r.id) })
   const impact = unwrapObj(impactRes)
   const rows = impact?.rows ?? []
-  const standbyPool = impact?.standbyPool ?? []
   const short = impact?.shortSlots ?? 0
   const days = inclusiveDays(r.startDate, r.endDate)
 
   const review = useMutation({
     mutationFn: approve => shiftApi.reviewLeave(r.id, { approve, notes, allowUnderstaffed: override, standbyDriverId: standbyId || null }),
     onSuccess: (res, approve) => {
-      const out = unwrapObj(res)
       ;['pending-leave', 'open-shifts', 'roster'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
-      onDone(approve
-        ? `Approved leave for ${r.driverName}. ${out?.reassignedShifts ?? 0} shift(s) reassigned, ${out?.openShifts ?? 0} left open.`
-        : `Rejected leave for ${r.driverName}.`)
+      onDone(approve ? `Approved leave for ${r.driverName}. Shifts reassigned.` : `Rejected leave for ${r.driverName}.`)
     },
   })
 
   return (
-    <div className="card p-5 space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-lg font-bold text-[#0F172A]">{r.driverName}</p>
-          <p className="text-sm text-[#64748B]">{r.leaveType} leave · {formatDate(r.startDate)} – {formatDate(r.endDate)} · {days} day{days === 1 ? '' : 's'} · {relativeDay(dayKey(r.startDate)).toLowerCase()}</p>
-        </div>
-        <UrgencyTag start={r.startDate} />
-      </div>
-      {r.reason && <p className="text-sm bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2">{r.reason}</p>}
-      {review.error && <Alert type="error" message={review.error.message} />}
+    <div className="animate-in fade-in max-w-4xl mx-auto space-y-6">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-500 hover:text-blue-700 font-bold mb-2 transition">
+        <ArrowLeft size={18} /> Back to Leave Queue
+      </button>
 
-      <Section title="Effect on depot cover">
-        {isLoading && <p className="text-xs text-[#64748B]">Calculating coverage…</p>}
-        {impactError && <Alert type="error" message={`Could not load coverage impact: ${impactError.message}`} />}
-        {!isLoading && !impactError && rows.length === 0 && <p className="text-xs text-[#64748B]">No scheduled shifts fall in this period, so cover is not affected.</p>}
-        {rows.length > 0 && (
-          <div className="border border-[#E2E8F0] rounded-xl overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-[#64748B] bg-[#F8FAFC]">
-                  <th className="px-3 py-2">Day</th><th className="px-3 py-2">Shift</th><th className="px-3 py-2">Scheduled</th>
-                  <th className="px-3 py-2">After leave</th><th className="px-3 py-2">Minimum</th><th className="px-3 py-2">Cover free</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E2E8F0]">
-                {rows.map(row => (
-                  <tr key={`${row.date}-${row.shiftType}`}>
-                    <td className="px-3 py-2 font-semibold">{formatDate(row.date)}</td>
-                    <td className="px-3 py-2">{row.shiftType}</td>
-                    <td className="px-3 py-2">{row.scheduled}</td>
-                    <td className="px-3 py-2">
-                      <span className={clsx('font-bold px-2 py-0.5 rounded-full', row.belowMinimum ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F0FDF4] text-[#166534]')}>{row.afterLeave} {row.belowMinimum ? '✕' : '✓'}</span>
-                    </td>
-                    <td className="px-3 py-2">{row.minimum}</td>
-                    <td className="px-3 py-2">{row.availableCover}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Header Block */}
+        <div className="p-8 border-b border-slate-100 bg-slate-50">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wider rounded-full">{r.leaveType} Leave</span>
+            {daysFromToday(dayKey(r.startDate)) <= 3 && <span className="px-3 py-1 bg-red-100 text-red-800 text-xs font-bold uppercase tracking-wider rounded-full">Urgent</span>}
           </div>
-        )}
-        {short > 0
-          ? <Alert type="error" message={`Cover drops below the minimum on ${short} shift(s). Pick a standby, or approve anyway and fill the open shifts afterwards.`} />
-          : rows.length > 0 && <Alert type="success" message="Every affected shift stays at or above the minimum." />}
-      </Section>
-
-      {rows.length > 0 && (
-        <Section title="Who covers" hint="Leave on automatic to use the least-loaded driver who is free.">
-          <select className="input" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
-            <option value="">Automatic (least-loaded available driver)</option>
-            {standbyPool.map(d => <option key={d.driverId} value={d.driverId}>{d.name} · can cover {d.canCover} of {rows.length} shift(s)</option>)}
-          </select>
-          {standbyPool.length === 0 && <p className="text-xs text-[#B91C1C]">No driver is free on any affected day, so shifts will be left open.</p>}
-        </Section>
-      )}
-
-      <Section title="Decision">
-        <textarea className="input" rows={2} placeholder="Notes (required if rejecting)" value={notes} onChange={e => setNotes(e.target.value)} />
-        {short > 0 && (
-          <label className="flex items-center gap-2 text-xs text-[#475569]">
-            <input type="checkbox" checked={override} onChange={e => setOverride(e.target.checked)} /> Approve even though the depot will be understaffed
-          </label>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <button className="btn-primary text-sm" disabled={review.isPending || (short > 0 && !override)} onClick={() => review.mutate(true)}>
-            <CheckCircle2 size={14} /> Approve &amp; reassign
-          </button>
-          <button className="btn-danger text-sm" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>Reject</button>
+          <h2 className="text-3xl font-bold text-slate-900 mb-2">{r.driverName}</h2>
+          <p className="text-lg text-slate-500 flex items-center gap-2">
+            <Plane size={18} /> {formatDate(r.startDate)} – {formatDate(r.endDate)} ({days} days)
+          </p>
+          {r.reason && <div className="mt-6 p-4 bg-white border border-slate-200 rounded-lg text-slate-700 italic">"{r.reason}"</div>}
         </div>
-      </Section>
+
+        <div className="p-8 space-y-8">
+          {/* Coverage Impact Section */}
+          <section>
+            <h3 className="text-xl font-bold text-slate-800 mb-4">Effect on Depot Coverage</h3>
+            {isLoading ? <PageLoader /> : rows.length === 0 ? (
+              <div className="p-6 text-center bg-slate-50 border border-slate-200 rounded-xl text-slate-500">No scheduled shifts fall in this period. Cover is not affected.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs tracking-wider">
+                      <tr>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Shift</th>
+                        <th className="px-4 py-3 text-center">Scheduled</th>
+                        <th className="px-4 py-3 text-center">After Leave</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map(row => (
+                        <tr key={`${row.date}-${row.shiftType}`}>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3 text-slate-600">{row.shiftType}</td>
+                          <td className="px-4 py-3 text-center">{row.scheduled}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={clsx('font-bold px-3 py-1 rounded-full', row.belowMinimum ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700')}>
+                              {row.afterLeave} {row.belowMinimum ? '(Under Minimum)' : '(OK)'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {short > 0 ? (
+                  <Alert type="error" message={`Warning: Coverage drops below the minimum on ${short} shift(s).`} />
+                ) : <Alert type="success" message="All affected shifts remain at or above the minimum required drivers." />}
+              </div>
+            )}
+          </section>
+
+          {/* Standby Reassignment Section */}
+          {rows.length > 0 && (
+            <section className="bg-blue-50 p-6 rounded-xl border border-blue-100">
+              <h3 className="font-bold text-blue-900 mb-2">Automated Reassignment</h3>
+              <p className="text-sm text-blue-700 mb-4">Select who should cover the shifts dropped by this leave.</p>
+              <select className="input w-full md:w-1/2 bg-white" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
+                <option value="">System Default (Least-loaded available driver)</option>
+                {impact?.standbyPool?.map(d => <option key={d.driverId} value={d.driverId}>{d.name} (Available for {d.canCover} shifts)</option>)}
+              </select>
+            </section>
+          )}
+
+          {/* Action / Decision Section */}
+          <section className="border-t border-slate-200 pt-8">
+            <h3 className="text-xl font-bold text-slate-800 mb-4">Final Decision</h3>
+            <textarea 
+              className="input w-full p-4 bg-slate-50 border-slate-200 rounded-xl mb-4" 
+              rows={2} 
+              placeholder="Add administrative notes (Required if rejecting)..." 
+              value={notes} 
+              onChange={e => setNotes(e.target.value)} 
+            />
+            {short > 0 && (
+              <label className="flex items-center gap-3 p-4 border border-amber-200 bg-amber-50 rounded-xl mb-6 cursor-pointer">
+                <input type="checkbox" className="w-5 h-5 text-amber-600 rounded" checked={override} onChange={e => setOverride(e.target.checked)} /> 
+                <span className="font-bold text-amber-800">I acknowledge the depot will be understaffed and approve anyway.</span>
+              </label>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button 
+                className="btn-primary flex-1 py-4 text-lg justify-center shadow-md" 
+                disabled={review.isPending || (short > 0 && !override)} 
+                onClick={() => review.mutate(true)}
+              >
+                <CheckCircle2 size={20} className="mr-2" /> Approve Leave
+              </button>
+              <button 
+                className="btn-secondary flex-1 py-4 text-lg justify-center bg-white border-red-200 text-red-600 hover:bg-red-50" 
+                disabled={review.isPending || !notes.trim()} 
+                onClick={() => review.mutate(false)}
+              >
+                Reject Leave
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
 
+// ── Dashboard Categories ─────────────────────────────────────────────────────
+
+const LEAVE_CATEGORIES = [
+  { key: 'Emergency', title: 'Emergency Leave', icon: HeartPulse, color: 'text-red-600' },
+  { key: 'Sick', title: 'Sick Leave', icon: Stethoscope, color: 'text-amber-600' },
+  { key: 'Annual', title: 'Annual Leave', icon: Calendar, color: 'text-blue-600' },
+  { key: 'Other', title: 'Other Requests', icon: Inbox, color: 'text-slate-600' }
+]
+
+// ── Page Entry Point ─────────────────────────────────────────────────────────
+
 export default function LeaveRequestsPage() {
   const [selectedId, setSelectedId] = useState(null)
-  const [type, setType] = useState('All types')
-  const [sort, setSort] = useState('soonest')
   const [search, setSearch] = useState('')
   const [flash, setFlash] = useState('')
 
-  const leave = useQuery({ queryKey: ['pending-leave'], queryFn: () => shiftApi.pendingLeave(), refetchInterval: 30000 })
-  const all = unwrap(leave.data)
-  const visible = all
-    .filter(r => type === 'All types' || r.leaveType === type)
-    .filter(r => r.driverName.toLowerCase().includes(search.trim().toLowerCase()))
-    .sort((a, b) => sort === 'shifts' ? b.affectedShifts - a.affectedShifts : dayKey(a.startDate).localeCompare(dayKey(b.startDate)))
-
-  const selected = visible.find(r => r.id === selectedId) ?? visible[0]
+  const { data: leaveData, isLoading } = useQuery({ queryKey: ['pending-leave'], queryFn: () => shiftApi.pendingLeave(), refetchInterval: 30000 })
+  const all = unwrap(leaveData) ?? []
+  
+  const shown = useMemo(() => all.filter(r => r.driverName.toLowerCase().includes(search.toLowerCase())), [all, search])
   const soon = all.filter(r => daysFromToday(dayKey(r.startDate)) <= 7).length
-  const totalShifts = all.reduce((s, r) => s + (r.affectedShifts ?? 0), 0)
 
   return (
     <AppShell title="Leave Requests">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Leave Requests</h1>
-          <p className="page-subtitle">See what each request does to depot cover, then decide. Approved shifts are reassigned for you.</p>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-slate-900">Leave Requests</h1>
+        <p className="text-slate-500 mt-2 text-lg">Review staff leave requests, analyze depot impact, and approve absence.</p>
       </div>
 
-      <SummaryLine items={[
-        { value: all.length, label: 'pending' },
-        { value: soon, label: 'start within 7 days', tone: soon ? 'warn' : undefined },
-        { value: totalShifts, label: 'shifts affected' },
-      ]} />
+      {flash && <div className="mb-6"><Alert type="success" message={flash} /></div>}
 
-      {flash && <div className="mb-4"><Alert type="success" message={flash} /></div>}
-
-      {leave.isLoading ? <PageLoader /> : leave.error ? (
-        <Alert type="error" message={`Could not load leave requests: ${leave.error.message}`} />
-      ) : all.length === 0 ? (
-        <EmptyState icon={Inbox} title="No pending leave requests" description="Driver leave requests appear here for approval." />
+      {isLoading ? <PageLoader /> : all.length === 0 ? (
+        <EmptyState icon={Inbox} title="Queue is empty" description="No drivers have requested leave." />
+      ) : selectedId ? (
+        <RequestDetail r={all.find(r => r.id === selectedId)} onBack={() => setSelectedId(null)} onDone={msg => { setFlash(msg); setSelectedId(null); }} />
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-6 items-start">
-          <div className="space-y-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-              <input className="input pl-9 text-sm" placeholder="Find a driver…" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <select className="input text-sm" value={type} onChange={e => setType(e.target.value)} aria-label="Leave type">{TYPES.map(t => <option key={t}>{t}</option>)}</select>
-              <select className="input text-sm" value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort requests">{SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
-            </div>
-            <ul className="card p-0 divide-y divide-[#E2E8F0] overflow-hidden">
-              {visible.map(r => <QueueRow key={r.id} r={r} active={selected?.id === r.id} onSelect={id => { setSelectedId(id); setFlash('') }} />)}
-              {visible.length === 0 && <li className="px-4 py-4 text-xs text-[#64748B]">No requests match your filters.</li>}
-            </ul>
+        <div className="space-y-8 animate-in fade-in">
+          <SummaryLine items={[
+            { value: all.length, label: 'Pending Requests' },
+            { value: soon, label: 'Start Within 7 Days', tone: soon ? 'warn' : undefined },
+          ]} />
+
+          <div className="relative max-w-md">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input className="input pl-10 w-full bg-white shadow-sm border-slate-200" placeholder="Search driver name..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
 
-          <div className="xl:sticky xl:top-4">
-            {selected && <RequestDetail key={selected.id} r={selected} onDone={msg => { setFlash(msg); setSelectedId(null) }} />}
+          <div className="space-y-10">
+            {LEAVE_CATEGORIES.map(cat => {
+              const categoryRequests = shown.filter(r => 
+                cat.key === 'Other' 
+                  ? !['Emergency', 'Sick', 'Annual'].includes(r.leaveType) 
+                  : r.leaveType === cat.key
+              )
+
+              if (categoryRequests.length === 0) return null
+
+              const Icon = cat.icon
+
+              return (
+                <div key={cat.key} className="space-y-4">
+                  <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                    <Icon size={20} className={cat.color} />
+                    <h3 className="text-xl font-bold text-slate-800">{cat.title}</h3>
+                    <span className="bg-slate-100 text-slate-600 text-sm font-bold px-2.5 py-0.5 rounded-full ml-2">
+                      {categoryRequests.length}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                    {categoryRequests.map(r => {
+                      const days = inclusiveDays(r.startDate, r.endDate)
+                      const urgent = daysFromToday(dayKey(r.startDate)) <= 3
+                      return (
+                        <button key={r.id} onClick={() => setSelectedId(r.id)} className="text-left bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-400 transition group flex flex-col h-full">
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-slate-500 font-medium text-sm">{shortDate(dayKey(r.startDate))} – {shortDate(dayKey(r.endDate))}</span>
+                            {urgent && <span className="flex items-center gap-1 text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md"><AlertTriangle size={14}/> Urgent</span>}
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-900">{r.driverName}</h3>
+                          {r.reason && <p className="text-slate-500 mt-2 text-sm line-clamp-2 italic">"{r.reason}"</p>}
+                          
+                          <div className="mt-auto pt-6 flex justify-between items-center text-sm font-bold text-blue-600 group-hover:text-blue-700">
+                            <span>Review Request ({days} days)</span> <ArrowLeft className="rotate-180" size={18} />
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+            
+            {shown.length === 0 && <p className="text-slate-500 italic py-8 text-center">No requests match your search.</p>}
           </div>
         </div>
       )}
