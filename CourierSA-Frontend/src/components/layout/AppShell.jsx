@@ -9,7 +9,7 @@ import {
   BarChart3, Settings, LogOut, Menu, X,
   ClipboardCheck, MapPin, CreditCard, AlertTriangle, 
   RefreshCw, PackageX, RotateCcw, HandCoins, Archive, Search,
-  ShieldAlert, CalendarDays, Boxes
+  ShieldAlert, CalendarDays, Boxes, Plane, Repeat, UserX, Inbox
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -20,7 +20,10 @@ const NAV = {
     { label: 'Parcels',     icon: Package,         to: '/admin/parcels'     },
     { label: 'Users',       icon: Users,           to: '/admin/users'       },
     { label: 'Vehicles',    icon: Truck,           to: '/admin/vehicles'    },
-    { label: 'Roster & Leave', icon: CalendarDays, to: '/admin/roster'      },
+    { label: 'Roster Planner', icon: CalendarDays, to: '/admin/roster'      },
+    { label: 'Leave Requests', icon: Plane,        to: '/admin/leave'       },
+    { label: 'Shift Swaps',    icon: Repeat,       to: '/admin/swaps'       },
+    { label: 'Open Shifts',    icon: UserX,        to: '/admin/open-shifts' },
     { label: 'Lost Parcels',icon: PackageX,        to: '/admin/lost-parcels'},
     { label: 'Refunds',     icon: HandCoins,       to: '/admin/returns/refunds' },
     { label: 'Fraud Risk',  icon: ShieldAlert,     to: '/admin/fraud'       },
@@ -52,6 +55,8 @@ const NAV = {
     { label: 'Dashboard',     icon: LayoutDashboard, to: '/driver/dashboard'   },
     { label: 'My Deliveries', icon: Truck,           to: '/driver/deliveries'  },
     { label: 'My Schedule',   icon: CalendarDays,    to: '/driver/schedule'    },
+    { label: 'Request Leave', icon: Plane,           to: '/driver/leave'       },
+    { label: 'My Requests',   icon: Inbox,           to: '/driver/requests'    },
     { label: 'Return Collections', icon: RotateCcw,  to: '/driver/collections' },
     { label: 'History',       icon: FileText,        to: '/driver/history'     },
   ],

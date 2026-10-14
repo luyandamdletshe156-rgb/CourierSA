@@ -57,7 +57,12 @@ import RouteReleasePage from '@/pages/warehouse/RouteReleasePage'
 // Admin
 import { AdminDashboard } from '@/pages/admin/AdminDashboard'
 import RosterPage from '@/pages/admin/RosterPage'
+import LeaveRequestsPage from '@/pages/admin/LeaveRequestsPage'
+import ShiftSwapsPage from '@/pages/admin/ShiftSwapsPage'
+import OpenShiftsPage from '@/pages/admin/OpenShiftsPage'
 import DriverSchedulePage from '@/pages/driver/DriverSchedulePage'
+import DriverLeavePage from '@/pages/driver/DriverLeavePage'
+import DriverRequestsPage from '@/pages/driver/DriverRequestsPage'
 import { AdminReportsPage } from '@/pages/admin/AdminReports'
 import { VehicleInspectionsPage } from '@/pages/admin/VehicleInspections'
 import CreateStaffPage from '@/pages/admin/CreateStaffPage'
@@ -157,6 +162,8 @@ export default function App() {
                 <Route element={<RequireRole roles={['Driver']} />}>
                   <Route path="/driver/dashboard" element={<DriverDashboard />} />
                   <Route path="/driver/schedule" element={<DriverSchedulePage />} />
+                  <Route path="/driver/leave" element={<DriverLeavePage />} />
+                  <Route path="/driver/requests" element={<DriverRequestsPage />} />
                   <Route path="/driver/deliveries" element={<DriverDeliveries />} />
                   <Route path="/driver/collections" element={<DriverReturnCollections />} />
                   <Route path="/driver/route" element={<DriverRoute />} />
@@ -178,6 +185,9 @@ export default function App() {
                 <Route element={<RequireRole roles={['Administrator']} />}>
                   <Route path="/admin/dashboard" element={<AdminDashboard />} />
                   <Route path="/admin/roster" element={<RosterPage />} />
+                  <Route path="/admin/leave" element={<LeaveRequestsPage />} />
+                  <Route path="/admin/swaps" element={<ShiftSwapsPage />} />
+                  <Route path="/admin/open-shifts" element={<OpenShiftsPage />} />
                   <Route path="/admin/parcels" element={<AdminParcelsPage />} />
                   <Route path="/admin/users" element={<AdminDashboard />} />
                   <Route path="/admin/fleet" element={<AdminFleetPage />} />

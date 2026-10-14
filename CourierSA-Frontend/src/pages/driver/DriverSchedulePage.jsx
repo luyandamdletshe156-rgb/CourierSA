@@ -1,50 +1,25 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import { EmptyState, PageLoader, Alert } from '@/components/ui'
+import RosterSubNav from '@/components/roster/RosterSubNav'
+import { EmptyState, PageLoader, Alert, StatCard } from '@/components/ui'
 import { shiftApi } from '@/api'
+import {
+  iso, unwrap, dayKey, addDays, mondayOf, mondayKeyOf, shortDate, weekdayOf, weekLabel,
+  relativeDay, shiftHours, daysFromToday, SHIFT_TONE, DAY_LABELS,
+} from '@/utils/roster'
 import { formatDate } from '@/utils'
 import clsx from 'clsx'
-import { CalendarDays, Repeat, Plane } from 'lucide-react'
+import { CalendarDays, Repeat, Clock, Hourglass, ListChecks, CalendarRange, ArrowRight } from 'lucide-react'
 
-// Request Driver Leave and Request Shift Swap (driver).
-// Page order: swap replies that need you, then your shifts by week on the left;
-// request leave and the status of your requests on the right.
-const iso = d => {
-  const x = new Date(d)
-  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
-}
-const unwrap = d => (Array.isArray(d) ? d : d?.data ?? [])
-const LEAVE_TYPES = ['Annual', 'Sick', 'Emergency']
+// My Schedule (driver): only the shifts. Leave and requests have their own pages.
+// Page order: summary and next shift, anything waiting on you, then your shifts (list or calendar).
 
-const dayKey = d => String(d).slice(0, 10)
-const parseIso = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
-const mondayKeyOf = s => { const x = parseIso(s); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x) }
-const shortDate = s => parseIso(s).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })
-const weekdayOf = s => parseIso(s).toLocaleDateString('en-ZA', { weekday: 'short' })
-
-// "This week", "Next week", otherwise "Week of 19 Oct", plus the date range.
-function weekLabel(mondayKey) {
-  const thisMonday = mondayKeyOf(iso(new Date()))
-  const diffWeeks = Math.round((parseIso(mondayKey) - parseIso(thisMonday)) / (7 * 86400000))
-  const sunday = new Date(parseIso(mondayKey)); sunday.setDate(sunday.getDate() + 6)
-  const range = `${shortDate(mondayKey)} – ${shortDate(iso(sunday))}`
-  const name = diffWeeks === 0 ? 'This week' : diffWeeks === 1 ? 'Next week' : `Week of ${shortDate(mondayKey)}`
-  return { name, range }
-}
-
-const STATUS_TONE = {
-  Pending: 'bg-[#FFFBEB] text-[#92400E]',
-  Approved: 'bg-[#F0FDF4] text-[#166534]',
-  Rejected: 'bg-[#FEF2F2] text-[#B91C1C]',
-}
-function StatusPill({ status }) {
-  return (
-    <span className={clsx('text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap', STATUS_TONE[status] ?? 'bg-[#F1F5F9] text-[#475569]')}>
-      {status}
-    </span>
-  )
-}
+const VIEWS = [
+  { key: 'list', label: 'List', icon: ListChecks },
+  { key: 'calendar', label: 'Calendar', icon: CalendarRange },
+]
 
 function SwapForm({ shift, onDone }) {
   const [peerId, setPeerId] = useState('')
@@ -57,7 +32,7 @@ function SwapForm({ shift, onDone }) {
   })
   return (
     <div className="mt-3 space-y-2 border-t border-[#E2E8F0] pt-3">
-      <p className="text-xs text-[#64748B]">Offer this shift to a colleague who is off duty that day. They have to accept, then an admin approves.</p>
+      <p className="text-xs text-[#64748B]">Offer this shift to a colleague who is off duty that day. They accept first, then an admin approves.</p>
       <select className="input" value={peerId} onChange={e => setPeerId(e.target.value)}>
         <option value="">{peers.length ? 'Choose an off-duty colleague…' : 'No off-duty colleagues on this day'}</option>
         {peers.map(p => <option key={p.driverId} value={p.driverId}>{p.name}</option>)}
@@ -71,236 +46,168 @@ function SwapForm({ shift, onDone }) {
   )
 }
 
-function LeaveForm({ onDone }) {
-  const today = iso(new Date())
-  const [type, setType] = useState('Annual')
-  const [start, setStart] = useState(today)
-  const [end, setEnd] = useState(today)
-  const [reason, setReason] = useState('')
-
-  const { data: balanceRes } = useQuery({ queryKey: ['leave-balance'], queryFn: () => shiftApi.leaveBalance() })
-  const balance = balanceRes?.data ?? balanceRes
-  const items = balance?.items ?? []
-
-  // Live check: days requested, balance left, and clashes with published shifts
-  const { data: previewRes, error: previewError } = useQuery({
-    queryKey: ['leave-preview', type, start, end],
-    queryFn: () => shiftApi.previewLeave({ leaveType: type, startDate: start, endDate: end }),
-    enabled: !!start && !!end,
-  })
-  const preview = previewRes?.data ?? previewRes
-
-  const send = useMutation({
-    mutationFn: () => shiftApi.requestLeave({ leaveType: type, startDate: start, endDate: end, reason }),
-    onSuccess: () => { setReason(''); onDone() },
-  })
-  const blocked = !!preview && !preview.canSubmit
-
+function ShiftCard({ s, todayKey, swapOpen, onToggle, onSent }) {
+  const key = dayKey(s.date)
+  const tone = SHIFT_TONE[s.shiftType]
   return (
-    <div className="card p-5 space-y-4">
-      <h3 className="text-sm font-bold flex items-center gap-1.5"><Plane size={15} /> Request leave</h3>
-
-      {items.length > 0 && (
-        <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748B] mb-1">Leave balance · {balance.year}</p>
-          {items.map(i => (
-            <div key={i.leaveType} className="flex justify-between text-sm">
-              <span>{i.leaveType}</span>
-              <span className="font-semibold">
-                {i.remaining == null ? 'No cap' : `${i.remaining} of ${i.entitlement} days`}
-                {i.pending > 0 && <span className="text-xs font-normal text-[#64748B]"> ({i.pending} pending)</span>}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Fields, each labelled */}
-      <div className="space-y-3">
+    <div className={clsx('card p-4', key === todayKey && 'ring-2 ring-[#0A3D91]')}>
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <label className="label">Leave type</label>
-          <select className="input" value={type} onChange={e => setType(e.target.value)}>
-            {LEAVE_TYPES.map(t => <option key={t}>{t}</option>)}
-          </select>
+          <p className="text-sm font-bold flex flex-wrap items-center gap-1.5">
+            <CalendarDays size={14} /> {weekdayOf(key)} {formatDate(s.date)}
+            {key === todayKey && <span className="text-[11px] font-bold bg-[#DBEAFE] text-[#1D4ED8] px-2 py-0.5 rounded-full">Today</span>}
+          </p>
+          <p className="text-xs text-[#64748B] mt-0.5 flex flex-wrap items-center gap-1.5">
+            <span className={clsx('font-bold px-2 py-0.5 rounded-full', tone?.pill)}>{tone?.letter} {s.shiftType}</span>
+            {s.startTime}–{s.endTime} · {shiftHours(s)} h · {relativeDay(key)}
+          </p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">From</label>
-            <input type="date" className="input" min={today} value={start} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value) }} />
-          </div>
-          <div>
-            <label className="label">To</label>
-            <input type="date" className="input" min={start} value={end} onChange={e => setEnd(e.target.value)} />
-          </div>
-        </div>
-        <div>
-          <label className="label">Notes</label>
-          <textarea className="input" rows={2} placeholder="Optional" value={reason} onChange={e => setReason(e.target.value)} />
-        </div>
+        <button className="btn-secondary btn-sm text-xs" onClick={onToggle}>
+          <Repeat size={12} /> {swapOpen ? 'Close' : 'Swap'}
+        </button>
       </div>
-
-      {/* Live check of the request */}
-      {previewError && <Alert type="error" message={`Could not check your request: ${previewError.message}`} />}
-      {preview && preview.problem && <Alert type="error" message={preview.problem} />}
-      {preview && !preview.problem && (
-        <div className="space-y-2">
-          <Alert type="success" message={`${preview.daysRequested} day(s) requested · balance sufficient${preview.balanceRemaining == null ? ' (no cap for this type)' : ` · ${preview.balanceRemaining - preview.daysRequested} day(s) will remain`}`} />
-          {preview.publishedShiftClashes > 0 ? (
-            <Alert type="warning" message={`${preview.publishedShiftClashes} of your published shift(s) fall in these dates. If approved they will be reassigned to other drivers.`} />
-          ) : (
-            <Alert type="info" message="No clash with your published shifts." />
-          )}
-        </div>
-      )}
-
-      {send.error && <Alert type="error" message={send.error.message} />}
-      {send.isSuccess && <Alert type="success" message="Leave request sent for approval." />}
-      <button className="btn-primary text-sm w-full justify-center" disabled={send.isPending || blocked} onClick={() => send.mutate()}>
-        {send.isPending ? 'Sending…' : 'Submit leave request'}
-      </button>
+      {swapOpen && <SwapForm shift={s} onDone={onSent} />}
     </div>
   )
 }
 
 export default function DriverSchedulePage() {
   const qc = useQueryClient()
+  const [view, setView] = useState('list')
   const [swapFor, setSwapFor] = useState(null)
+  const [pickedDay, setPickedDay] = useState(null)
+  const [sentMsg, setSentMsg] = useState('')
+
   const todayKey = iso(new Date())
   const from = todayKey
   const to = iso(new Date(Date.now() + 28 * 86400000))
 
-  const { data: shiftsData, isLoading } = useQuery({ queryKey: ['my-shifts'], queryFn: () => shiftApi.myShifts(from, to) })
-  const { data: leaveData } = useQuery({ queryKey: ['my-leave'], queryFn: () => shiftApi.myLeave() })
+  const { data: shiftsData, isLoading, error } = useQuery({ queryKey: ['my-shifts'], queryFn: () => shiftApi.myShifts(from, to) })
   const { data: swapData } = useQuery({ queryKey: ['my-swaps'], queryFn: () => shiftApi.mySwaps() })
-  const shifts = unwrap(shiftsData), leave = unwrap(leaveData), swaps = unwrap(swapData)
+  const shifts = [...unwrap(shiftsData)].sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)))
+  const waiting = unwrap(swapData).filter(w => w.awaitingMyReply).length
 
-  const refresh = () => {
-    ['my-shifts', 'my-leave', 'my-swaps', 'leave-balance', 'leave-preview'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
-  }
-  const cancel = useMutation({ mutationFn: id => shiftApi.cancelLeave(id), onSuccess: refresh })
-  const respond = useMutation({ mutationFn: ({ id, accept }) => shiftApi.respondSwap(id, accept), onSuccess: refresh })
+  const refresh = () => ['my-shifts', 'my-swaps'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
+  const sent = () => { setSwapFor(null); setSentMsg('Swap request sent. Track it under My requests.'); refresh() }
 
-  // Swaps waiting on this driver are pulled out to the top; the rest stay in "My requests".
-  const needReply = swaps.filter(w => w.awaitingMyReply)
-  const otherSwaps = swaps.filter(w => !w.awaitingMyReply)
+  const byDay = {}
+  shifts.forEach(s => { byDay[dayKey(s.date)] = s })
+  const next = shifts.find(s => dayKey(s.date) >= todayKey)
+  const totalHours = shifts.reduce((sum, s) => sum + shiftHours(s), 0)
+  const mornings = shifts.filter(s => s.shiftType === 'Morning').length
 
-  // Shifts grouped by week, in date order.
+  // Shifts grouped by week for the list view
   const byWeek = new Map()
-  ;[...shifts].sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date))).forEach(s => {
-    const key = mondayKeyOf(dayKey(s.date))
-    if (!byWeek.has(key)) byWeek.set(key, [])
-    byWeek.get(key).push(s)
+  shifts.forEach(s => {
+    const k = mondayKeyOf(dayKey(s.date))
+    if (!byWeek.has(k)) byWeek.set(k, [])
+    byWeek.get(k).push(s)
   })
+
+  // Calendar: every week from this Monday to the last fetched day
+  const firstMonday = iso(mondayOf())
+  const weekKeys = []
+  for (let k = firstMonday; k <= to; k = addDays(k, 7)) weekKeys.push(k)
+  const picked = pickedDay ? byDay[pickedDay] : null
 
   return (
     <AppShell title="My Schedule">
       <div className="page-header">
         <div>
           <h1 className="page-title">My Schedule</h1>
-          <p className="page-subtitle">Your published shifts for the next four weeks. Request leave or offer a shift to an off-duty colleague.</p>
+          <p className="page-subtitle">Your published shifts for the next four weeks. Offer a shift to an off-duty colleague with Swap.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-        {/* Left: what needs you, then your shifts by week */}
-        <div className="xl:col-span-2 space-y-5">
-          {needReply.length > 0 && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-              <h2 className="text-sm font-bold text-amber-900">Waiting for your reply ({needReply.length})</h2>
-              {needReply.map(w => (
-                <div key={w.id} className="bg-white border border-amber-200 rounded-xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">{w.requesterName} asks you to take {w.shiftType} · {formatDate(w.date)}</p>
-                    {w.reason && <p className="text-xs text-[#64748B]">{w.reason}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="btn-primary btn-sm text-xs" disabled={respond.isPending} onClick={() => respond.mutate({ id: w.id, accept: true })}>Accept</button>
-                    <button className="btn-secondary btn-sm text-xs" disabled={respond.isPending} onClick={() => respond.mutate({ id: w.id, accept: false })}>Decline</button>
-                  </div>
-                </div>
+      <RosterSubNav role="driver" />
+
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatCard label="Next shift" value={next ? relativeDay(dayKey(next.date)) : '—'} icon={Clock} color="bg-[#0A3D91]"
+            sub={next ? `${next.shiftType} · ${next.startTime}–${next.endTime}` : 'Nothing published yet'} />
+          <StatCard label="Shifts" value={shifts.length} icon={CalendarDays} color="bg-[#1E63E9]" sub="In the next 4 weeks" />
+          <StatCard label="Hours" value={totalHours} icon={Hourglass} color="bg-[#16A34A]" sub={`${mornings} morning, ${shifts.length - mornings} afternoon`} />
+          <StatCard label="Days off" value={Math.max(0, 28 - shifts.length)} icon={CalendarRange} color="bg-[#64748B]" sub="In the next 4 weeks" />
+        </div>
+
+        {waiting > 0 && (
+          <Link to="/driver/requests" className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+            <span><b>{waiting}</b> swap request{waiting === 1 ? ' is' : 's are'} waiting for your reply.</span>
+            <span className="inline-flex items-center gap-1 font-bold">Reply <ArrowRight size={14} /></span>
+          </Link>
+        )}
+        {sentMsg && <Alert type="success" message={sentMsg} />}
+        {error && <Alert type="error" message={`Could not load your shifts: ${error.message}`} />}
+
+        {isLoading ? <PageLoader /> : shifts.length === 0 ? (
+          <EmptyState title="No published shifts" description="Your roster will appear here once the admin publishes it." />
+        ) : (
+          <div className="space-y-4">
+            <div role="tablist" className="inline-flex rounded-xl border border-[#D8E4F5] bg-white p-1">
+              {VIEWS.map(v => (
+                <button key={v.key} role="tab" aria-selected={view === v.key} onClick={() => setView(v.key)}
+                  className={clsx('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition',
+                    view === v.key ? 'bg-[#0A3D91] text-white' : 'text-[#475569] hover:bg-[#F1F5F9]')}>
+                  <v.icon size={13} /> {v.label}
+                </button>
               ))}
-              {respond.error && <Alert type="error" message={respond.error.message} />}
             </div>
-          )}
 
-          {isLoading ? <PageLoader /> : shifts.length === 0 ? (
-            <EmptyState title="No published shifts" description="Your roster will appear here once the admin publishes it." />
-          ) : [...byWeek].map(([weekKey, list]) => {
-            const { name, range } = weekLabel(weekKey)
-            return (
-              <section key={weekKey} className="space-y-2">
-                <h2 className="text-sm font-bold text-[#0F172A]">
-                  {name} <span className="font-normal text-xs text-[#64748B]">{range}</span>
-                </h2>
-                <div className="space-y-2">
-                  {list.map(s => {
-                    const key = dayKey(s.date)
-                    return (
-                      <div key={s.id} className={clsx('card p-4', key === todayKey && 'ring-2 ring-[#0A3D91]')}>
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-bold flex items-center gap-1.5">
-                              <CalendarDays size={14} /> {weekdayOf(key)} {formatDate(s.date)}
-                              {key === todayKey && <span className="text-[11px] font-bold bg-[#DBEAFE] text-[#1D4ED8] px-2 py-0.5 rounded-full">Today</span>}
-                            </p>
-                            <p className="text-xs text-[#64748B]">{s.shiftType} shift · {s.startTime}–{s.endTime}</p>
-                          </div>
-                          <button className="btn-secondary btn-sm text-xs" onClick={() => setSwapFor(swapFor === s.id ? null : s.id)}>
-                            <Repeat size={12} /> {swapFor === s.id ? 'Close' : 'Swap'}
-                          </button>
-                        </div>
-                        {swapFor === s.id && <SwapForm shift={s} onDone={() => { setSwapFor(null); refresh() }} />}
+            {view === 'list' ? [...byWeek].map(([weekKey, list]) => {
+              const { name, range } = weekLabel(weekKey)
+              return (
+                <section key={weekKey} className="space-y-2">
+                  <h2 className="text-sm font-bold text-[#0F172A]">
+                    {name} <span className="font-normal text-xs text-[#64748B]">{range} · {list.length} shift{list.length === 1 ? '' : 's'}</span>
+                  </h2>
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
+                    {list.map(s => (
+                      <ShiftCard key={s.id} s={s} todayKey={todayKey} swapOpen={swapFor === s.id}
+                        onToggle={() => { setSentMsg(''); setSwapFor(swapFor === s.id ? null : s.id) }} onSent={sent} />
+                    ))}
+                  </div>
+                </section>
+              )
+            }) : (
+              <div className="space-y-4">
+                <div className="card p-4 overflow-x-auto">
+                  <div className="min-w-[560px] space-y-1.5">
+                    <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-bold uppercase text-[#64748B]">
+                      {DAY_LABELS.map(d => <div key={d}>{d}</div>)}
+                    </div>
+                    {weekKeys.map(wk => (
+                      <div key={wk} className="grid grid-cols-7 gap-1.5">
+                        {Array.from({ length: 7 }, (_, i) => addDays(wk, i)).map(d => {
+                          const s = byDay[d]
+                          const past = daysFromToday(d) < 0
+                          const tone = s && SHIFT_TONE[s.shiftType]
+                          return (
+                            <button key={d} type="button" disabled={!s} onClick={() => { setSentMsg(''); setSwapFor(null); setPickedDay(d === pickedDay ? null : d) }}
+                              className={clsx('rounded-xl border p-1.5 min-h-[64px] text-left transition',
+                                s ? 'border-[#D8E4F5] bg-white hover:border-[#1E63E9]' : 'border-transparent bg-[#F8FAFC]',
+                                d === todayKey && 'ring-2 ring-[#0A3D91]', d === pickedDay && 'border-[#0A3D91]', past && 'opacity-40')}>
+                              <span className="block text-[11px] text-[#64748B]">{shortDate(d)}</span>
+                              {s && <span className={clsx('mt-1 inline-block text-[11px] font-bold px-1.5 py-0.5 rounded-full', tone.pill)}>{tone.letter} {s.startTime.slice(0, 5)}</span>}
+                            </button>
+                          )
+                        })}
                       </div>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
-        </div>
-
-        {/* Right: ask for leave, then follow your requests */}
-        <div className="space-y-6">
-          <LeaveForm onDone={refresh} />
-
-          <div className="card p-5 space-y-5">
-            <h2 className="text-sm font-bold">My requests</h2>
-
-            <section className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Leave</h3>
-              {leave.length === 0 && <p className="text-xs text-[#64748B]">No leave requests yet.</p>}
-              {leave.map(l => (
-                <div key={l.id} className="text-sm border border-[#E2E8F0] rounded-xl px-3 py-2">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-semibold">{l.leaveType}</span>
-                    <StatusPill status={l.status} />
+                    ))}
                   </div>
-                  <p className="text-xs text-[#64748B]">{formatDate(l.startDate)} – {formatDate(l.endDate)}</p>
-                  {l.adminNotes && <p className="text-xs mt-1">{l.adminNotes}</p>}
-                  {l.status === 'Pending' && (
-                    <button className="text-xs text-[#B91C1C] mt-1" disabled={cancel.isPending} onClick={() => cancel.mutate(l.id)}>Cancel request</button>
-                  )}
                 </div>
-              ))}
-              {cancel.error && <Alert type="error" message={cancel.error.message} />}
-            </section>
-
-            <section className="space-y-2 border-t border-[#E2E8F0] pt-4">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Shift swaps</h3>
-              {otherSwaps.length === 0 && <p className="text-xs text-[#64748B]">No shift swaps yet.</p>}
-              {otherSwaps.map(w => (
-                <div key={w.id} className="text-sm border border-[#E2E8F0] rounded-xl px-3 py-2">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-semibold">{w.shiftType} · {formatDate(w.date)}</span>
-                    <StatusPill status={w.status} />
-                  </div>
-                  <p className="text-xs text-[#64748B]">{w.requesterName} → {w.peerName}</p>
-                  {w.adminNotes && <p className="text-xs mt-1">{w.adminNotes}</p>}
+                <div className="flex gap-2 text-[11px] font-bold">
+                  <span className={clsx('px-2 py-0.5 rounded-full', SHIFT_TONE.Morning.pill)}>A morning</span>
+                  <span className={clsx('px-2 py-0.5 rounded-full', SHIFT_TONE.Afternoon.pill)}>B afternoon</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#64748B]">Day off</span>
                 </div>
-              ))}
-            </section>
+                {picked
+                  ? <ShiftCard s={picked} todayKey={todayKey} swapOpen={swapFor === picked.id}
+                      onToggle={() => setSwapFor(swapFor === picked.id ? null : picked.id)} onSent={sent} />
+                  : <p className="text-xs text-[#64748B]">Tap a shift in the calendar to see its details or offer it for a swap.</p>}
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
     </AppShell>
   )
