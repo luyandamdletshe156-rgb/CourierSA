@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
-import RosterSubNav from '@/components/roster/RosterSubNav'
-import { EmptyState, PageLoader, Alert, StatCard } from '@/components/ui'
+import SummaryLine from '@/components/roster/SummaryLine'
+import { EmptyState, PageLoader, Alert } from '@/components/ui'
 import { shiftApi } from '@/api'
 import { unwrap, dayKey, daysFromToday, relativeDay, longDate, SHIFT_TONE } from '@/utils/roster'
 import clsx from 'clsx'
-import { UserX, CalendarClock, Sun, Sunset } from 'lucide-react'
+import { UserX } from 'lucide-react'
 
-// Fill Open Shifts (admin). Shifts left unstaffed after approved leave, grouped by day,
-// each with one dropdown and one button.
+// Open Shifts (admin): shifts left without a driver, grouped by day.
+// Each row is one line: the shift, a driver picker, Assign.
 
 const FILTERS = ['All', 'Morning', 'Afternoon']
 
@@ -25,25 +25,19 @@ function OpenShiftRow({ s, drivers, onDone }) {
   })
   const tone = SHIFT_TONE[s.shiftType]
   return (
-    <div className="card p-4 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className={clsx('text-xs font-bold px-2.5 py-1 rounded-full', tone?.pill ?? 'bg-[#F1F5F9] text-[#475569]')}>{tone?.letter} {s.shiftType}</span>
-          <span className="text-xs text-[#64748B]">{s.startTime}–{s.endTime}</span>
-        </div>
-        {s.note && <p className="text-xs text-[#64748B]">{s.note}</p>}
-      </div>
-      {assign.error && <Alert type="error" message={assign.error.message} />}
-      <div className="flex flex-wrap gap-2">
+    <li className="px-4 py-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={clsx('text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', tone?.pill ?? 'bg-[#F1F5F9] text-[#475569]')}>{tone?.letter} {s.shiftType}</span>
+        <span className="text-xs text-[#64748B] w-24">{s.startTime}–{s.endTime}</span>
         <select className="input flex-1 min-w-[180px]" value={driverId} onChange={e => setDriverId(e.target.value)} aria-label="Driver to assign">
-          <option value="">Assign a driver…</option>
+          <option value="">Choose a driver…</option>
           {drivers.map(d => <option key={d.driverId} value={d.driverId}>{d.name}</option>)}
         </select>
-        <button className="btn-primary text-sm" disabled={!driverId || assign.isPending} onClick={() => assign.mutate()}>
-          {assign.isPending ? 'Assigning…' : 'Assign'}
-        </button>
+        <button className="btn-primary btn-sm text-xs" disabled={!driverId || assign.isPending} onClick={() => assign.mutate()}>{assign.isPending ? 'Assigning…' : 'Assign'}</button>
       </div>
-    </div>
+      {s.note && <p className="text-xs text-[#64748B]">{s.note}</p>}
+      {assign.error && <Alert type="error" message={assign.error.message} />}
+    </li>
   )
 }
 
@@ -55,35 +49,27 @@ export default function OpenShiftsPage() {
   const drivers = unwrap(driversQ.data)
   const all = unwrap(open.data)
 
-  const visible = all.filter(s => filter === 'All' || s.shiftType === filter)
   const byDay = new Map()
-  ;[...visible].sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)) || a.shiftType.localeCompare(b.shiftType)).forEach(s => {
-    const k = dayKey(s.date)
-    if (!byDay.has(k)) byDay.set(k, [])
-    byDay.get(k).push(s)
-  })
+  all.filter(s => filter === 'All' || s.shiftType === filter)
+    .sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)) || a.shiftType.localeCompare(b.shiftType))
+    .forEach(s => { const k = dayKey(s.date); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(s) })
 
   const thisWeek = all.filter(s => daysFromToday(dayKey(s.date)) <= 7).length
-  const mornings = all.filter(s => s.shiftType === 'Morning').length
 
   return (
     <AppShell title="Open Shifts">
       <div className="page-header">
         <div>
           <h1 className="page-title">Open Shifts</h1>
-          <p className="page-subtitle">Shifts left without a driver after approved leave. Assign someone to each one.</p>
+          <p className="page-subtitle">Shifts left without a driver after approved leave. Pick someone for each.</p>
         </div>
       </div>
 
-      <RosterSubNav role="admin" />
-
-      {flash && <div className="mb-5"><Alert type="success" message={flash} /></div>}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Open shifts" value={all.length} icon={UserX} color={all.length ? 'bg-[#DC2626]' : 'bg-[#16A34A]'} sub="Need a driver" />
-        <StatCard label="Within 7 days" value={thisWeek} icon={CalendarClock} color={thisWeek ? 'bg-[#F59E0B]' : 'bg-[#64748B]'} sub="Fill these first" />
-        <StatCard label="Morning / afternoon" value={`${mornings} / ${all.length - mornings}`} icon={mornings >= all.length - mornings ? Sun : Sunset} color="bg-[#1E63E9]" sub="Shift A / Shift B" />
-      </div>
+      <SummaryLine items={[
+        { value: all.length, label: 'open', tone: all.length ? 'bad' : 'good' },
+        { value: thisWeek, label: 'within 7 days', tone: thisWeek ? 'warn' : undefined },
+      ]} />
+      {flash && <div className="mb-4"><Alert type="success" message={flash} /></div>}
 
       {open.isLoading ? <PageLoader /> : open.error ? (
         <Alert type="error" message={`Could not load open shifts: ${open.error.message}`} />
@@ -94,16 +80,13 @@ export default function OpenShiftsPage() {
           <div className="flex flex-wrap gap-1.5">
             {FILTERS.map(f => (
               <button key={f} onClick={() => setFilter(f)}
-                className={clsx('px-3 py-1 rounded-full text-xs font-semibold border',
-                  filter === f ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1]')}>{f === 'All' ? 'All shifts' : f}</button>
+                className={clsx('px-3 py-1 rounded-full text-xs font-semibold border', filter === f ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1]')}>{f === 'All' ? 'All shifts' : f}</button>
             ))}
           </div>
           {[...byDay].map(([day, list]) => (
             <section key={day} className="space-y-2">
               <h2 className="text-sm font-bold text-[#0F172A]">{longDate(day)} <span className="font-normal text-xs text-[#64748B]">{relativeDay(day)}</span></h2>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-                {list.map(s => <OpenShiftRow key={s.id} s={s} drivers={drivers} onDone={setFlash} />)}
-              </div>
+              <ul className="card p-0 divide-y divide-[#E2E8F0]">{list.map(s => <OpenShiftRow key={s.id} s={s} drivers={drivers} onDone={setFlash} />)}</ul>
             </section>
           ))}
         </div>
