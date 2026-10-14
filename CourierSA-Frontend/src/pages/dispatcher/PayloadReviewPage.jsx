@@ -6,7 +6,7 @@ import { parcelApi, payloadApi } from '@/api'
 import {
   Weight, Trash2, XCircle, ArrowRightLeft, ClipboardCheck, Eye, CheckCircle2,
   Search, Truck, AlertTriangle, Gauge, Check, CircleAlert, ArrowRight, SplitSquareHorizontal,
-  ArrowLeft // Added ArrowLeft
+  ArrowLeft
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -45,7 +45,14 @@ function StatusBadge({ run }) {
   return <span className={clsx('text-xs font-bold px-3 py-1 rounded-full', styles)}>{state}</span>
 }
 
-// ── Dashboard: Grid of all Runs ──────────────────────────────────────────────
+// ── Dashboard: Grouped Grid of all Runs ──────────────────────────────────────
+
+const GROUPS = [
+  { key: 'attention', title: 'Action Required (Overloaded)', icon: AlertTriangle, color: 'text-red-600', match: r => r.isEditable && r.overageKg > 0 },
+  { key: 'pending', title: 'Ready for Sign-off', icon: ClipboardCheck, color: 'text-amber-600', match: r => r.isEditable && r.overageKg <= 0 && !r.signedOff },
+  { key: 'signed', title: 'Signed Off', icon: CheckCircle2, color: 'text-green-600', match: r => r.isEditable && r.overageKg <= 0 && r.signedOff },
+  { key: 'released', title: 'Released to Warehouse', icon: Truck, color: 'text-slate-500', match: r => !r.isEditable },
+]
 
 function RunList({ runs, onSelect }) {
   const [search, setSearch] = useState('')
@@ -56,7 +63,7 @@ function RunList({ runs, onSelect }) {
   }, [runs, search])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="relative max-w-md">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input 
@@ -66,29 +73,54 @@ function RunList({ runs, onSelect }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {shown.map(run => (
-          <button key={run.routeId} type="button" disabled={!run.isEditable} onClick={() => onSelect(run.routeId)}
-            className={clsx('w-full p-5 text-left border rounded-xl bg-white shadow-sm transition hover:shadow-md hover:border-blue-300 flex flex-col h-full', 
-              !run.isEditable && 'opacity-60 cursor-not-allowed')}>
-            <div className="flex justify-between items-start mb-4 gap-4">
-              <div className="min-w-0">
-                <p className="font-bold text-slate-900 text-lg truncate">{run.runLabel}</p>
-                <p className="text-sm text-slate-500 truncate mt-0.5">{run.driverName || 'Unassigned'}</p>
+      <div className="space-y-10">
+        {GROUPS.map(group => {
+          const groupRuns = shown.filter(group.match)
+          if (groupRuns.length === 0) return null
+
+          const Icon = group.icon
+
+          return (
+            <div key={group.key} className="space-y-4 animate-in fade-in">
+              {/* Group Header */}
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <Icon size={20} className={group.color} />
+                <h3 className="text-xl font-bold text-slate-800">{group.title}</h3>
+                <span className="bg-slate-100 text-slate-600 text-sm font-bold px-2.5 py-0.5 rounded-full ml-2">
+                  {groupRuns.length}
+                </span>
               </div>
-              <StatusBadge run={run} />
+
+              {/* Group Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {groupRuns.map(run => (
+                  <button key={run.routeId} type="button" disabled={!run.isEditable} onClick={() => onSelect(run.routeId)}
+                    className={clsx('w-full p-5 text-left border rounded-xl bg-white shadow-sm transition hover:shadow-md flex flex-col h-full', 
+                      selectedId => selectedId === run.routeId ? 'border-blue-600 ring-1 ring-blue-600' : 'border-slate-200 hover:border-blue-300',
+                      !run.isEditable && 'opacity-60 cursor-not-allowed')}>
+                    <div className="flex justify-between items-start mb-4 gap-4">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900 text-lg truncate">{run.runLabel}</p>
+                        <p className="text-sm text-slate-500 truncate mt-0.5">{run.driverName || 'Unassigned'}</p>
+                      </div>
+                      <StatusBadge run={run} />
+                    </div>
+                    <div className="mt-auto pt-2">
+                      <LoadBar load={run.loadKg} max={run.maxKg} over={run.overageKg > 0} />
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="mt-auto pt-2">
-              <LoadBar load={run.loadKg} max={run.maxKg} over={run.overageKg > 0} />
-            </div>
-          </button>
-        ))}
+          )
+        })}
+
+        {shown.length === 0 && (
+          <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
+            <p className="text-slate-500 text-lg">No runs found matching "{search}".</p>
+          </div>
+        )}
       </div>
-      {shown.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
-          <p className="text-slate-500">No runs found matching "{search}".</p>
-        </div>
-      )}
     </div>
   )
 }
@@ -407,10 +439,8 @@ export default function PayloadReviewPage() {
         <EmptyState title="No active routes" description="Routes dispatched from the queue will appear here." />
       ) : (
         <div>
-          {/* Conditional Rendering: Show ONLY the selected run workspace, OR the dashboard list */}
           {selectedId ? (
             <div className="animate-in fade-in max-w-5xl mx-auto">
-              {/* Back Button */}
               <button 
                 onClick={() => setSelectedId(null)} 
                 className="flex items-center gap-2 text-slate-500 hover:text-blue-700 font-bold mb-6 transition"
@@ -418,24 +448,21 @@ export default function PayloadReviewPage() {
                 <ArrowLeft size={20} /> Back to Routes Overview
               </button>
               
-              {/* Dedicated Workspace */}
               <RunDetail 
                 key={selectedId} 
                 run={runs.find(r => r.routeId === selectedId)} 
                 otherRuns={open.filter(r => r.routeId !== selectedId)} 
-                onChanged={() => { refresh(); setSelectedId(null); }} // Return to dashboard when done
+                onChanged={() => { refresh(); setSelectedId(null); }} 
               />
             </div>
           ) : (
             <div className="space-y-8 animate-in fade-in">
-              {/* Top Dashboard Metrics */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <StatCard label="Overloaded Routes" value={overloaded} icon={AlertTriangle} color={overloaded ? 'bg-red-500' : 'bg-green-500'} sub="Requires adjustment" />
                 <StatCard label="Ready for Sign-off" value={needSign} icon={ClipboardCheck} color="bg-amber-500" sub="Within limits, unsigned" />
                 <StatCard label="Total Active Routes" value={open.length} icon={Truck} color="bg-blue-600" sub="Currently in planning" />
               </div>
 
-              {/* Grid of all runs */}
               <RunList runs={runs} onSelect={setSelectedId} />
             </div>
           )}

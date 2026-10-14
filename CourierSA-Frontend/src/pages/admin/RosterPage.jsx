@@ -1,244 +1,187 @@
-import { useMemo, useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AppShell from '@/components/layout/AppShell'
 import SummaryLine from '@/components/roster/SummaryLine'
-import { PageLoader, Alert } from '@/components/ui'
+import { EmptyState, PageLoader, Alert } from '@/components/ui'
 import { shiftApi } from '@/api'
-import {
-  iso, unwrap, unwrapObj, parseIso, addDays, dayKey, mondayOf, shortDate,
-  DAY_LABELS, compactHours, shiftHours, SHIFT_TONE,
-} from '@/utils/roster'
+import { unwrap, unwrapObj, dayKey, daysFromToday, inclusiveDays, relativeDay, shortDate } from '@/utils/roster'
+import { formatDate } from '@/utils'
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, Search, Copy } from 'lucide-react'
+import { Search, Inbox, CheckCircle2, ArrowLeft, Plane, AlertTriangle } from 'lucide-react'
 
-// Roster Planner (admin): one grid, the whole week. Click a cell to set the shift, then publish.
-
-export default function RosterPage() {
+function RequestDetail({ r, onDone, onBack }) {
   const qc = useQueryClient()
-  const [weekStart, setWeekStart] = useState(iso(mondayOf()))
-  const [search, setSearch] = useState('')
-  const [copyMsg, setCopyMsg] = useState('')
+  const [notes, setNotes] = useState('')
+  const [override, setOverride] = useState(false)
+  const [standbyId, setStandbyId] = useState('')
 
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
-  const weekEnd = days[6]
-  const todayIso = iso(new Date())
+  const { data: impactRes, isLoading } = useQuery({ queryKey: ['leave-impact', r.id], queryFn: () => shiftApi.leaveImpact(r.id) })
+  const impact = unwrapObj(impactRes)
+  const rows = impact?.rows ?? []
+  const short = impact?.shortSlots ?? 0
+  const days = inclusiveDays(r.startDate, r.endDate)
 
-  const { data: rulesRes } = useQuery({ queryKey: ['roster', 'rules'], queryFn: () => shiftApi.rosterRules() })
-  const rules = unwrapObj(rulesRes)
-  const minDrivers = rules?.minDriversPerShift ?? 1
-
-  const { data: drivers, error: driversError } = useQuery({ queryKey: ['roster-drivers'], queryFn: () => shiftApi.drivers() })
-  const { data, isLoading, error: rosterError } = useQuery({ queryKey: ['roster', weekStart], queryFn: () => shiftApi.roster(weekStart, weekEnd) })
-  const { data: checkRes } = useQuery({ queryKey: ['roster', 'validate', weekStart], queryFn: () => shiftApi.rosterValidate(weekStart, weekEnd) })
-  const check = unwrapObj(checkRes)
-  const violations = check?.violations ?? []
-  const warnings = check?.warnings ?? []
-
-  const driverList = unwrap(drivers)
-  const shifts = unwrap(data).filter(s => s.driverId && s.status === 'Scheduled')
-  const byCell = {}
-  shifts.forEach(s => { byCell[`${s.driverId}|${dayKey(s.date)}`] = s })
-  const unpublished = shifts.filter(s => !s.isPublished).length
-  const refresh = () => qc.invalidateQueries({ queryKey: ['roster'] })
-
-  // Off -> Morning (A) -> Afternoon (B) -> Off
-  const cycle = useMutation({
-    mutationFn: ({ driverId, date, shift }) => {
-      if (!shift) return shiftApi.schedule({ shifts: [{ driverId, date, shiftType: 'Morning' }], publish: false })
-      if (shift.shiftType === 'Morning') return shiftApi.changeShift(shift.id, 'Afternoon')
-      return shiftApi.removeShift(shift.id)
-    },
-    onSuccess: refresh,
-  })
-  const publish = useMutation({ mutationFn: () => shiftApi.publish({ from: weekStart, to: weekEnd }), onSuccess: refresh })
-
-  // Copy last week's pattern onto this week. Existing cells and past days are left alone.
-  const copyLast = useMutation({
-    mutationFn: async () => {
-      const prev = unwrap(await shiftApi.roster(addDays(weekStart, -7), addDays(weekStart, -1))).filter(s => s.driverId && s.status === 'Scheduled')
-      const items = prev
-        .map(s => ({ driverId: s.driverId, date: addDays(dayKey(s.date), 7), shiftType: s.shiftType }))
-        .filter(i => i.date >= todayIso && !byCell[`${i.driverId}|${i.date}`])
-      if (items.length) await shiftApi.schedule({ shifts: items, publish: false })
-      return items.length
-    },
-    onSuccess: n => {
-      setCopyMsg(n === 0 ? 'Nothing to copy. Last week is empty or this week is already filled in.' : `Copied ${n} shift${n === 1 ? '' : 's'} from last week as drafts.`)
-      refresh()
+  const review = useMutation({
+    mutationFn: approve => shiftApi.reviewLeave(r.id, { approve, notes, allowUnderstaffed: override, standbyDriverId: standbyId || null }),
+    onSuccess: (res, approve) => {
+      ;['pending-leave', 'open-shifts', 'roster'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
+      onDone(approve ? `Approved leave for ${r.driverName}. Shifts reassigned.` : `Rejected leave for ${r.driverName}.`)
     },
   })
-
-  const count = (date, type) => shifts.filter(s => dayKey(s.date) === date && s.shiftType === type).length
-  // Coverage is only checked from today on, and Sundays only when somebody is rostered.
-  const applies = date => date >= todayIso && !(parseIso(date).getDay() === 0 && shifts.every(s => dayKey(s.date) !== date))
-  const hours = { Morning: compactHours(rules?.morningHours), Afternoon: compactHours(rules?.afternoonHours) }
-  const blocked = violations.length > 0
-
-  const slots = days.filter(applies).flatMap(d => ['Morning', 'Afternoon'].map(t => count(d, t)))
-  const slotsMet = slots.filter(n => n >= minDrivers).length
-  const coveragePct = slots.length ? Math.round((slotsMet / slots.length) * 100) : null
-  const totalHours = shifts.reduce((sum, s) => sum + shiftHours(s), 0)
-  const visibleDrivers = driverList.filter(d => d.name.toLowerCase().includes(search.trim().toLowerCase()))
-
-  const confirmPublish = () => {
-    if (window.confirm(`Publish ${unpublished} draft shift${unpublished === 1 ? '' : 's'}? Drivers will be notified.`)) publish.mutate()
-  }
-  const confirmCopy = () => {
-    setCopyMsg('')
-    if (window.confirm("Copy last week's roster onto this week? Cells that already have a shift are kept.")) copyLast.mutate()
-  }
 
   return (
-    <AppShell title="Roster Planner">
-      <div className="page-header flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="page-title">Roster Planner</h1>
-          <p className="page-subtitle">Click a cell to change a shift, then publish the week.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button className="btn-secondary btn-sm" disabled={copyLast.isPending} onClick={confirmCopy}>
-            <Copy size={13} /> {copyLast.isPending ? 'Copying…' : 'Copy last week'}
-          </button>
-          <button className="btn-primary text-sm whitespace-nowrap" disabled={unpublished === 0 || publish.isPending || blocked} onClick={confirmPublish}>
-            {publish.isPending ? 'Publishing…' : unpublished ? `Publish ${unpublished} draft${unpublished === 1 ? '' : 's'}` : 'Nothing to publish'}
-          </button>
-        </div>
-      </div>
+    <div className="animate-in fade-in max-w-4xl mx-auto space-y-6">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-500 hover:text-blue-700 font-bold mb-2 transition">
+        <ArrowLeft size={18} /> Back to Leave Queue
+      </button>
 
-      <SummaryLine items={[
-        { value: shifts.length, label: 'shifts' },
-        { value: `${totalHours} h`, label: 'driver hours' },
-        { value: coveragePct == null ? '—' : `${coveragePct}%`, label: 'coverage', tone: coveragePct == null || coveragePct === 100 ? 'good' : 'bad' },
-        { value: unpublished, label: unpublished === 1 ? 'draft' : 'drafts', tone: unpublished ? 'warn' : undefined },
-      ]} />
-
-      <div className="space-y-4">
-        {driversError && <Alert type="error" message={`Could not load drivers: ${driversError.message}`} />}
-        {rosterError && <Alert type="error" message={`Could not load roster: ${rosterError.message}`} />}
-        {!driversError && drivers && driverList.length === 0 && <Alert type="error" message="No active drivers found. Create a driver account under Users first." />}
-        {cycle.error && <Alert type="error" message={cycle.error.message} />}
-        {publish.error && <Alert type="error" message={publish.error.message} />}
-        {copyLast.error && <Alert type="error" message={copyLast.error.message} />}
-        {publish.isSuccess && <Alert type="success" message="Roster published. Drivers have been notified." />}
-        {copyMsg && <Alert type="info" message={copyMsg} />}
-
-        {/* Week and search */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1">
-            <button className="btn-secondary px-2 py-2" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft size={16} /></button>
-            <input type="date" className="input w-auto" aria-label="Week starting" value={weekStart}
-              onChange={e => e.target.value && setWeekStart(iso(mondayOf(parseIso(e.target.value))))} />
-            <button className="btn-secondary px-2 py-2" aria-label="Next week" onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={16} /></button>
-            <button className="btn-ghost btn-sm" onClick={() => setWeekStart(iso(mondayOf()))}>This week</button>
-            <span className="ml-1 text-sm font-semibold text-[#0F172A]">{shortDate(weekStart)} – {shortDate(weekEnd)}</span>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="p-8 border-b border-slate-100 bg-slate-50">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wider rounded-full">{r.leaveType} Leave</span>
+            {daysFromToday(dayKey(r.startDate)) <= 3 && <span className="px-3 py-1 bg-red-100 text-red-800 text-xs font-bold uppercase tracking-wider rounded-full">Urgent</span>}
           </div>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-            <input className="input pl-9 w-56 text-sm" placeholder="Find a driver…" value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
+          <h2 className="text-3xl font-bold text-slate-900 mb-2">{r.driverName}</h2>
+          <p className="text-lg text-slate-500 flex items-center gap-2">
+            <Plane size={18} /> {formatDate(r.startDate)} – {formatDate(r.endDate)} ({days} days)
+          </p>
+          {r.reason && <div className="mt-6 p-4 bg-white border border-slate-200 rounded-lg text-slate-700 italic">"{r.reason}"</div>}
         </div>
 
-        {/* Problems, only when there are some */}
-        {violations.length > 0 && (
-          <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm space-y-1">
-            <p className="font-bold">{violations.length} rest-period problem{violations.length === 1 ? '' : 's'}. Fix before publishing.</p>
-            {violations.map((v, i) => <p key={i}>• {v.message}</p>)}
-          </div>
-        )}
-        {warnings.length > 0 && (
-          <details className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-2.5">
-            <summary className="font-bold cursor-pointer">{warnings.length} coverage warning{warnings.length === 1 ? '' : 's'}</summary>
-            <ul className="mt-2 space-y-1">{warnings.map((w, i) => <li key={i}>• {w.message}</li>)}</ul>
-          </details>
-        )}
-        {check && !violations.length && !warnings.length && <p className="text-xs font-semibold text-[#166534]">✓ No conflicts, rest-period problems or coverage gaps this week.</p>}
-
-        {isLoading ? <PageLoader /> : (
-          <div className="card overflow-x-auto p-0">
-            <table className="w-full text-sm min-w-[860px]">
-              <thead>
-                <tr className="text-left text-[#64748B] bg-[#F8FAFC]">
-                  <th className="px-4 py-2.5 w-48 sticky left-0 bg-[#F8FAFC] z-10">Driver</th>
-                  {days.map((d, i) => (
-                    <th key={d} className={clsx('px-2 py-2.5 text-center', d === todayIso && 'text-[#0A3D91] bg-[#EEF4FF]')}>
-                      <div className="text-xs font-bold">{DAY_LABELS[i]}</div>
-                      <div className="text-[11px] font-normal">{shortDate(d)}</div>
-                    </th>
-                  ))}
-                  <th className="px-3 py-2.5 text-center text-xs font-bold">Week</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E2E8F0]">
-                {visibleDrivers.map(dr => {
-                  const mine = shifts.filter(s => s.driverId === dr.driverId)
-                  const hrs = mine.reduce((sum, s) => sum + shiftHours(s), 0)
-                  return (
-                    <tr key={dr.driverId}>
-                      <td className="px-4 py-2 font-semibold sticky left-0 bg-white z-10">{dr.name}</td>
-                      {days.map(date => {
-                        const shift = byCell[`${dr.driverId}|${date}`]
-                        const past = date < todayIso
-                        const busy = cycle.isPending && cycle.variables?.driverId === dr.driverId && cycle.variables?.date === date
-                        const label = !shift ? 'Off' : `${SHIFT_TONE[shift.shiftType]?.letter ?? '?'} ${hours[shift.shiftType] ?? ''}`
-                        return (
-                          <td key={date} className={clsx('px-1.5 py-1.5 text-center', date === todayIso && 'bg-[#F6FAFF]')}>
-                            <button
-                              disabled={past || cycle.isPending}
-                              onClick={() => cycle.mutate({ driverId: dr.driverId, date, shift })}
-                              title={past ? 'Past days cannot be changed' : 'Click to change: Off → A → B → Off'}
-                              className={clsx('w-full rounded-full px-2 py-1 text-xs font-bold border transition',
-                                !shift && 'bg-[#F1F5F9] text-[#64748B] border-transparent hover:border-[#CBD5E1]',
-                                shift?.shiftType === 'Morning' && SHIFT_TONE.Morning.pill,
-                                shift?.shiftType === 'Afternoon' && SHIFT_TONE.Afternoon.pill,
-                                shift && (shift.isPublished ? 'border-transparent' : 'border-dashed border-current'),
-                                (past || busy) && 'opacity-50 cursor-not-allowed')}>
-                              {busy ? '…' : label}
-                            </button>
+        {/* Body */}
+        <div className="p-8 space-y-8">
+          <section>
+            <h3 className="text-xl font-bold text-slate-800 mb-4">Effect on Depot Coverage</h3>
+            {isLoading ? <PageLoader /> : rows.length === 0 ? (
+              <div className="p-6 text-center bg-slate-50 border border-slate-200 rounded-xl text-slate-500">No scheduled shifts fall in this period. Cover is not affected.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs tracking-wider">
+                      <tr>
+                        <th className="px-4 py-3">Date</th><th className="px-4 py-3">Shift</th><th className="px-4 py-3 text-center">Scheduled</th><th className="px-4 py-3 text-center">After Leave</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map(row => (
+                        <tr key={`${row.date}-${row.shiftType}`}>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3 text-slate-600">{row.shiftType}</td>
+                          <td className="px-4 py-3 text-center">{row.scheduled}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={clsx('font-bold px-3 py-1 rounded-full', row.belowMinimum ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700')}>
+                              {row.afterLeave} {row.belowMinimum ? '(Under Minimum)' : '(OK)'}
+                            </span>
                           </td>
-                        )
-                      })}
-                      <td className="px-3 py-2 text-center text-xs">
-                        <span className={clsx('font-bold', mine.length >= 6 ? 'text-[#B45309]' : 'text-[#0F172A]')}>{mine.length}</span>
-                        <span className="text-[#64748B]"> · {hrs} h</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {visibleDrivers.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-6 text-center text-[#64748B]">{driverList.length === 0 ? 'No drivers to roster yet.' : 'No driver matches your search.'}</td></tr>
-                )}
-              </tbody>
-              <tfoot className="bg-[#F8FAFC] text-xs">
-                {[['Morning', 'On duty, shift A'], ['Afternoon', 'On duty, shift B']].map(([type, title]) => (
-                  <tr key={type} className="border-t border-[#E2E8F0]">
-                    <td className="px-4 py-2 font-bold sticky left-0 bg-[#F8FAFC] z-10">{title}</td>
-                    {days.map(date => {
-                      const n = count(date, type)
-                      const checked = applies(date)
-                      const low = checked && n < minDrivers
-                      return (
-                        <td key={date} className="px-1.5 py-2 text-center">
-                          <span className={clsx('font-bold px-2 py-0.5 rounded-full', !checked ? 'text-[#94A3B8]' : low ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F0FDF4] text-[#166534]')}>
-                            {n}{checked ? (low ? ' ✕' : ' ✓') : ''}
-                          </span>
-                        </td>
-                      )
-                    })}
-                    <td />
-                  </tr>
-                ))}
-              </tfoot>
-            </table>
-          </div>
-        )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {short > 0 ? (
+                  <Alert type="error" message={`Warning: Coverage drops below the minimum on ${short} shift(s). Select a standby driver below to compensate.`} />
+                ) : <Alert type="success" message="All affected shifts remain at or above the minimum required drivers." />}
+              </div>
+            )}
+          </section>
 
-        <p className="text-xs text-[#64748B]">
-          A = morning {rules?.morningHours ?? '—'}, B = afternoon {rules?.afternoonHours ?? '—'}. Dashed cells are drafts drivers cannot see yet.
-          Minimum {minDrivers} driver{minDrivers === 1 ? '' : 's'} per shift
-          {rules?.minRestHours != null && `, ${rules.minRestHours} h rest between shifts`}
-          {rules?.maxConsecutiveDays != null && `, at most ${rules.maxConsecutiveDays} days in a row`}.
-        </p>
+          {rows.length > 0 && (
+            <section className="bg-blue-50 p-6 rounded-xl border border-blue-100">
+              <h3 className="font-bold text-blue-900 mb-2">Automated Reassignment</h3>
+              <p className="text-sm text-blue-700 mb-4">Select who should cover the shifts dropped by this leave.</p>
+              <select className="input w-full md:w-1/2 bg-white" value={standbyId} onChange={e => setStandbyId(e.target.value)}>
+                <option value="">System Default (Least-loaded available driver)</option>
+                {impact?.standbyPool?.map(d => <option key={d.driverId} value={d.driverId}>{d.name} (Available for {d.canCover} shifts)</option>)}
+              </select>
+            </section>
+          )}
+
+          <section className="border-t border-slate-200 pt-8">
+            <h3 className="text-xl font-bold text-slate-800 mb-4">Final Decision</h3>
+            <textarea className="input w-full p-4 bg-slate-50 border-slate-200 rounded-xl mb-4" rows={2} placeholder="Add administrative notes (Required if rejecting)..." value={notes} onChange={e => setNotes(e.target.value)} />
+            
+            {short > 0 && (
+              <label className="flex items-center gap-3 p-4 border border-amber-200 bg-amber-50 rounded-xl mb-6 cursor-pointer">
+                <input type="checkbox" className="w-5 h-5 text-amber-600 rounded" checked={override} onChange={e => setOverride(e.target.checked)} /> 
+                <span className="font-bold text-amber-800">I acknowledge the depot will be understaffed and approve anyway.</span>
+              </label>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button className="btn-primary flex-1 py-4 text-lg justify-center shadow-md" disabled={review.isPending || (short > 0 && !override)} onClick={() => review.mutate(true)}>
+                <CheckCircle2 size={20} className="mr-2" /> Approve Leave
+              </button>
+              <button className="btn-secondary flex-1 py-4 text-lg justify-center bg-white border-red-200 text-red-600 hover:bg-red-50" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate(false)}>
+                Reject Leave
+              </button>
+            </div>
+          </section>
+        </div>
       </div>
+    </div>
+  )
+}
+
+export default function LeaveRequestsPage() {
+  const [selectedId, setSelectedId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [flash, setFlash] = useState('')
+
+  const { data: leaveData, isLoading } = useQuery({ queryKey: ['pending-leave'], queryFn: () => shiftApi.pendingLeave(), refetchInterval: 30000 })
+  const all = unwrap(leaveData) ?? []
+  
+  const shown = useMemo(() => all.filter(r => r.driverName.toLowerCase().includes(search.toLowerCase())), [all, search])
+  const soon = all.filter(r => daysFromToday(dayKey(r.startDate)) <= 7).length
+
+  return (
+    <AppShell title="Leave Requests">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-slate-900">Leave Requests</h1>
+        <p className="text-slate-500 mt-2 text-lg">Review staff leave requests, analyze depot impact, and approve absence.</p>
+      </div>
+
+      {flash && <div className="mb-6"><Alert type="success" message={flash} /></div>}
+
+      {isLoading ? <PageLoader /> : all.length === 0 ? (
+        <EmptyState icon={Inbox} title="Queue is empty" description="No drivers have requested leave." />
+      ) : selectedId ? (
+        <RequestDetail r={all.find(r => r.id === selectedId)} onBack={() => setSelectedId(null)} onDone={msg => { setFlash(msg); setSelectedId(null); }} />
+      ) : (
+        <div className="space-y-6 animate-in fade-in">
+          <SummaryLine items={[
+            { value: all.length, label: 'Pending Requests' },
+            { value: soon, label: 'Start Within 7 Days', tone: soon ? 'warn' : undefined },
+          ]} />
+
+          <div className="relative max-w-md mb-6">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input className="input pl-10 w-full bg-white shadow-sm" placeholder="Search driver name..." value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {shown.map(r => {
+              const days = inclusiveDays(r.startDate, r.endDate)
+              const urgent = daysFromToday(dayKey(r.startDate)) <= 3
+              return (
+                <button key={r.id} onClick={() => setSelectedId(r.id)} className="text-left bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition group flex flex-col h-full">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider rounded-md">{r.leaveType} Leave</span>
+                    {urgent && <span className="flex items-center gap-1 text-xs font-bold text-red-600"><AlertTriangle size={14}/> Urgent</span>}
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">{r.driverName}</h3>
+                  <p className="text-slate-500 mt-1">{shortDate(dayKey(r.startDate))} – {shortDate(dayKey(r.endDate))} ({days} days)</p>
+                  
+                  <div className="mt-auto pt-6 flex justify-between items-center text-sm font-bold text-blue-600 group-hover:text-blue-700">
+                    <span>Review Impact</span> <CheckCircle2 size={18} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }

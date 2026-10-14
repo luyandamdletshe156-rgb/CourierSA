@@ -1,16 +1,21 @@
 import clsx from 'clsx'
 
-// One quiet line of key numbers, in place of a row of big stat cards.
-const TONES = { good: 'text-[#166534]', warn: 'text-[#B45309]', bad: 'text-[#B91C1C]' }
+const TONES = { 
+  good: 'text-green-700 bg-green-50 border-green-200', 
+  warn: 'text-amber-700 bg-amber-50 border-amber-200', 
+  bad: 'text-red-700 bg-red-50 border-red-200' 
+}
 
 export default function SummaryLine({ items }) {
   return (
-    <ul className="flex flex-wrap gap-x-7 gap-y-1 mb-5 text-sm text-[#64748B]">
+    <div className="flex flex-wrap gap-3 mb-6">
       {items.map(i => (
-        <li key={i.label}>
-          <b className={clsx('text-base tabular-nums', TONES[i.tone] ?? 'text-[#0F172A]')}>{i.value}</b> {i.label}
-        </li>
+        <div key={i.label} className={clsx("px-4 py-2.5 rounded-xl border flex items-baseline gap-2 shadow-sm transition-all", 
+          i.tone ? TONES[i.tone] : 'bg-white border-slate-200 text-slate-600')}>
+          <span className="text-xl font-bold tabular-nums tracking-tight">{i.value}</span>
+          <span className="text-xs font-bold uppercase tracking-wider opacity-80">{i.label}</span>
+        </div>
       ))}
-    </ul>
+    </div>
   )
 }
