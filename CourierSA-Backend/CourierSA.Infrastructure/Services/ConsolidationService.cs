@@ -41,7 +41,7 @@ public class ConsolidationService : IConsolidationService
     private readonly Options _options;
 
     /// <summary>Business rules, all overridable in appsettings.json under "Consolidation".</summary>
-    private sealed record Options(int HoldHours, decimal FragileMaxCompanionKg, decimal MaxDeclaredValueZAR, int MaxParcelsPerBox, int AwaitingArrivalDays);
+    private sealed record Options(int HoldHours, decimal FragileMaxCompanionKg, decimal MaxDeclaredValueZAR, int MaxParcelsPerBox);
 
     public ConsolidationService(
         IUnitOfWork uow,
@@ -55,8 +55,7 @@ public class ConsolidationService : IConsolidationService
             Math.Max(0, config.GetValue<int?>("Consolidation:HoldHours") ?? 24),
             config.GetValue<decimal?>("Consolidation:FragileMaxCompanionKg") ?? 10m,
             config.GetValue<decimal?>("Consolidation:MaxDeclaredValueZAR") ?? 50000m,
-            Math.Max(2, config.GetValue<int?>("Consolidation:MaxParcelsPerBox") ?? 6),
-            Math.Max(1, config.GetValue<int?>("Consolidation:AwaitingArrivalDays") ?? 7));
+            Math.Max(2, config.GetValue<int?>("Consolidation:MaxParcelsPerBox") ?? 6));
     }
 
     // Parcels that have been booked but have not reached the warehouse yet.
@@ -71,19 +70,12 @@ public class ConsolidationService : IConsolidationService
     {
         var customer = await GetCustomerAsync(customerUserId, ct);
 
-        // Parcels in the warehouse, plus parcels still on their way (so the customer can commit early).
-        var statuses = new[] { ParcelStatus.InWarehouse, ParcelStatus.PendingApproval, ParcelStatus.Approved, ParcelStatus.AwaitingCheckIn };
         var parcels = await _uow.Query<Parcel>().Query()
             .AsNoTracking()
             .Include(p => p.DeliveryAddress)
-            .Where(p => p.CustomerId == customer.Id && statuses.Contains(p.Status)
-                        && !p.TrackingNumber.StartsWith(MasterPrefix))
+            .Where(p => p.CustomerId == customer.Id && p.Status == ParcelStatus.InWarehouse)
             .OrderBy(p => p.CreatedAt)
             .ToListAsync(ct);
-
-        // Parcels already held by a waiting request are not offered again.
-        var waiting = await WaitingParcelIdsAsync(ct);
-        if (waiting.Count > 0) parcels = parcels.Where(p => !waiting.Contains(p.Id)).ToList();
 
         var bins = await BinCodesAsync(parcels.Select(p => p.Id).ToList(), ct);
 
@@ -97,35 +89,24 @@ public class ConsolidationService : IConsolidationService
             p.ServiceType.ToString(),
             p.IsFragile,
             p.SkipConsolidation,
-            TimeCriticalReason(p),
-            p.Status == ParcelStatus.InWarehouse)).ToList();
+            TimeCriticalReason(p))).ToList();
     }
 
     public async Task<ConsolidationPreviewDto> PreviewAsync(ConsolidationRequestDto dto, Guid customerUserId, CancellationToken ct = default)
     {
-        var (_, parcels) = await LoadAndValidateAsync(dto, (Guid?)customerUserId, ct, allowIncoming: true);
-        var incoming = parcels.Count(p => p.Status != ParcelStatus.InWarehouse);
-        return BuildPreview(parcels) with { WaitingCount = incoming, WaitingDays = incoming > 0 ? _options.AwaitingArrivalDays : 0 };
+        var (_, parcels) = await LoadAndValidateAsync(dto, (Guid?)customerUserId, ct);
+        return BuildPreview(parcels);
     }
 
     public async Task<ConsolidationOrderDto> RequestAsync(ConsolidationRequestDto dto, Guid customerUserId, CancellationToken ct = default)
     {
-        var (customer, parcels) = await LoadAndValidateAsync(dto, customerUserId, ct, allowIncoming: true);
-
-        // Any parcel still on its way means the request waits for it before the warehouse sees it.
-        var incoming = parcels.Count(p => p.Status != ParcelStatus.InWarehouse);
-        var awaiting = incoming > 0;
-        var order = await CreateOrderAsync(customer, parcels, ConsolidationSource.Customer, ct, awaiting);
+        var (customer, parcels) = await LoadAndValidateAsync(dto, customerUserId, ct);
+        var order = await CreateOrderAsync(customer, parcels, ConsolidationSource.Customer, ct);
 
         await SafeAuditAsync("CONSOLIDATION_REQUESTED", order.Id, null,
-            new { order.OrderNumber, order.ParcelCount, Source = order.Source.ToString(), AwaitingArrival = awaiting }, customerUserId, ct);
-        if (awaiting)
-            await SafeNotifyAsync(customerUserId, "Consolidation request saved",
-                $"Order {order.OrderNumber}: we are holding {order.ParcelCount} parcels together. {incoming} still on the way. " +
-                $"Once they all reach the warehouse, staff will review the request. If they do not arrive within {_options.AwaitingArrivalDays} days, it is released.", ct);
-        else
-            await SafeNotifyAsync(customerUserId, "Consolidation requested",
-                $"Order {order.OrderNumber}: {order.ParcelCount} parcels will be packed into one shipment.", ct);
+            new { order.OrderNumber, order.ParcelCount, Source = order.Source.ToString() }, customerUserId, ct);
+        await SafeNotifyAsync(customerUserId, "Consolidation requested",
+            $"Order {order.OrderNumber}: {order.ParcelCount} parcels will be packed into one shipment.", ct);
 
         return await MapOneAsync(order, ct);
     }
@@ -148,8 +129,7 @@ public class ConsolidationService : IConsolidationService
         var order = await GetOrderOrThrowAsync(orderId, ct);
         if (order.CustomerId != customer.Id)
             throw new ForbiddenException("This consolidation order does not belong to you.");
-        if (order.Status is not (ConsolidationOrderStatus.Pending or ConsolidationOrderStatus.AwaitingArrival
-                                 or ConsolidationOrderStatus.AwaitingApproval))
+        if (order.Status != ConsolidationOrderStatus.Pending)
             throw new BadRequestException(
                 $"Only orders the warehouse has not started can be cancelled (currently '{order.Status}').");
 
@@ -160,7 +140,7 @@ public class ConsolidationService : IConsolidationService
         var parcels = await LoadOrderParcelsAsync(order.Id, ct);
         foreach (var p in parcels)
         {
-            if (p.Status == ParcelStatus.ConsolidationRequested) p.Status = ParcelStatus.InWarehouse;   // parcels still on their way keep their status
+            p.Status = ParcelStatus.InWarehouse;
             if (automatic) p.SkipConsolidation = true;
             p.UpdatedAt = DateTime.UtcNow;
             await AddEventAsync(p, TrackingEventType.ConsolidationRequested,
@@ -174,203 +154,6 @@ public class ConsolidationService : IConsolidationService
 
         await SafeAuditAsync("CONSOLIDATION_CANCELLED", order.Id, null, new { order.OrderNumber }, customerUserId, ct);
         return await MapOneAsync(order, ct);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // PRE-ARRIVAL REQUESTS: hold until every parcel arrives, then staff approve or reject
-    // ══════════════════════════════════════════════════════════════════════
-
-    /// <summary>Parcels held by a request that is still waiting (AwaitingArrival or AwaitingApproval).</summary>
-    private async Task<HashSet<Guid>> WaitingParcelIdsAsync(CancellationToken ct)
-    {
-        // Two top-level queries merged in memory: correlated subqueries do not translate through the repository wrapper.
-        var orderIds = await _uow.Query<ConsolidationOrder>().Query().AsNoTracking()
-            .Where(o => o.Status == ConsolidationOrderStatus.AwaitingArrival
-                     || o.Status == ConsolidationOrderStatus.AwaitingApproval)
-            .Select(o => o.Id).ToListAsync(ct);
-        if (orderIds.Count == 0) return new HashSet<Guid>();
-
-        var parcelIds = await _uow.Query<ConsolidationOrderParcel>().Query().AsNoTracking()
-            .Where(l => orderIds.Contains(l.OrderId)).Select(l => l.ParcelId).ToListAsync(ct);
-        return parcelIds.ToHashSet();
-    }
-
-    /// <summary>
-    /// Called after a parcel is checked in. If it belongs to a request that is waiting for arrivals, the parcel is
-    /// held for that request, and when the last one is here the request moves to AwaitingApproval for staff.
-    /// Returns true when the parcel is held by a request (so it is not offered for a new one).
-    /// </summary>
-    public async Task<bool> OnParcelArrivedAsync(Guid parcelId, CancellationToken ct = default)
-    {
-        var orderIds = await _uow.Query<ConsolidationOrderParcel>().Query().AsNoTracking()
-            .Where(l => l.ParcelId == parcelId).Select(l => l.OrderId).ToListAsync(ct);
-        if (orderIds.Count == 0) return false;
-
-        var order = await _uow.Query<ConsolidationOrder>().Query()
-            .FirstOrDefaultAsync(o => orderIds.Contains(o.Id) && o.Status == ConsolidationOrderStatus.AwaitingArrival, ct);
-        if (order is null) return false;
-
-        var parcels = await LoadOrderParcelsAsync(order.Id, ct);
-        var arrived = parcels.FirstOrDefault(p => p.Id == parcelId);
-        if (arrived is null) return false;
-
-        // Reserve it so it cannot be dispatched on its own while the request is waiting.
-        arrived.Status = ParcelStatus.ConsolidationRequested;
-        arrived.UpdatedAt = DateTime.UtcNow;
-        await AddEventAsync(arrived, TrackingEventType.ConsolidationRequested,
-            $"Received at the warehouse and held for consolidation request {order.OrderNumber}.", ct);
-
-        var complete = parcels.All(p => p.Status == ParcelStatus.ConsolidationRequested);
-        if (complete)
-        {
-            order.Status = ConsolidationOrderStatus.AwaitingApproval;
-            order.UpdatedAt = DateTime.UtcNow;
-        }
-        await _uow.SaveChangesAsync(ct);
-
-        if (complete)
-        {
-            var userId = await CustomerUserIdAsync(order.CustomerId, ct);
-            if (userId is not null)
-            {
-                await SafeAuditAsync("CONSOLIDATION_ALL_ARRIVED", order.Id, null, new { order.OrderNumber }, userId.Value, ct);
-                await SafeNotifyAsync(userId.Value, "All your parcels have arrived",
-                    $"Order {order.OrderNumber}: every parcel is now in the warehouse. Staff are reviewing the request and will pack it next.", ct);
-            }
-        }
-        return true;
-    }
-
-    public async Task<ConsolidationOrderDto> ApproveAsync(Guid orderId, Guid staffUserId, CancellationToken ct = default)
-    {
-        var order = await GetOrderOrThrowAsync(orderId, ct);
-        if (order.Status != ConsolidationOrderStatus.AwaitingApproval)
-            throw new BadRequestException(
-                $"Only a request whose parcels have all arrived can be approved (currently '{order.Status}').");
-
-        var parcels = await LoadOrderParcelsAsync(order.Id, ct);
-        var missing = parcels.Where(p => p.Status != ParcelStatus.ConsolidationRequested).ToList();
-        if (missing.Count > 0)
-            throw new BadRequestException(
-                $"{missing.Count} parcel(s) are not held in the warehouse: {string.Join(", ", missing.Select(p => p.TrackingNumber))}.");
-
-        // Re-check the box rules on the parcels as they actually arrived.
-        var problem = GroupProblem(parcels, await MaxPayloadAsync(ct));
-        if (problem is not null)
-            throw new BadRequestException($"This group can no longer be packed together. {problem} Reject the request and give the customer the reason.");
-
-        var preview = BuildPreview(parcels);
-        order.ParcelCount = preview.ParcelCount;
-        order.CombinedWeightKg = preview.CombinedWeightKg;
-        order.SeparateShippingZAR = preview.SeparateShippingZAR;
-        order.ConsolidatedShippingZAR = preview.ConsolidatedShippingZAR;
-        order.SavingZAR = preview.SavingZAR;
-        order.Status = ConsolidationOrderStatus.Pending;
-        order.ApprovedAt = DateTime.UtcNow;
-        order.ApprovedByStaffId = staffUserId;
-        order.ExpiresAt = null;
-        order.UpdatedAt = DateTime.UtcNow;
-
-        foreach (var p in parcels)
-            await AddEventAsync(p, TrackingEventType.ConsolidationRequested,
-                $"Consolidation request {order.OrderNumber} approved by warehouse staff. Queued for packing.", ct);
-        await _uow.SaveChangesAsync(ct);
-
-        await SafeAuditAsync("CONSOLIDATION_APPROVED", order.Id, null, new { order.OrderNumber, order.ParcelCount }, staffUserId, ct);
-        var customerUserId = await CustomerUserIdAsync(order.CustomerId, ct);
-        if (customerUserId is not null)
-            await SafeNotifyAsync(customerUserId.Value, "Consolidation approved",
-                $"Order {order.OrderNumber} was approved. Your {order.ParcelCount} parcels are now being packed into one shipment.", ct);
-
-        return await MapOneAsync(order, ct);
-    }
-
-    public async Task<ConsolidationOrderDto> RejectAsync(Guid orderId, RejectConsolidationDto dto, Guid staffUserId, CancellationToken ct = default)
-    {
-        var reason = (dto.Reason ?? string.Empty).Trim();
-        if (reason.Length < 5)
-            throw new BadRequestException("Give the customer a reason for rejecting this request (at least 5 characters).");
-
-        var order = await GetOrderOrThrowAsync(orderId, ct);
-        if (order.Status != ConsolidationOrderStatus.AwaitingApproval)
-            throw new BadRequestException(
-                $"Only a request whose parcels have all arrived can be rejected (currently '{order.Status}').");
-
-        var parcels = await LoadOrderParcelsAsync(order.Id, ct);
-        await CloseWaitingOrderAsync(order, parcels, reason, shipSeparately: true,
-            $"Consolidation request {order.OrderNumber} was rejected by the warehouse: {reason} This parcel will ship on its own.", ct);
-        await _uow.SaveChangesAsync(ct);
-
-        await SafeAuditAsync("CONSOLIDATION_REJECTED", order.Id, null, new { order.OrderNumber, Reason = reason }, staffUserId, ct);
-        var customerUserId = await CustomerUserIdAsync(order.CustomerId, ct);
-        if (customerUserId is not null)
-            await SafeNotifyAsync(customerUserId.Value, "Consolidation request rejected",
-                $"Order {order.OrderNumber} could not be combined: {reason} Your parcels will ship separately. You can send a new request.", ct);
-
-        return await MapOneAsync(order, ct);
-    }
-
-    /// <summary>
-    /// Housekeeping for waiting requests: closes any whose waiting period ran out, whose parcel was cancelled,
-    /// lost or returned, or that staff never reviewed within <paramref name="approvalMaxAge"/>. Frees the parcels.
-    /// </summary>
-    public async Task<int> ReleaseWaitingOrdersAsync(TimeSpan approvalMaxAge, CancellationToken ct = default)
-    {
-        var now = DateTime.UtcNow;
-        var open = await _uow.Query<ConsolidationOrder>().Query()
-            .Where(o => o.Status == ConsolidationOrderStatus.AwaitingArrival
-                     || o.Status == ConsolidationOrderStatus.AwaitingApproval)
-            .ToListAsync(ct);
-        if (open.Count == 0) return 0;
-
-        var closed = new List<(ConsolidationOrder Order, string Reason)>();
-        foreach (var order in open)
-        {
-            var parcels = await LoadOrderParcelsAsync(order.Id, ct);
-            var dead = parcels.FirstOrDefault(p => p.Status is ParcelStatus.Cancelled or ParcelStatus.Lost or ParcelStatus.Returned);
-
-            string? reason = null;
-            if (dead is not null)
-                reason = $"Parcel {dead.TrackingNumber} was cancelled, lost or returned, so the group can no longer be combined.";
-            else if (order.Status == ConsolidationOrderStatus.AwaitingArrival && order.ExpiresAt is { } expires && expires < now)
-                reason = $"Not every parcel reached the warehouse within {_options.AwaitingArrivalDays} days.";
-            else if (order.Status == ConsolidationOrderStatus.AwaitingApproval && order.UpdatedAt < now - approvalMaxAge)
-                reason = "The warehouse did not review the request in time.";
-            if (reason is null) continue;
-
-            await CloseWaitingOrderAsync(order, parcels, reason, shipSeparately: false,
-                $"Consolidation request {order.OrderNumber} was closed: {reason} This parcel ships on its own unless you request again.", ct);
-            closed.Add((order, reason));
-        }
-        if (closed.Count == 0) return 0;
-        await _uow.SaveChangesAsync(ct);
-
-        foreach (var (order, reason) in closed)
-        {
-            var customerUserId = await CustomerUserIdAsync(order.CustomerId, ct);
-            if (customerUserId is null) continue;
-            await SafeAuditAsync("CONSOLIDATION_RELEASED", order.Id, null, new { order.OrderNumber, Reason = reason }, customerUserId.Value, ct);
-            await SafeNotifyAsync(customerUserId.Value, "Consolidation request closed",
-                $"Order {order.OrderNumber} was closed: {reason} Your parcels will ship separately. You can send a new request.", ct);
-        }
-        return closed.Count;
-    }
-
-    /// <summary>Cancels a waiting order and frees every parcel it was holding (parcels still on their way keep their status).</summary>
-    private async Task CloseWaitingOrderAsync(
-        ConsolidationOrder order, List<Parcel> parcels, string reason, bool shipSeparately, string eventText, CancellationToken ct)
-    {
-        foreach (var p in parcels)
-        {
-            if (p.Status is ParcelStatus.Cancelled or ParcelStatus.Lost or ParcelStatus.Returned) continue;
-            if (p.Status == ParcelStatus.ConsolidationRequested) p.Status = ParcelStatus.InWarehouse;
-            if (shipSeparately) p.SkipConsolidation = true;
-            p.UpdatedAt = DateTime.UtcNow;
-            await AddEventAsync(p, TrackingEventType.ConsolidationRequested, eventText, ct);
-        }
-        order.Status = ConsolidationOrderStatus.Cancelled;
-        order.ClosedReason = reason;
-        order.UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
@@ -427,7 +210,6 @@ public class ConsolidationService : IConsolidationService
             query = query.Where(o => o.Status == s);
         else
             query = query.Where(o => o.Status == ConsolidationOrderStatus.Pending
-                                  || o.Status == ConsolidationOrderStatus.AwaitingApproval
                                   || o.Status == ConsolidationOrderStatus.InProgress
                                   || o.Status == ConsolidationOrderStatus.Consolidated);
 
@@ -627,6 +409,7 @@ public class ConsolidationService : IConsolidationService
     // ══════════════════════════════════════════════════════════════════════
     // AUTOMATIC CONSOLIDATION – the business groups parcels, the customer is informed and can opt out
     // ══════════════════════════════════════════════════════════════════════
+
     /// <summary>
     /// One sweep. For every customer and destination address:
     ///  1. Tells the customer when another parcel for that address is still on its way (once per parcel).
@@ -635,7 +418,7 @@ public class ConsolidationService : IConsolidationService
     ///       Auto     -> creates the consolidation order and notifies the customer,
     ///       AskFirst -> notifies the customer once; they confirm on the Consolidation page,
     ///       Never    -> does nothing.
-    /// Express, Overnight and Same-day parcels and parcels marked "Ship separately" are never touched.
+    /// Express, Overnight and Same-day parcels and parcels marked "Ship now" are never touched.
     /// </summary>
     public async Task<AutoConsolidationResult> RunAutomationAsync(CancellationToken ct = default)
     {
@@ -677,7 +460,7 @@ public class ConsolidationService : IConsolidationService
                     await SafeNotifyAsync(customer.UserId, "Another parcel is on its way to the same address",
                         $"You have {eligible.Count} parcels going to {address}: {inWh.Count} in our warehouse and {incoming.Count} still on the way. " +
                         $"Combining them would save you about R{all.SavingZAR:0.00} ({all.SavingPercent}%). {follow} " +
-                        "You can change this or choose \"Ship separately\" on the Consolidation page.", ct);
+                        "You can change this or choose \"Ship now\" on the Consolidation page.", ct);
                     foreach (var p in eligible) { p.ConsolidationHintSentAt = now; p.UpdatedAt = now; }
                     hints++;
                 }
@@ -908,8 +691,7 @@ public class ConsolidationService : IConsolidationService
 
     /// <summary>Creates the order, links the parcels and moves them to ConsolidationRequested. Saves.</summary>
     private async Task<ConsolidationOrder> CreateOrderAsync(
-        CustomerProfile customer, List<Parcel> parcels, ConsolidationSource source, CancellationToken ct,
-        bool awaitingArrival = false)
+        CustomerProfile customer, List<Parcel> parcels, ConsolidationSource source, CancellationToken ct)
     {
         var preview = BuildPreview(parcels);
         var address = parcels[0].DeliveryAddress;
@@ -919,8 +701,7 @@ public class ConsolidationService : IConsolidationService
             Id = Guid.NewGuid(),
             OrderNumber = await NextOrderNumberAsync(ct),
             CustomerId = customer.Id,
-            Status = awaitingArrival ? ConsolidationOrderStatus.AwaitingArrival : ConsolidationOrderStatus.Pending,
-            ExpiresAt = awaitingArrival ? DateTime.UtcNow.AddDays(_options.AwaitingArrivalDays) : null,
+            Status = ConsolidationOrderStatus.Pending,
             Source = source,
             DestinationKey = AddressKey(address),
             DestinationSummary = AddressText(address),
@@ -935,9 +716,7 @@ public class ConsolidationService : IConsolidationService
         };
         await _uow.Query<ConsolidationOrder>().AddAsync(order, ct);
 
-        var why = awaitingArrival
-            ? $"Customer requested consolidation ({order.OrderNumber}). Held until the other parcel(s) arrive, then reviewed by warehouse staff."
-            : source switch
+        var why = source switch
         {
             ConsolidationSource.System => $"Grouped automatically with {parcels.Count - 1} other parcel(s) going to the same address. Work order {order.OrderNumber} sent to the warehouse.",
             ConsolidationSource.Staff => $"Warehouse staff grouped this parcel with {parcels.Count - 1} other parcel(s). Work order {order.OrderNumber} sent to the warehouse.",
@@ -955,12 +734,10 @@ public class ConsolidationService : IConsolidationService
                 UpdatedAt = DateTime.UtcNow
             }, ct);
 
-            var onItsWay = awaitingArrival && p.Status != ParcelStatus.InWarehouse;
-            if (!onItsWay) p.Status = ParcelStatus.ConsolidationRequested;   // a parcel still on its way keeps its status so check-in works
+            p.Status = ParcelStatus.ConsolidationRequested;
             if (source == ConsolidationSource.Customer) p.SkipConsolidation = false;   // asking to combine = opting back in
             p.UpdatedAt = DateTime.UtcNow;
-            await AddEventAsync(p, TrackingEventType.ConsolidationRequested,
-                onItsWay ? $"Included in consolidation request {order.OrderNumber}. It will be held with the other parcels once it reaches the warehouse." : why, ct);
+            await AddEventAsync(p, TrackingEventType.ConsolidationRequested, why, ct);
         }
 
         await _uow.SaveChangesAsync(ct);
@@ -974,11 +751,7 @@ public class ConsolidationService : IConsolidationService
         if (!track) q = q.AsNoTracking();
         q = q.Where(p => statuses.Contains(p.Status) && !p.TrackingNumber.StartsWith(MasterPrefix));
         if (customerId.HasValue) q = q.Where(p => p.CustomerId == customerId.Value);
-        var list = await q.OrderBy(p => p.CreatedAt).ToListAsync(ct);
-
-        // Parcels held by a waiting pre-arrival request are handled by that request, not the automatic sweep.
-        var waiting = await WaitingParcelIdsAsync(ct);
-        return waiting.Count == 0 ? list : list.Where(p => !waiting.Contains(p.Id)).ToList();
+        return await q.OrderBy(p => p.CreatedAt).ToListAsync(ct);
     }
 
     /// <summary>When each parcel last reached the warehouse (the start of its hold window).</summary>
@@ -1002,7 +775,7 @@ public class ConsolidationService : IConsolidationService
 
     /// <param name="customerUserId">The customer's user id, or null when warehouse staff act for any customer.</param>
     private async Task<(CustomerProfile customer, List<Parcel> parcels)> LoadAndValidateAsync(
-        ConsolidationRequestDto dto, Guid? customerUserId, CancellationToken ct, bool allowIncoming = false)
+        ConsolidationRequestDto dto, Guid? customerUserId, CancellationToken ct)
     {
         var ids = (dto.ParcelIds ?? []).Distinct().ToList();
         if (ids.Count < 2)
@@ -1032,18 +805,11 @@ public class ConsolidationService : IConsolidationService
                        ?? throw new NotFoundException("Customer profile not found.");
         }
 
-        var held = await WaitingParcelIdsAsync(ct);
-        var already = parcels.FirstOrDefault(p => held.Contains(p.Id));
-        if (already is not null)
-            throw new BadRequestException($"Parcel {already.TrackingNumber} is already part of a waiting consolidation request.");
-
         foreach (var p in parcels)
         {
-            var allowed = p.Status == ParcelStatus.InWarehouse || (allowIncoming && IncomingStatuses.Contains(p.Status));
-            if (!allowed)
-                throw new BadRequestException(allowIncoming
-                    ? $"Parcel {p.TrackingNumber} cannot be consolidated right now (status: {p.Status})."
-                    : $"Parcel {p.TrackingNumber} is not awaiting dispatch in the warehouse (status: {p.Status}).");
+            if (p.Status != ParcelStatus.InWarehouse)
+                throw new BadRequestException(
+                    $"Parcel {p.TrackingNumber} is not awaiting dispatch in the warehouse (status: {p.Status}).");
         }
 
         if (parcels.Select(p => AddressKey(p.DeliveryAddress)).Distinct().Count() > 1)
@@ -1386,7 +1152,7 @@ public class ConsolidationService : IConsolidationService
                      l.Scanned))
                  .OrderBy(x => x.TrackingNumber)
                  .ToList(),
-            o.Source.ToString(), o.ExpiresAt, o.ClosedReason)).ToList();
+            o.Source.ToString())).ToList();
     }
 
     private async Task SafeAuditAsync(string action, Guid entityId, object? oldValues, object? newValues, Guid userId, CancellationToken ct)

@@ -634,12 +634,6 @@ public class ConsolidationOrder : BaseEntity
     // Who started it: the customer, the automatic sweep, or warehouse staff.
     public ConsolidationSource Source { get; set; } = ConsolidationSource.Customer;
 
-    // Pre-arrival requests: held until every parcel reaches the warehouse, then reviewed by staff.
-    public DateTime? ExpiresAt { get; set; }            // AwaitingArrival only: the request lapses after this
-    public DateTime? ApprovedAt { get; set; }
-    public Guid? ApprovedByStaffId { get; set; }
-    public string? ClosedReason { get; set; }           // why a waiting request was rejected, expired or released
-
     public ICollection<ConsolidationOrderParcel> Parcels { get; set; } = [];
 }
 

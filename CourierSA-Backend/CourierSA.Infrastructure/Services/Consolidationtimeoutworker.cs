@@ -50,10 +50,6 @@ public class ConsolidationTimeoutWorker : BackgroundService
                 if (released > 0)
                     _logger.LogInformation("Released {Count} stale consolidation order(s).", released);
 
-                var waiting = await service.ReleaseWaitingOrdersAsync(_maxAge, stoppingToken);
-                if (waiting > 0)
-                    _logger.LogInformation("Closed {Count} waiting consolidation request(s).", waiting);
-
                 if (_autoEnabled)
                 {
                     var auto = await service.RunAutomationAsync(stoppingToken);

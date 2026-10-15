@@ -141,16 +141,4 @@ public class ConsolidationController : CourierSABaseController
     [Authorize(Policy = "WarehouseOrAdmin")]
     public async Task<IActionResult> Stage(Guid id, [FromBody] StageConsolidationDto dto, CancellationToken ct)
         => Ok(await _service.StageAsync(id, dto, CurrentUserId, ct), "Staged for dispatch. The dispatcher can now plan the route.");
-
-    /// <summary>POST /api/consolidations/{id}/approve – every parcel has arrived; staff confirm the group can be packed</summary>
-    [HttpPost("{id:guid}/approve")]
-    [Authorize(Policy = "WarehouseOrAdmin")]
-    public async Task<IActionResult> Approve(Guid id, CancellationToken ct)
-        => Ok(await _service.ApproveAsync(id, CurrentUserId, ct), "Approved. The order is now in the packing queue.");
-
-    /// <summary>POST /api/consolidations/{id}/reject – staff cannot pack the group; a reason is required and the customer is told</summary>
-    [HttpPost("{id:guid}/reject")]
-    [Authorize(Policy = "WarehouseOrAdmin")]
-    public async Task<IActionResult> Reject(Guid id, [FromBody] RejectConsolidationDto dto, CancellationToken ct)
-        => Ok(await _service.RejectAsync(id, dto, CurrentUserId, ct), "Request rejected. The customer has been notified.");
 }

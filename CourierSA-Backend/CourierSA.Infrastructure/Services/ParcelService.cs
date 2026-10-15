@@ -29,7 +29,6 @@ public class ParcelService : IParcelService
     private INotificationService object3;
     private IAuditService object4;
     private ITrackingHubService object5;
-    private readonly IConsolidationService? _consolidation;
 
     public ParcelService(
         IUnitOfWork uow,
@@ -38,10 +37,8 @@ public class ParcelService : IParcelService
         INotificationService notificationService,
         IAuditService audit,
         ITrackingHubService hubService,
-        ISecureDeliveryService secureDelivery,
-        IConsolidationService? consolidation = null)
+        ISecureDeliveryService secureDelivery)
     {
-        _consolidation = consolidation;
         _uow = uow;
         _quoteService = quoteService;
         _barcodeService = barcodeService;
@@ -414,13 +411,6 @@ public class ParcelService : IParcelService
         await _uow.TrackingEvents.AddAsync(trackingEvent, ct);
         await _uow.SaveChangesAsync(ct);
         await _hubService.NotifyParcelStatusChangedAsync(parcel.TrackingNumber, "InWarehouse", bin.BinCode, ct);
-
-        // A parcel that belongs to a waiting pre-arrival consolidation request is held for it, not offered for a new one.
-        if (_consolidation is not null)
-        {
-            try { if (await _consolidation.OnParcelArrivedAsync(parcel.Id, ct)) return; }
-            catch (Exception ex) { Console.WriteLine($"[CONSOLIDATION] arrival hook failed: {ex.Message}"); }
-        }
 
         await SuggestConsolidationAsync(parcel, ct);
     }

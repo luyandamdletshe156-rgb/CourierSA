@@ -400,7 +400,5 @@ public enum ConsolidationOrderStatus
     InProgress,     // warehouse staff have started scanning parcels
     Consolidated,   // packed into a master box with a master label
     Staged,         // moved to an outbound lane and released to dispatch
-    Cancelled,
-    AwaitingArrival,   // customer grouped parcels that are still on their way; held until all arrive or the request expires
-    AwaitingApproval   // every parcel has arrived; waiting for warehouse staff to approve or reject
+    Cancelled
 }
