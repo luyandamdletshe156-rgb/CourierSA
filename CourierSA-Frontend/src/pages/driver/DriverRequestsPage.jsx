@@ -9,9 +9,6 @@ import { formatDate } from '@/utils'
 import clsx from 'clsx'
 import { Inbox, ArrowRight } from 'lucide-react'
 
-// My Requests (driver): one page, no tabs. Anything waiting for your reply comes first,
-// then every leave and swap request in one list, newest first.
-
 const STATUS_TONE = {
   Pending: 'bg-[#FFFBEB] text-[#92400E]',
   Approved: 'bg-[#F0FDF4] text-[#166534]',
@@ -25,19 +22,25 @@ export default function DriverRequestsPage() {
 
   const leaveQ = useQuery({ queryKey: ['my-leave'], queryFn: () => shiftApi.myLeave() })
   const swapQ = useQuery({ queryKey: ['my-swaps'], queryFn: () => shiftApi.mySwaps() })
+  
   const swaps = unwrap(swapQ.data)
   const needReply = swaps.filter(w => w.awaitingMyReply)
 
   const refresh = () => ['my-shifts', 'my-leave', 'my-swaps', 'leave-balance', 'leave-preview'].forEach(k => qc.invalidateQueries({ queryKey: [k] }))
+  
   const cancel = useMutation({ mutationFn: id => shiftApi.cancelLeave(id), onSuccess: refresh })
   const respond = useMutation({ mutationFn: ({ id, accept }) => shiftApi.respondSwap(id, accept), onSuccess: refresh })
 
-  const all = [
-    ...unwrap(leaveQ.data).map(r => ({ ...r, kind: 'leave', when: dayKey(r.startDate) })),
-    ...swaps.filter(w => !w.awaitingMyReply).map(r => ({ ...r, kind: 'swap', when: dayKey(r.date) })),
-  ].sort((a, b) => b.when.localeCompare(a.when))
-  const visible = all.filter(r => status === 'All' || r.status === status)
-  const count = s => all.filter(r => r.status === s).length
+  // Separate and sort the data
+  const leaveRequests = unwrap(leaveQ.data).sort((a, b) => dayKey(b.startDate).localeCompare(dayKey(a.startDate)))
+  const swapRequests = swaps.filter(w => !w.awaitingMyReply).sort((a, b) => dayKey(b.date).localeCompare(dayKey(a.date)))
+
+  // Apply the selected status filter
+  const visibleLeave = leaveRequests.filter(r => status === 'All' || r.status === status)
+  const visibleSwaps = swapRequests.filter(r => status === 'All' || r.status === status)
+
+  // Count totals for the summary line across both types of requests
+  const count = s => leaveRequests.filter(r => r.status === s).length + swapRequests.filter(r => r.status === s).length
 
   return (
     <AppShell title="My Requests">
@@ -55,9 +58,10 @@ export default function DriverRequestsPage() {
       ]} />
 
       {leaveQ.isLoading || swapQ.isLoading ? <PageLoader /> : (
-        <div className="max-w-3xl space-y-6">
+        <div className="max-w-3xl space-y-8">
+          
           {needReply.length > 0 && (
-            <section className="space-y-2">
+            <section className="space-y-3">
               <h2 className="text-sm font-bold text-[#0F172A]">Waiting for your reply</h2>
               {respond.error && <Alert type="error" message={respond.error.message} />}
               {needReply.map(w => (
@@ -76,46 +80,80 @@ export default function DriverRequestsPage() {
             </section>
           )}
 
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-[#0F172A]">All requests</h2>
-              <div className="flex flex-wrap gap-1.5">
+          {leaveRequests.length === 0 && swapRequests.length === 0 && needReply.length === 0 ? (
+            <EmptyState icon={Inbox} title="No requests yet" description="Request leave, or offer a shift from My Schedule, and it is tracked here." />
+          ) : (
+            <>
+              {/* Filter Tabs */}
+              <div className="flex flex-wrap gap-1.5 border-b border-[#E2E8F0] pb-4">
                 {STATUS_FILTERS.map(f => (
                   <button key={f} onClick={() => setStatus(f)}
-                    className={clsx('px-3 py-1 rounded-full text-xs font-semibold border', status === f ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1]')}>{f}</button>
+                    className={clsx('px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors', status === f ? 'bg-[#0A3D91] text-white border-[#0A3D91]' : 'bg-white text-[#334155] border-[#CBD5E1] hover:bg-gray-50')}>
+                    {f}
+                  </button>
                 ))}
               </div>
-            </div>
-            {cancel.error && <Alert type="error" message={cancel.error.message} />}
-            {all.length === 0 && needReply.length === 0
-              ? <EmptyState icon={Inbox} title="No requests yet" description="Request leave, or offer a shift from My Schedule, and it is tracked here." />
-              : visible.length === 0
-                ? <p className="text-xs text-[#64748B]">No {status.toLowerCase()} requests.</p>
-                : (
+
+              {cancel.error && <Alert type="error" message={cancel.error.message} />}
+
+              {/* Leave Requests Section */}
+              <section className="space-y-3">
+                <h2 className="text-sm font-bold text-[#0F172A]">Leave requests</h2>
+                {visibleLeave.length === 0 ? (
+                  <p className="text-xs text-[#64748B]">No {status !== 'All' ? status.toLowerCase() : ''} leave requests.</p>
+                ) : (
                   <ul className="card p-0 divide-y divide-[#E2E8F0]">
-                    {visible.map(r => (
-                      <li key={`${r.kind}-${r.id}`} className="px-4 py-3 space-y-1.5">
+                    {visibleLeave.map(r => {
+                      const days = inclusiveDays(r.startDate, r.endDate)
+                      return (
+                        <li key={r.id} className="px-4 py-3 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-bold text-[#172554]">
+                              {r.leaveType} leave
+                              <span className="ml-2 font-normal text-xs text-[#64748B]">
+                                {formatDate(r.startDate)} – {formatDate(r.endDate)} · {days} day{days === 1 ? '' : 's'}
+                              </span>
+                            </p>
+                            <span className={clsx('text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap', STATUS_TONE[r.status] ?? 'bg-[#F1F5F9] text-[#475569]')}>{r.status}</span>
+                          </div>
+                          {r.adminNotes && <p className="text-xs bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-2.5 py-1.5"><b>Admin:</b> {r.adminNotes}</p>}
+                          {r.status === 'Pending' && (
+                            <button className="text-xs font-semibold text-[#B91C1C] hover:underline" disabled={cancel.isPending} onClick={() => cancel.mutate(r.id)}>
+                              Cancel request
+                            </button>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </section>
+
+              {/* Swap Requests Section */}
+              <section className="space-y-3">
+                <h2 className="text-sm font-bold text-[#0F172A]">Shift swap requests</h2>
+                {visibleSwaps.length === 0 ? (
+                  <p className="text-xs text-[#64748B]">No {status !== 'All' ? status.toLowerCase() : ''} swap requests.</p>
+                ) : (
+                  <ul className="card p-0 divide-y divide-[#E2E8F0]">
+                    {visibleSwaps.map(r => (
+                      <li key={r.id} className="px-4 py-3 space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-bold">
-                            {r.kind === 'leave' ? `${r.leaveType} leave` : `${r.shiftType} shift swap`}
-                            <span className="ml-2 font-normal text-xs text-[#64748B]">
-                              {r.kind === 'leave'
-                                ? `${formatDate(r.startDate)} – ${formatDate(r.endDate)} · ${inclusiveDays(r.startDate, r.endDate)} day${inclusiveDays(r.startDate, r.endDate) === 1 ? '' : 's'}`
-                                : formatDate(r.date)}
-                            </span>
+                          <p className="text-sm font-bold text-[#172554]">
+                            {r.shiftType} shift swap
+                            <span className="ml-2 font-normal text-xs text-[#64748B]">{formatDate(r.date)}</span>
                           </p>
                           <span className={clsx('text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap', STATUS_TONE[r.status] ?? 'bg-[#F1F5F9] text-[#475569]')}>{r.status}</span>
                         </div>
-                        {r.kind === 'swap' && <p className="text-xs text-[#64748B] flex items-center gap-1.5">{r.requesterName} <ArrowRight size={11} /> {r.peerName}</p>}
+                        <p className="text-xs text-[#64748B] flex items-center gap-1.5">{r.requesterName} <ArrowRight size={11} /> {r.peerName}</p>
                         {r.adminNotes && <p className="text-xs bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-2.5 py-1.5"><b>Admin:</b> {r.adminNotes}</p>}
-                        {r.kind === 'leave' && r.status === 'Pending' && (
-                          <button className="text-xs font-semibold text-[#B91C1C]" disabled={cancel.isPending} onClick={() => cancel.mutate(r.id)}>Cancel request</button>
-                        )}
                       </li>
                     ))}
                   </ul>
                 )}
-          </section>
+              </section>
+            </>
+          )}
         </div>
       )}
     </AppShell>
