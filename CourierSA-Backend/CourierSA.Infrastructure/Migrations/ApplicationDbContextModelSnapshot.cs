@@ -259,7 +259,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ParcelId");
 
-                    b.ToTable("CollectionDamageReports", (string)null);
+                    b.ToTable("CollectionDamageReports");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.ConsolidationOrder", b =>
@@ -267,6 +267,15 @@ namespace CourierSA.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid?>("ApprovedByStaffId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ClosedReason")
+                        .HasColumnType("longtext");
 
                     b.Property<decimal>("CombinedWeightKg")
                         .HasColumnType("decimal(18,2)");
@@ -303,6 +312,9 @@ namespace CourierSA.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<decimal?>("FinalWeightKg")
                         .HasColumnType("decimal(18,2)");
@@ -645,7 +657,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("DriverId");
 
-                    b.ToTable("DeliveryRoutes", (string)null);
+                    b.ToTable("DeliveryRoutes");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.DriverProfile", b =>
@@ -745,7 +757,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("DriverId");
 
-                    b.ToTable("DriverShifts", (string)null);
+                    b.ToTable("DriverShifts");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.InsuranceClaim", b =>
@@ -916,7 +928,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("InvoiceId");
 
-                    b.ToTable("InvoiceLineItem", (string)null);
+                    b.ToTable("InvoiceLineItem");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.LeaveRequest", b =>
@@ -968,7 +980,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("DriverId");
 
-                    b.ToTable("LeaveRequests", (string)null);
+                    b.ToTable("LeaveRequests");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.LostParcelCase", b =>
@@ -1029,7 +1041,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ParcelId");
 
-                    b.ToTable("LostParcelCases", (string)null);
+                    b.ToTable("LostParcelCases");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.Notification", b =>
@@ -1373,7 +1385,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ParcelId");
 
-                    b.ToTable("ParcelInspections", (string)null);
+                    b.ToTable("ParcelInspections");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.ParcelSortingAssignment", b =>
@@ -1420,7 +1432,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("SuggestedBinId");
 
-                    b.ToTable("ParcelSortingAssignments", (string)null);
+                    b.ToTable("ParcelSortingAssignments");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.PostalCodeZoneRule", b =>
@@ -1455,7 +1467,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PostalCodeZoneRules", (string)null);
+                    b.ToTable("PostalCodeZoneRules");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.PriorityUpgradeRequest", b =>
@@ -1514,7 +1526,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ParcelId");
 
-                    b.ToTable("PriorityUpgradeRequests", (string)null);
+                    b.ToTable("PriorityUpgradeRequests");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.Quote", b =>
@@ -1677,7 +1689,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ParcelId");
 
-                    b.ToTable("ReturnRequests", (string)null);
+                    b.ToTable("ReturnRequests");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.ShiftSwapRequest", b =>
@@ -1726,7 +1738,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasIndex("ShiftId");
 
-                    b.ToTable("ShiftSwapRequests", (string)null);
+                    b.ToTable("ShiftSwapRequests");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.SortingBin", b =>
@@ -1765,7 +1777,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("SortingBins", (string)null);
+                    b.ToTable("SortingBins");
                 });
 
             modelBuilder.Entity("CourierSA.Domain.Entities.TrackingEvent", b =>
@@ -2295,7 +2307,7 @@ namespace CourierSA.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.OwnsOne("CourierSA.Domain.Entities.Parcel.Dimensions#CourierSA.Domain.Entities.ParcelDimensions", "Dimensions", b1 =>
+                    b.OwnsOne("CourierSA.Domain.Entities.ParcelDimensions", "Dimensions", b1 =>
                         {
                             b1.Property<Guid>("ParcelId")
                                 .HasColumnType("char(36)");
@@ -2314,7 +2326,7 @@ namespace CourierSA.Infrastructure.Migrations
 
                             b1.HasKey("ParcelId");
 
-                            b1.ToTable("Parcels", (string)null);
+                            b1.ToTable("Parcels");
 
                             b1.WithOwner()
                                 .HasForeignKey("ParcelId");

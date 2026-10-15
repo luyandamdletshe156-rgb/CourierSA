@@ -812,15 +812,17 @@ namespace CourierSA.Application.DTOs.Consolidation
     public record ScanConsolidationParcelDto(string TrackingNumber);
     public record PackConsolidationDto(decimal LengthCm, decimal WidthCm, decimal HeightCm, decimal FinalWeightKg);
     public record StageConsolidationDto(string MasterTrackingId, string Lane);
+    public record RejectConsolidationDto(string Reason);
 
     public record EligibleParcelDto(
         Guid Id, string TrackingNumber, string RecipientName, string DestinationAddress,
         string AddressKey, decimal WeightKg, string? BinCode,
-        string ServiceType, bool IsFragile, bool ShipAlone, string? BlockedReason);
+        string ServiceType, bool IsFragile, bool ShipAlone, string? BlockedReason, bool InWarehouse = true);
 
     public record ConsolidationPreviewDto(
         int ParcelCount, decimal CombinedWeightKg, decimal SeparateShippingZAR,
-        decimal ConsolidatedShippingZAR, decimal SavingZAR, decimal SavingPercent);
+        decimal ConsolidatedShippingZAR, decimal SavingZAR, decimal SavingPercent,
+        int WaitingCount = 0, int WaitingDays = 0);
 
     public record ConsolidationParcelDto(
         Guid ParcelId, string TrackingNumber, decimal WeightKg, string? BinCode, bool Scanned);
@@ -831,7 +833,8 @@ namespace CourierSA.Application.DTOs.Consolidation
         decimal SeparateShippingZAR, decimal ConsolidatedShippingZAR, decimal SavingZAR,
         decimal? LengthCm, decimal? WidthCm, decimal? HeightCm, decimal? FinalWeightKg,
         string? Lane, DateTime CreatedAt, DateTime? ConsolidatedAt, DateTime? StagedAt,
-        List<ConsolidationParcelDto> Parcels, string Source);
+        List<ConsolidationParcelDto> Parcels, string Source,
+        DateTime? ExpiresAt = null, string? ClosedReason = null);
 
     /// <summary>
     /// One row of the warehouse "History" tab: the consolidation order plus the current status of its

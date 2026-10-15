@@ -343,4 +343,10 @@ public interface IConsolidationService
     Task<IEnumerable<ConsolidationSuggestionDto>> GetSuggestionsAsync(CancellationToken ct = default);
     Task<ConsolidationOrderDto> ConsolidateNowAsync(ConsolidationRequestDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<AutoConsolidationResult> RunAutomationAsync(CancellationToken ct = default);
+
+    // Pre-arrival requests: parcels still on their way are held until all arrive, then staff approve or reject.
+    Task<bool> OnParcelArrivedAsync(Guid parcelId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> ApproveAsync(Guid orderId, Guid staffUserId, CancellationToken ct = default);
+    Task<ConsolidationOrderDto> RejectAsync(Guid orderId, RejectConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<int> ReleaseWaitingOrdersAsync(TimeSpan approvalMaxAge, CancellationToken ct = default);
 }
