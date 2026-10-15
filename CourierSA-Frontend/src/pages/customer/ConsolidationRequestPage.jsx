@@ -134,11 +134,19 @@ function OutlookGroup({ g, onChanged, onError, onSuccess }) {
               {p.blockedReason ? (
                 <span className="text-[11px] text-[#64748B]" title={p.blockedReason}>Always ships alone</span>
               ) : (
-                <button type="button" disabled={alone.isPending}
-                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC]"
-                  onClick={() => alone.mutate({ id: p.id, value: !p.shipAlone })}>
-                  {p.shipAlone ? 'Combine again' : 'Ship now'}
-                </button>
+                <span className="inline-flex items-center gap-2">
+                  {p.shipAlone && <span className="text-[11px] font-semibold text-[#64748B]">Ships separately</span>}
+                  <button type="button" disabled={alone.isPending}
+                    title={p.shipAlone
+                      ? 'Put this parcel back into automatic grouping.'
+                      : p.inWarehouse
+                        ? 'Do not combine this parcel. It stays in the warehouse and is sent on its own.'
+                        : 'Do not combine this parcel. The others stop waiting for it and can be combined without it.'}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC]"
+                    onClick={() => alone.mutate({ id: p.id, value: !p.shipAlone })}>
+                    {p.shipAlone ? 'Combine again' : 'Ship separately'}
+                  </button>
+                </span>
               )}
             </span>
           </div>
@@ -152,7 +160,7 @@ function OutlookGroup({ g, onChanged, onError, onSuccess }) {
           {g.state === 'Waiting' ? "Don't wait: combine what is here" : 'Combine now'}
         </button>
       )}
-      <p className="text-[11px] text-[#94A3B8]">"Ship now" sends a parcel on its own and takes it out of any automatic grouping.</p>
+      <p className="text-[11px] text-[#94A3B8]">"Ship separately" keeps a parcel out of any combined shipment. It still follows the normal steps and you do not get the consolidation saving on it. You can undo this with "Combine again" until it is packed.</p>
     </div>
   )
 }
@@ -291,7 +299,7 @@ export default function ConsolidationRequestPage() {
                           <span className="flex-1 text-[#334155]">
                             {p.destinationAddress}
                             {p.blockedReason && <span className="block text-[11px] text-[#B91C1C]">{p.blockedReason}</span>}
-                            {p.shipAlone && !p.blockedReason && <span className="block text-[11px] text-[#64748B]">Marked "Ship now". Selecting it combines it again.</span>}
+                            {p.shipAlone && !p.blockedReason && <span className="block text-[11px] text-[#64748B]">Marked "Ship separately". Selecting it combines it again.</span>}
                           </span>
                           <span className="text-xs text-[#64748B]">{Number(p.weightKg).toFixed(1)} kg</span>
                           <span className="text-xs font-mono text-[#64748B] w-10 text-right">{p.binCode || '—'}</span>
