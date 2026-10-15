@@ -41,6 +41,36 @@ public class ConsolidationController : CourierSABaseController
     public async Task<IActionResult> Mine(CancellationToken ct)
         => Ok(await _service.GetMineAsync(CurrentUserId, ct));
 
+    /// <summary>
+    /// GET /api/consolidations/outlook – per destination: parcels in the warehouse, parcels still on their way,
+    /// the saving if combined, and what happens next (so the customer knows another parcel is coming).
+    /// </summary>
+    [HttpGet("outlook")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> Outlook(CancellationToken ct)
+        => Ok(await _service.GetOutlookAsync(CurrentUserId, ct));
+
+    /// <summary>GET /api/consolidations/preference – Auto, AskFirst or Never</summary>
+    [HttpGet("preference")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> GetPreference(CancellationToken ct)
+        => Ok(await _service.GetPreferenceAsync(CurrentUserId, ct));
+
+    /// <summary>PUT /api/consolidations/preference – choose how we handle parcels to the same address</summary>
+    [HttpPut("preference")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> SetPreference([FromBody] SetConsolidationPreferenceDto dto, CancellationToken ct)
+        => Ok(await _service.SetPreferenceAsync(CurrentUserId, dto, ct), "Preference saved.");
+
+    /// <summary>PUT /api/consolidations/parcels/{parcelId}/ship-alone – "Ship now": never combine this parcel</summary>
+    [HttpPut("parcels/{parcelId:guid}/ship-alone")]
+    [Authorize(Policy = "CustomerOrBiz")]
+    public async Task<IActionResult> ShipAlone(Guid parcelId, [FromBody] ShipAloneDto dto, CancellationToken ct)
+    {
+        await _service.SetShipAloneAsync(parcelId, dto.ShipAlone, CurrentUserId, ct);
+        return Ok(new { dto.ShipAlone }, dto.ShipAlone ? "This parcel will ship on its own." : "This parcel can be combined again.");
+    }
+
     /// <summary>PUT /api/consolidations/{id}/cancel – only while the warehouse has not started</summary>
     [HttpPut("{id:guid}/cancel")]
     [Authorize(Policy = "CustomerOrBiz")]
@@ -63,6 +93,27 @@ public class ConsolidationController : CourierSABaseController
     [Authorize(Policy = "WarehouseOrAdmin")]
     public async Task<IActionResult> History([FromQuery] string? search, CancellationToken ct)
         => Ok(await _service.GetHistoryAsync(search, ct));
+
+    /// <summary>GET /api/consolidations/suggestions – groups the system could combine, and why it has not yet</summary>
+    [HttpGet("suggestions")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> Suggestions(CancellationToken ct)
+        => Ok(await _service.GetSuggestionsAsync(ct));
+
+    /// <summary>POST /api/consolidations/suggestions/consolidate – staff consolidate a group now, without waiting</summary>
+    [HttpPost("suggestions/consolidate")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> ConsolidateNow([FromBody] ConsolidationRequestDto dto, CancellationToken ct)
+        => Created(await _service.ConsolidateNowAsync(dto, CurrentUserId, ct), "Consolidation order created and added to the queue.");
+
+    /// <summary>POST /api/consolidations/automation/run – run the automatic sweep immediately (also useful for demos)</summary>
+    [HttpPost("automation/run")]
+    [Authorize(Policy = "WarehouseOrAdmin")]
+    public async Task<IActionResult> RunAutomation(CancellationToken ct)
+    {
+        var r = await _service.RunAutomationAsync(ct);
+        return Ok(r, $"Sweep finished: {r.OrdersCreated} order(s) created, {r.HintsSent} heads-up and {r.ReadyNotices} ready notice(s) sent.");
+    }
 
     /// <summary>GET /api/consolidations/{id}</summary>
     [HttpGet("{id:guid}")]

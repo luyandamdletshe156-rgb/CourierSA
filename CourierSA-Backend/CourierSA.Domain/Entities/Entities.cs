@@ -57,6 +57,9 @@ public class CustomerProfile : BaseEntity
     public int RiskScore { get; set; }
     public DateTime? RiskEvaluatedAt { get; set; }
     public string? RiskFactorsJson { get; set; }
+    // ── Parcel consolidation: what should we do when parcels to one address can be combined? ──
+    public ConsolidationPreference ConsolidationPreference { get; set; } = ConsolidationPreference.Auto;
+
     public bool IsRestricted { get; set; }
     public DateTime? RestrictedAt { get; set; }
     public Guid? RestrictedByUserId { get; set; }
@@ -138,6 +141,11 @@ public class Parcel : BaseEntity
     public DateTime? OriginalScheduledPickupDate { get; set; }   // captured on first reschedule only
     public int RescheduleCount { get; set; }
     public decimal? LastRescheduleFeeZAR { get; set; }
+
+    // ── Automatic consolidation ───────────────────────────────────────────────
+    public bool SkipConsolidation { get; set; }                 // "Ship now": never combine this parcel
+    public DateTime? ConsolidationHintSentAt { get; set; }      // customer told another parcel is on the way
+    public DateTime? ConsolidationReadySentAt { get; set; }     // customer told the group is ready (Ask-first only)
 }
 
 public class ParcelDimensions
@@ -623,6 +631,9 @@ public class ConsolidationOrder : BaseEntity
     public DateTime? StagedAt { get; set; }
     public Guid? StagedByStaffId { get; set; }
 
+    // Who started it: the customer, the automatic sweep, or warehouse staff.
+    public ConsolidationSource Source { get; set; } = ConsolidationSource.Customer;
+
     public ICollection<ConsolidationOrderParcel> Parcels { get; set; } = [];
 }
 
@@ -636,3 +647,4 @@ public class ConsolidationOrderParcel : BaseEntity
 
     public ConsolidationOrder? Order { get; set; }
 }
+

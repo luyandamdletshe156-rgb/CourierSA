@@ -7,9 +7,13 @@ using Microsoft.Extensions.Logging;
 namespace CourierSA.Infrastructure.Services;
 
 /// <summary>
-/// Periodically releases consolidation orders the warehouse never started, so customers' parcels
-/// are not stuck in "Consolidation Requested". Settings (appsettings.json, optional):
-///   "Consolidation": { "StaleOrderHours": 48, "SweepMinutes": 30 }
+/// Periodic consolidation sweep:
+///   1. releases customer-requested consolidation orders the warehouse never started, so parcels are not
+///      stuck in "Consolidation Requested";
+///   2. runs automatic consolidation: the business groups parcels going to the same address, tells the
+///      customer when another parcel is on its way, and creates the orders (see ConsolidationService.RunAutomationAsync).
+/// Settings (appsettings.json, all optional):
+///   "Consolidation": { "StaleOrderHours": 48, "SweepMinutes": 30, "AutoEnabled": true, "HoldHours": 24 }
 /// </summary>
 public class ConsolidationTimeoutWorker : BackgroundService
 {
@@ -17,6 +21,7 @@ public class ConsolidationTimeoutWorker : BackgroundService
     private readonly ILogger<ConsolidationTimeoutWorker> _logger;
     private readonly TimeSpan _maxAge;
     private readonly TimeSpan _interval;
+    private readonly bool _autoEnabled;
 
     public ConsolidationTimeoutWorker(
         IServiceScopeFactory scopes, IConfiguration config, ILogger<ConsolidationTimeoutWorker> logger)
@@ -25,6 +30,7 @@ public class ConsolidationTimeoutWorker : BackgroundService
         _logger = logger;
         _maxAge = TimeSpan.FromHours(Math.Max(1, config.GetValue<int?>("Consolidation:StaleOrderHours") ?? 48));
         _interval = TimeSpan.FromMinutes(Math.Max(1, config.GetValue<int?>("Consolidation:SweepMinutes") ?? 30));
+        _autoEnabled = config.GetValue<bool?>("Consolidation:AutoEnabled") ?? true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,6 +49,15 @@ public class ConsolidationTimeoutWorker : BackgroundService
                 var released = await service.ReleaseStaleOrdersAsync(_maxAge, stoppingToken);
                 if (released > 0)
                     _logger.LogInformation("Released {Count} stale consolidation order(s).", released);
+
+                if (_autoEnabled)
+                {
+                    var auto = await service.RunAutomationAsync(stoppingToken);
+                    if (auto.OrdersCreated + auto.HintsSent + auto.ReadyNotices > 0)
+                        _logger.LogInformation(
+                            "Automatic consolidation: {Orders} order(s) created, {Hints} heads-up, {Ready} ready notice(s).",
+                            auto.OrdersCreated, auto.HintsSent, auto.ReadyNotices);
+                }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)

@@ -383,6 +383,17 @@ public enum LeaveRequestStatus { Pending, Approved, Rejected, Cancelled }
 public enum SwapRequestStatus { AwaitingPeer, AwaitingAdmin, Approved, Rejected, DeclinedByPeer, Cancelled }
 
 
+/// <summary>Who created a consolidation order: the customer, the automatic sweep, or warehouse staff.</summary>
+public enum ConsolidationSource { Customer, System, Staff }
+
+/// <summary>What the customer wants us to do when their parcels to one address can be combined.</summary>
+public enum ConsolidationPreference
+{
+    Auto,       // combine automatically (default)
+    AskFirst,   // tell me, I will confirm
+    Never       // never combine automatically
+}
+
 public enum ConsolidationOrderStatus
 {
     Pending,        // requested by the customer, waiting in the warehouse queue

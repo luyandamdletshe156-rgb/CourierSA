@@ -815,7 +815,8 @@ namespace CourierSA.Application.DTOs.Consolidation
 
     public record EligibleParcelDto(
         Guid Id, string TrackingNumber, string RecipientName, string DestinationAddress,
-        string AddressKey, decimal WeightKg, string? BinCode);
+        string AddressKey, decimal WeightKg, string? BinCode,
+        string ServiceType, bool IsFragile, bool ShipAlone, string? BlockedReason);
 
     public record ConsolidationPreviewDto(
         int ParcelCount, decimal CombinedWeightKg, decimal SeparateShippingZAR,
@@ -830,11 +831,39 @@ namespace CourierSA.Application.DTOs.Consolidation
         decimal SeparateShippingZAR, decimal ConsolidatedShippingZAR, decimal SavingZAR,
         decimal? LengthCm, decimal? WidthCm, decimal? HeightCm, decimal? FinalWeightKg,
         string? Lane, DateTime CreatedAt, DateTime? ConsolidatedAt, DateTime? StagedAt,
-        List<ConsolidationParcelDto> Parcels);
+        List<ConsolidationParcelDto> Parcels, string Source);
 
     /// <summary>
     /// One row of the warehouse "History" tab: the consolidation order plus the current status of its
     /// master box parcel (StagedForDispatch -> OutForDelivery -> Delivered ...). Null until the box is staged.
     /// </summary>
     public record ConsolidationHistoryDto(ConsolidationOrderDto Order, string? MasterParcelStatus);
+
+    // ── Automatic consolidation ───────────────────────────────────────────
+
+    public record ConsolidationPreferenceDto(string Preference, int HoldHours);
+    public record SetConsolidationPreferenceDto(string Preference);
+    public record ShipAloneDto(bool ShipAlone);
+
+    /// <summary>One parcel inside an outlook group: either already in the warehouse or still on its way.</summary>
+    public record OutlookParcelDto(
+        Guid Id, string TrackingNumber, string Status, bool InWarehouse, decimal WeightKg,
+        string ServiceType, bool IsFragile, bool ShipAlone, DateTime? ArrivedAt, string? BlockedReason);
+
+    /// <summary>
+    /// What the customer sees per destination: parcels here, parcels still coming, the saving if they are combined,
+    /// and plain-language state (Waiting, Combining, ReadyToConfirm, Paused, Blocked, ShippingSeparately).
+    /// </summary>
+    public record ConsolidationOutlookGroupDto(
+        string AddressKey, string Destination, string State, string Message, DateTime? HoldUntil,
+        int InWarehouseCount, int IncomingCount, ConsolidationPreviewDto? Preview,
+        List<OutlookParcelDto> Parcels);
+
+    /// <summary>A group the warehouse could combine, with the reason the system has not done it yet.</summary>
+    public record ConsolidationSuggestionDto(
+        Guid CustomerId, string CustomerName, string CustomerPreference, string Destination, string DestinationCity,
+        int ParcelCount, int IncomingCount, decimal CombinedWeightKg, decimal SavingZAR,
+        DateTime? HoldUntil, string State, string Reason, List<ConsolidationParcelDto> Parcels);
+
+    public record AutoConsolidationResult(int OrdersCreated, int HintsSent, int ReadyNotices);
 }

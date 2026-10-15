@@ -299,6 +299,15 @@ export const consolidationApi = {
   scan:     (id, dto)  => api.post(`/consolidations/${id}/scan`, dto),
   pack:     (id, dto)  => api.post(`/consolidations/${id}/pack`, dto),
   stage:    (id, dto)  => api.post(`/consolidations/${id}/stage`, dto),
+
+  // Automatic consolidation
+  outlook:        ()              => api.get('/consolidations/outlook'),
+  preference:     ()              => api.get('/consolidations/preference'),
+  setPreference:  preference      => api.put('/consolidations/preference', { preference }),
+  shipAlone:      (parcelId, shipAlone) => api.put(`/consolidations/parcels/${parcelId}/ship-alone`, { shipAlone }),
+  suggestions:    ()              => api.get('/consolidations/suggestions'),
+  consolidateNow: dto             => api.post('/consolidations/suggestions/consolidate', dto),
+  runAutomation:  ()              => api.post('/consolidations/automation/run'),
 }
 
 export const secureDeliveryApi = {

@@ -332,6 +332,15 @@ public interface IConsolidationService
     Task<ConsolidationOrderDto> PackAsync(Guid orderId, PackConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
     Task<ConsolidationOrderDto> StageAsync(Guid orderId, StageConsolidationDto dto, Guid staffUserId, CancellationToken ct = default);
 
-    // Housekeeping: cancels Pending orders the warehouse never started and frees their parcels.
+    // Housekeeping: cancels Pending customer-requested orders the warehouse never started and frees their parcels.
     Task<int> ReleaseStaleOrdersAsync(TimeSpan maxAge, CancellationToken ct = default);
+
+    // Automatic consolidation: the business groups parcels, the customer is informed and can opt out.
+    Task<IEnumerable<ConsolidationOutlookGroupDto>> GetOutlookAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<ConsolidationPreferenceDto> GetPreferenceAsync(Guid customerUserId, CancellationToken ct = default);
+    Task<ConsolidationPreferenceDto> SetPreferenceAsync(Guid customerUserId, SetConsolidationPreferenceDto dto, CancellationToken ct = default);
+    Task SetShipAloneAsync(Guid parcelId, bool shipAlone, Guid customerUserId, CancellationToken ct = default);
+    Task<IEnumerable<ConsolidationSuggestionDto>> GetSuggestionsAsync(CancellationToken ct = default);
+    Task<ConsolidationOrderDto> ConsolidateNowAsync(ConsolidationRequestDto dto, Guid staffUserId, CancellationToken ct = default);
+    Task<AutoConsolidationResult> RunAutomationAsync(CancellationToken ct = default);
 }

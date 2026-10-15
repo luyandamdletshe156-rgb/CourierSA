@@ -137,11 +137,18 @@ const normPart = v => (v || '').split(/\s+/).filter(Boolean).join(' ').toLowerCa
 const addressKey = a => [a?.streetAddress, a?.suburb, a?.city, a?.postalCode].map(normPart).join('|')
 const asList = d => (Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])
 
-// Tells the customer when a parcel already waiting in the warehouse is going to the address they typed.
+// Tells the customer when they already have parcels (in the warehouse or still on the way) going to the address they typed,
+// and what will happen: we combine them automatically (unless they changed that) and they save.
 function ConsolidationHint() {
   const { watch } = useFormContext()
   const delivery = watch('deliveryAddress')
   const { data } = useQuery({
+    queryKey: ['consolidation', 'outlook'],
+    queryFn: consolidationApi.outlook,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const { data: eligibleData } = useQuery({
     queryKey: ['consolidation', 'eligible'],
     queryFn: consolidationApi.eligible,
     staleTime: 60_000,
@@ -151,17 +158,33 @@ function ConsolidationHint() {
   const street = (delivery?.streetAddress || '').trim()
   if (street.length < 5) return null
   const key = addressKey(delivery)
-  const matches = asList(data).filter(p => p.addressKey === key)
-  if (matches.length === 0) return null
+
+  // Parcels already in the warehouse for this address, plus ones in a group that is still on its way.
+  const inWarehouse = asList(eligibleData).filter(p => p.addressKey === key && !p.blockedReason && !p.shipAlone).length
+  const group = asList(data).find(g => g.addressKey === key)
+  const incoming = group?.incomingCount ?? 0
+  const existing = inWarehouse + incoming
+  if (existing === 0) return null
+
+  const total = existing + 1
+  const rate = total >= 3 ? 15 : 10
+  const never = group?.state === 'Paused'
 
   return (
     <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border text-sm bg-blue-50 text-blue-700 border-blue-200">
       <Package size={16} className="mt-0.5 shrink-0" />
-      <div>
-        You already have {matches.length === 1 ? 'a parcel' : `${matches.length} parcels`} in our warehouse going to this
-        address. Once this new parcel reaches the warehouse you can{' '}
-        <Link to="/customer/consolidation" className="font-semibold underline">combine them into one shipment</Link>{' '}
-        and save.
+      <div className="space-y-1">
+        <p>
+          You already have {existing === 1 ? 'a parcel' : `${existing} parcels`} going to this address
+          ({inWarehouse} in our warehouse, {incoming} on the way). Booking this one makes {total}.
+        </p>
+        <p>
+          {never
+            ? <>Automatic consolidation is off, so you can combine them yourself on the </>
+            : <>We will combine them into one shipment automatically and you save about {rate}%. You can change this or choose "Ship now" on the </>}
+          <Link to="/customer/consolidation" className="font-semibold underline">Consolidation page</Link>.
+          Express, Overnight and Same-day parcels always ship on their own.
+        </p>
       </div>
     </div>
   )

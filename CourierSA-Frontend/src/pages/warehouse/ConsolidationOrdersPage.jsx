@@ -4,7 +4,8 @@ import AppShell from '@/components/layout/AppShell'
 import { Alert } from '@/components/ui'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { consolidationApi } from '@/api'
-import { Boxes, RefreshCw, ScanLine, Printer, CheckCircle2, History, Search, ChevronDown, ChevronRight } from 'lucide-react'
+import { SourceBadge, fmtWhen as fmtUtc, hoursLeft } from '@/components/consolidation/consolidationUi'
+import { Boxes, RefreshCw, ScanLine, Printer, CheckCircle2, History, Search, ChevronDown, ChevronRight, Lightbulb, Play, Clock } from 'lucide-react'
 import clsx from 'clsx'
 
 const asList = d => (Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])
@@ -33,6 +34,111 @@ function printLabel(o) {
   w.document.close()
   w.focus()
   w.print()
+}
+
+// Suggestions tab: groups the system could combine, and why it has not done it yet.
+// The automatic sweep handles "Ready" groups on its own; staff can act sooner than the sweep or the hold window.
+const SUGGESTION_STATE = {
+  NextSweep:        { label: 'Ready: next sweep',        cls: 'bg-[#EFF6FF] text-[#1D4ED8]' },
+  Holding:          { label: 'Holding for more parcels', cls: 'bg-[#FFFBEB] text-[#92400E]' },
+  AwaitingCustomer: { label: 'Customer confirms',        cls: 'bg-[#F5F3FF] text-[#6D28D9]' },
+  OptedOut:         { label: 'Customer opted out',       cls: 'bg-[#F1F5F9] text-[#475569]' },
+}
+
+function SuggestionsPanel({ onCreated }) {
+  const qc = useQueryClient()
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['consolidation', 'suggestions'],
+    queryFn: () => consolidationApi.suggestions(),
+    refetchInterval: 60000,
+  })
+  const rows = asList(data)
+  const refresh = () => qc.invalidateQueries({ queryKey: ['consolidation'] })
+
+  const now = useMutation({
+    mutationFn: row => consolidationApi.consolidateNow({ parcelIds: row.parcels.map(p => p.parcelId) }),
+    onSuccess: () => { setErr(''); setMsg('Consolidation order created. It is now in the task queue.'); refresh(); onCreated?.() },
+    onError: e => { setMsg(''); setErr(e?.message || 'Could not consolidate this group.') },
+  })
+  const sweep = useMutation({
+    mutationFn: () => consolidationApi.runAutomation(),
+    onSuccess: res => {
+      const r = res?.data ?? res
+      setErr(''); setMsg(`Sweep finished: ${r?.ordersCreated ?? 0} order(s) created, ${r?.hintsSent ?? 0} heads-up and ${r?.readyNotices ?? 0} ready notice(s) sent.`)
+      refresh()
+    },
+    onError: e => { setMsg(''); setErr(e?.message || 'The sweep failed.') },
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="card bg-white rounded-xl border border-[#D8E4F5] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-[#172554] flex items-center gap-2"><Lightbulb size={16} /> Suggested consolidations</h2>
+          <p className="text-xs text-[#64748B]">
+            The system groups parcels going to the same address on its own. Here you can see what it is holding, and consolidate sooner.
+          </p>
+        </div>
+        <button className="btn-secondary text-sm inline-flex items-center gap-2" disabled={sweep.isPending} onClick={() => { setMsg(''); setErr(''); sweep.mutate() }}>
+          {sweep.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />} Run sweep now
+        </button>
+      </div>
+
+      {msg && <Alert type="success" message={msg} />}
+      {err && <Alert type="error" message={err} />}
+
+      {isLoading ? (
+        <p className="text-sm text-[#64748B] flex items-center gap-2"><RefreshCw size={14} className="animate-spin" /> Loading…</p>
+      ) : rows.length === 0 ? (
+        <div className="card bg-white p-8 rounded-xl border border-[#D8E4F5] text-center text-sm text-[#64748B]">
+          No groups waiting. Customers with two or more compatible parcels in the warehouse will appear here.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+          {rows.map((r, i) => {
+            const st = SUGGESTION_STATE[r.state] ?? SUGGESTION_STATE.OptedOut
+            return (
+              <div key={`${r.customerId}-${i}`} className="card bg-white p-4 rounded-xl border border-[#D8E4F5] space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-bold text-[#172554]">{r.customerName}</p>
+                    <p className="text-xs text-[#64748B]">{r.destination}</p>
+                  </div>
+                  <span className={clsx('text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap', st.cls)}>{st.label}</span>
+                </div>
+                <p className="text-xs text-[#475569]">{r.reason}</p>
+                {r.state === 'Holding' && r.holdUntil && (
+                  <p className="text-[11px] text-[#92400E] inline-flex items-center gap-1"><Clock size={11} /> Hold ends {fmtUtc(r.holdUntil)} (about {hoursLeft(r.holdUntil)} h)</p>
+                )}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[['Parcels', r.parcelCount], ['Weight', `${Number(r.combinedWeightKg).toFixed(1)} kg`], ['Saving', `R${Number(r.savingZAR).toFixed(2)}`]].map(([k, v]) => (
+                    <div key={k} className="rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] py-1.5">
+                      <p className="text-[10px] uppercase font-bold text-[#64748B]">{k}</p>
+                      <p className="text-xs font-bold text-[#172554]">{v}</p>
+                    </div>
+                  ))}
+                </div>
+                <ul className="text-xs text-[#475569] space-y-0.5">
+                  {r.parcels.map(p => (
+                    <li key={p.parcelId}><span className="font-mono">{p.trackingNumber}</span> · {Number(p.weightKg).toFixed(1)} kg · bin {p.binCode || '—'}</li>
+                  ))}
+                  {r.incomingCount > 0 && <li className="text-[#92400E]">+ {r.incomingCount} more on the way to the same address</li>}
+                </ul>
+                {r.state !== 'OptedOut' && (
+                  <button className="btn-primary text-sm inline-flex items-center gap-2" disabled={now.isPending} onClick={() => { setMsg(''); setErr(''); now.mutate(r) }}>
+                    <CheckCircle2 size={14} /> Consolidate now
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // History tab: packed, staged and cancelled orders, with the live status of each master box.
@@ -223,7 +329,7 @@ export default function ConsolidationOrdersPage() {
   return (
     <AppShell title="Consolidate Warehouse Parcels">
       <div className="max-w-6xl mx-auto mb-4 bg-[#F6FAFF] p-1 rounded-xl inline-flex border border-[#D8E4F5]">
-        {[['queue', 'Task queue'], ['history', 'History']].map(([k, label]) => (
+        {[['queue', 'Task queue'], ['suggestions', 'Suggestions'], ['history', 'History']].map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -239,6 +345,8 @@ export default function ConsolidationOrdersPage() {
 
       {tab === 'history' ? (
         <div className="max-w-6xl mx-auto"><HistoryPanel /></div>
+      ) : tab === 'suggestions' ? (
+        <div className="max-w-6xl mx-auto"><SuggestionsPanel onCreated={() => setTab('queue')} /></div>
       ) : (
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card bg-white p-4 rounded-xl border border-[#D8E4F5] h-fit">
@@ -263,6 +371,7 @@ export default function ConsolidationOrdersPage() {
                     <StatusBadge status={o.status} />
                   </div>
                   <p className="text-xs text-[#64748B]">{o.parcelCount} parcels – {o.destinationCity}</p>
+                  <div className="mt-1"><SourceBadge source={o.source} /></div>
                 </button>
               ))}
             </div>
