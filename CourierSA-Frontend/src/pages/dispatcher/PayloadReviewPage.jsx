@@ -291,6 +291,7 @@ function RunDetail({ run, otherRuns, onChanged }) {
                         </button>
                       </div>
                       {tooHeavy && <p className="text-sm font-medium text-red-600">Selected parcels exceed the target vehicle's free capacity.</p>}
+                      <Alert message={move.error?.message} />
                       
                       <div className="relative py-2">
                         <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-300"></div></div>
@@ -352,6 +353,7 @@ function RunDetail({ run, otherRuns, onChanged }) {
               {run.signedOff ? 'Manifest Already Signed Off' : 'Sign Off & Finalize Manifest'}
             </button>
             {(over || !reviewed) && <p className="text-center font-medium text-red-600">Please complete previous steps to enable sign-off.</p>}
+            <Alert message={signOff.error?.message} />
           </div>
         )}
       </div>
@@ -368,7 +370,7 @@ function SplitPanel({ run, onDone }) {
   const { data: optRaw } = useQuery({ queryKey: ['split-opts', run.routeId], queryFn: () => payloadApi.splitOptions(run.routeId) })
   const opts = unwrap(optRaw) ?? { drivers: [], vehicles: [] }
 
-  const previewMut = useMutation({ mutationFn: () => payloadApi.splitPreview(run.routeId, { standbyDriverId: driverId, standbyVehicleId: vehicleId }), onSuccess: res => setPreview(unwrap(res)) })
+  const previewMut = useMutation({ mutationFn: () => payloadApi.splitPreview(run.routeId, { standbyDriverId: driverId, standbyVehicleId: vehicleId }), onSuccess: res => setPreview(unwrap(res)), onError: () => setPreview(null) })
   const confirmMut = useMutation({ mutationFn: () => payloadApi.splitConfirm(run.routeId, { standbyDriverId: driverId, standbyVehicleId: vehicleId }), onSuccess: onDone })
 
   return (
@@ -376,19 +378,21 @@ function SplitPanel({ run, onDone }) {
       <p className="text-slate-600 text-lg">Assign a standby driver and vehicle. The system will auto-balance the load across both vehicles.</p>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <select className="input py-3" value={driverId} onChange={e => { setDriverId(e.target.value); setPreview(null) }}>
+        <select className="input py-3" value={driverId} onChange={e => { setDriverId(e.target.value); setPreview(null); previewMut.reset() }}>
           <option value="">Select Standby Driver...</option>
           {opts.drivers.map(d => <option key={d.driverId} value={d.driverId}>{d.name}</option>)}
         </select>
-        <select className="input py-3" value={vehicleId} onChange={e => { setVehicleId(e.target.value); setPreview(null) }}>
+        <select className="input py-3" value={vehicleId} onChange={e => { setVehicleId(e.target.value); setPreview(null); previewMut.reset() }}>
           <option value="">Select Standby Vehicle...</option>
           {opts.vehicles.map(v => <option key={v.vehicleId} value={v.vehicleId}>{v.registration} ({v.capacityKg}kg)</option>)}
         </select>
       </div>
 
-      <button className="btn-secondary w-full py-3 text-lg bg-slate-50" disabled={!driverId || !vehicleId || previewMut.isPending} onClick={() => previewMut.mutate()}>
-        <Eye size={20} className="mr-2 inline" /> Preview Route Split
+      <button className="btn-secondary w-full py-3 text-lg bg-slate-50" disabled={!driverId || !vehicleId || previewMut.isPending} onClick={() => { confirmMut.reset(); previewMut.mutate() }}>
+        <Eye size={20} className="mr-2 inline" /> {previewMut.isPending ? 'Working out the split…' : 'Preview Route Split'}
       </button>
+
+      <Alert message={previewMut.error?.message || confirmMut.error?.message} />
 
       {preview && (
         <div className="pt-6 border-t border-slate-200 space-y-5 animate-in fade-in">
